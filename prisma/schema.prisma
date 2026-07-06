@@ -1,0 +1,125 @@
+// OptiSpace — local-first personal workspace
+// SQLite has no native enums or scalar-list columns, so:
+//   - enum-like fields are String columns validated by Zod (see src/types)
+//   - tags are stored as a JSON string ("[]") and parsed in the service layer
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ── Annual Leave ─────────────────────────────────────────────
+model LeaveAllowance {
+  id        String   @id @default(cuid())
+  year      Int      @unique
+  totalDays Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Leave {
+  id        String   @id @default(cuid())
+  startDate DateTime
+  endDate   DateTime
+  type      String // annual | sick | casual
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([startDate])
+}
+
+// ── Profiles Hub ─────────────────────────────────────────────
+model Profile {
+  id        String   @id @default(cuid())
+  label     String
+  url       String
+  username  String?
+  icon      String? // lucide icon key, e.g. "github"
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── Development Progress ─────────────────────────────────────
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  repoUrl     String?
+  platform    String // flutter | react_native | web | backend
+  status      String // planning | active | paused | completed
+  progressPct Int      @default(0)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  milestones Milestone[]
+  tasks      Task[]
+  packages   Package[]
+}
+
+model Milestone {
+  id        String   @id @default(cuid())
+  projectId String
+  title     String
+  done      Boolean  @default(false)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ── Task Management ──────────────────────────────────────────
+model Task {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  status      String    @default("todo") // todo | in_progress | done
+  priority    String    @default("medium") // low | medium | high
+  dueDate     DateTime?
+  tags        String    @default("[]") // JSON array of strings
+  order       Int       @default(0) // position within its Kanban column
+  projectId   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([projectId])
+}
+
+// ── Packages ─────────────────────────────────────────────────
+model Package {
+  id             String  @id @default(cuid())
+  name           String
+  description    String?
+  registry       String // npm | pubdev
+  registryUrl    String?
+  githubUrl      String?
+  language       String // dart_flutter | js_react | js_react_native
+  currentVersion String?
+  tags           String  @default("[]") // JSON array of strings
+  status         String  @default("active") // active | maintenance | deprecated
+  projectId      String?
+
+  // cached registry stats — populated only by the manual "Refresh stats" action
+  latestVersion   String?
+  weeklyDownloads Int?
+  likes           Int?
+  pubPoints       Int?
+  lastSyncedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([registry])
+}
