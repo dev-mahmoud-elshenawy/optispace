@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OptiSpace
 
-## Getting Started
+A local-first personal workspace for a mobile team lead & open-source developer.
+Single user, runs entirely on your machine, no auth, no external services — except
+one explicit, manual "Refresh stats" action in the Packages module.
 
-First, run the development server:
+## Modules
 
-```bash
+- **Dashboard** — remaining leave, open tasks, active projects, package count, profile links
+- **Annual Leave** — yearly allowance, leave log, used/remaining, month view, history
+- **Profiles Hub** — linked profiles (GitHub, LinkedIn, Medium, pub.dev, npm, site, X)
+- **Tasks** — Kanban board (drag & drop) + filterable list, full CRUD
+- **Development Progress** — in-flight projects, milestone checklists, progress bars
+- **Packages** — published npm / pub.dev packages, manual live-stats refresh
+
+## Stack
+
+Next.js 16 (App Router) · TypeScript · Prisma 6 + SQLite · Tailwind v4 · shadcn/ui ·
+Zod · Server Actions · next-themes (dark by default) · @dnd-kit · date-fns.
+
+Feature-based architecture: each module lives in `src/features/<module>/` with a
+consistent `schema.ts` (Zod) / `service.ts` (logic) / `queries.ts` (reads) /
+`actions.ts` (Server Actions) / `components/` split. Adding a new module = a new
+folder + one entry in `src/lib/nav.ts`.
+
+## Setup (macOS + Oh My Zsh)
+
+Requires Node 20+ (tested on Node 22) and npm.
+
+```zsh
+# 1. Clone
+git clone git@github.com:dev-mahmoud-elshenawy/optispace.git
+cd optispace
+
+# 2. Install dependencies
+npm install
+
+# 3. Create the local SQLite DB + run migrations
+#    (.env already points DATABASE_URL at prisma/dev.db)
+npx prisma migrate dev
+
+# 4. Seed sample data (packages, profiles, tasks, projects, leave)
+npm run seed
+
+# 5. Start the dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Commands
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start the dev server (Turbopack) |
+| `npm run build` | Production build |
+| `npm run seed` | Reset & seed sample data (`prisma db seed`) |
+| `npx prisma studio` | Browse the SQLite DB in a GUI |
+| `npx prisma migrate dev` | Apply schema changes as a new migration |
 
-## Learn More
+## Packages — "Refresh stats" (the only network feature)
 
-To learn more about Next.js, take a look at the following resources:
+The Packages module can pull live data from public, no-auth registry APIs on demand
+(never on page load — the app works fully offline from cached values):
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **npm** — latest version from `registry.npmjs.org/<pkg>`; weekly downloads from
+  `api.npmjs.org/downloads/point/last-week/<pkg>`.
+- **pub.dev** — latest version from `pub.dev/api/packages/<pkg>`; likes & pub points
+  from `pub.dev/api/packages/<pkg>/score`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Fetched values are cached with a `lastSyncedAt` timestamp.
 
-## Deploy on Vercel
+> The seeded package **slugs are best-guess**. If a "Refresh" fails, open the package,
+> fix its `name` to the exact registry slug, and refresh again.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Notes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- All timestamps are stored UTC (SQLite). Dates display in your local time.
+- SQLite has no native enums/arrays, so enum-like fields are validated strings
+  (`src/types`) and tags are stored as JSON strings.
+- `prisma/dev.db` is git-ignored — your data stays local.
