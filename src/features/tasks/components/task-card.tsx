@@ -29,7 +29,7 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
       {...attributes}
       {...listeners}
       className={cn(
-        "group cursor-grab space-y-2 rounded-lg border border-border/60 bg-card p-3 text-sm shadow-xs transition-colors hover:border-border active:cursor-grabbing",
+        "group cursor-grab space-y-2 rounded-lg bg-card p-4 text-sm shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing",
         isDragging && "opacity-50"
       )}
     >

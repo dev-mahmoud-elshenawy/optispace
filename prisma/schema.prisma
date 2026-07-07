@@ -25,7 +25,7 @@ model Leave {
   id        String   @id @default(cuid())
   startDate DateTime
   endDate   DateTime
-  type      String // annual | sick | casual
+  type      String // annual (see LEAVE_TYPES in src/types)
   notes     String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
