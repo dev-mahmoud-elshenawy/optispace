@@ -67,10 +67,10 @@ export function PackagesView({ packages, projectOptions }: PackagesViewProps) {
         <div className="flex flex-wrap items-center gap-2">
           <Select value={registryFilter} onValueChange={(v) => setRegistryFilter(v as PackageRegistry | "all")}>
             <SelectTrigger size="sm">
-              <SelectValue placeholder="Registry" />
+              <SelectValue placeholder="Source" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All registries</SelectItem>
+              <SelectItem value="all">All sources</SelectItem>
               {PACKAGE_REGISTRIES.map((r) => (
                 <SelectItem key={r} value={r}>
                   {REGISTRY_LABELS[r]}

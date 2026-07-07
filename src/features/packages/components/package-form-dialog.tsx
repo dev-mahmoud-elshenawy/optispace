@@ -117,14 +117,14 @@ export function PackageFormDialog({ open, onOpenChange, editing, projectOptions 
           <DialogTitle>{editing ? "Edit package" : "Add package"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <Field label="Name (exact registry slug)">
+          <Field label="Name (exact package slug)">
             <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. react-query" required />
           </Field>
           <Field label="Description">
             <Textarea value={form.description} onChange={(e) => set("description", e.target.value)} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Registry">
+            <Field label="Source">
               <Select value={form.registry} onValueChange={(v) => set("registry", v as PackageRegistry)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -154,7 +154,7 @@ export function PackageFormDialog({ open, onOpenChange, editing, projectOptions 
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Registry URL">
+            <Field label="Source URL">
               <Input value={form.registryUrl} onChange={(e) => set("registryUrl", e.target.value)} placeholder="https://…" />
             </Field>
             <Field label="GitHub URL">
