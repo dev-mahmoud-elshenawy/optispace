@@ -10,10 +10,13 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-dvh w-60 shrink-0 flex-col border-r border-border bg-card">
-      <div className="flex items-center justify-between px-5 py-4">
-        <Link href="/" className="text-lg font-semibold tracking-tight">
-          OptiSpace
+    <aside className="flex h-dvh w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar/80 backdrop-blur-xl">
+      <div className="flex items-center justify-between px-5 py-5">
+        <Link href="/" className="flex items-center gap-2.5 font-heading text-lg font-bold tracking-tight">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground shadow-lg shadow-primary/30">
+            O
+          </span>
+          <span className="text-gradient">OptiSpace</span>
         </Link>
         <ThemeToggle />
       </div>
@@ -26,13 +29,16 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all",
                 active
-                  ? "bg-accent text-foreground"
+                  ? "bg-primary/12 text-foreground shadow-sm"
                   : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
               )}
             >
-              <Icon className="h-4 w-4" />
+              {active ? (
+                <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary shadow-[0_0_10px] shadow-primary/60" />
+              ) : null}
+              <Icon className={cn("h-4 w-4 transition-colors", active ? "text-primary" : "group-hover:text-foreground")} />
               {item.label}
             </Link>
           );
