@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Package as PackageIcon, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { PACKAGE_REGISTRIES, PACKAGE_LANGUAGES } from "@/types";
@@ -31,16 +32,26 @@ export function PackagesView({ packages, projectOptions }: PackagesViewProps) {
   const [isRefreshingAll, startRefreshAll] = useTransition();
   const [registryFilter, setRegistryFilter] = useState<PackageRegistry | "all">("all");
   const [languageFilter, setLanguageFilter] = useState<PackageLanguage | "all">("all");
+  const [tagFilter, setTagFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<PackageView | null>(null);
 
-  const filtered = useMemo(
-    () =>
-      packages.filter(
-        (pkg) => (registryFilter === "all" || pkg.registry === registryFilter) && (languageFilter === "all" || pkg.language === languageFilter),
-      ),
-    [packages, registryFilter, languageFilter],
+  const allTags = useMemo(
+    () => Array.from(new Set(packages.flatMap((pkg) => pkg.tags))).sort((a, b) => a.localeCompare(b)),
+    [packages],
   );
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return packages.filter(
+      (pkg) =>
+        (registryFilter === "all" || pkg.registry === registryFilter) &&
+        (languageFilter === "all" || pkg.language === languageFilter) &&
+        (tagFilter === "all" || pkg.tags.includes(tagFilter)) &&
+        (query === "" || pkg.name.toLowerCase().includes(query)),
+    );
+  }, [packages, registryFilter, languageFilter, tagFilter, search]);
 
   function openCreate() {
     setEditing(null);
@@ -65,6 +76,12 @@ export function PackagesView({ packages, projectOptions }: PackagesViewProps) {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name…"
+            className="h-8 w-44"
+          />
           <Select value={registryFilter} onValueChange={(v) => setRegistryFilter(v as PackageRegistry | "all")}>
             <SelectTrigger size="sm">
               <SelectValue placeholder="Source" />
@@ -91,6 +108,21 @@ export function PackagesView({ packages, projectOptions }: PackagesViewProps) {
               ))}
             </SelectContent>
           </Select>
+          {allTags.length > 0 ? (
+            <Select value={tagFilter} onValueChange={setTagFilter}>
+              <SelectTrigger size="sm">
+                <SelectValue placeholder="Tag" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All tags</SelectItem>
+                {allTags.map((tag) => (
+                  <SelectItem key={tag} value={tag}>
+                    {tag}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleRefreshAll} disabled={isRefreshingAll || packages.length === 0}>

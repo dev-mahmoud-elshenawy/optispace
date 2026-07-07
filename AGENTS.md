@@ -53,6 +53,13 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
 - **Projects are a hub:** each project groups sub-resources — milestones, tasks, files, links
   (releases/dashboards/servers, with plain credentials), and client feedback — all under
   `features/projects`, all soft-deletable and restorable from `/archive`.
+- **Search vs. filter:** in list views, the text search matches the **title/name only**; tags
+  are a **separate filter** (a `Select` of the union of tags), never folded into text search.
+  Applied in Tasks + Packages. When filtering a DnD list (kanban), merge board updates back by
+  id (`handleTasksChange`) so filtered-out rows aren't dropped from state.
+- **⌘K command palette** (`components/layout/command-palette.tsx`, mounted in the root layout)
+  jumps between pages; opens on ⌘K/Ctrl+K or the sidebar "Search…" button (custom
+  `optispace:open-command` event). Navigation-only for now.
 
 ## Data & safety
 
