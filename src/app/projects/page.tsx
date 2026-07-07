@@ -3,10 +3,28 @@ import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { ProjectCard } from "@/features/projects/components/project-card";
 import { ProjectFormDialog } from "@/features/projects/components/project-form-dialog";
-import { listProjects } from "@/features/projects/queries";
+import { listProjectFilesMeta, listProjects } from "@/features/projects/queries";
+import type { ProjectFileMeta } from "@/features/projects/service";
+import { listTasks } from "@/features/tasks/queries";
+import type { TaskView } from "@/features/tasks/service";
 
 export default async function ProjectsPage() {
-  const projects = await listProjects();
+  const [projects, tasks, files] = await Promise.all([listProjects(), listTasks(), listProjectFilesMeta()]);
+
+  const tasksByProject = new Map<string, TaskView[]>();
+  for (const task of tasks) {
+    if (!task.projectId) continue;
+    const existing = tasksByProject.get(task.projectId);
+    if (existing) existing.push(task);
+    else tasksByProject.set(task.projectId, [task]);
+  }
+
+  const filesByProject = new Map<string, ProjectFileMeta[]>();
+  for (const file of files) {
+    const existing = filesByProject.get(file.projectId);
+    if (existing) existing.push(file);
+    else filesByProject.set(file.projectId, [file]);
+  }
 
   return (
     <PageShell
@@ -33,7 +51,12 @@ export default async function ProjectsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {projects.map((project) => (
-            <ProjectCard key={project.id} project={project} />
+            <ProjectCard
+              key={project.id}
+              project={project}
+              tasks={tasksByProject.get(project.id) ?? []}
+              files={filesByProject.get(project.id) ?? []}
+            />
           ))}
         </div>
       )}

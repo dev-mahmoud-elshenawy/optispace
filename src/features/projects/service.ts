@@ -8,6 +8,15 @@ export interface MilestoneView {
   order: number;
 }
 
+export interface ProjectFileMeta {
+  id: string;
+  projectId: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  createdAt: Date;
+}
+
 export interface ProjectView {
   id: string;
   name: string;

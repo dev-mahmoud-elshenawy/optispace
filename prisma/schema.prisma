@@ -27,8 +27,9 @@ model Leave {
   endDate   DateTime
   type      String // annual | sick | casual
   notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   @@index([startDate])
 }
@@ -41,8 +42,9 @@ model Profile {
   username  String?
   icon      String? // lucide icon key, e.g. "github"
   order     Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 }
 
 // ── Development Progress ─────────────────────────────────────
@@ -54,12 +56,14 @@ model Project {
   status      String // planning | active | paused | completed
   progressPct Int      @default(0)
   notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
 
   milestones Milestone[]
   tasks      Task[]
   packages   Package[]
+  files      ProjectFile[]
 }
 
 model Milestone {
@@ -68,7 +72,8 @@ model Milestone {
   title     String
   done      Boolean  @default(false)
   order     Int      @default(0)
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -88,6 +93,7 @@ model Task {
   projectId   String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
 
   project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
@@ -116,10 +122,30 @@ model Package {
   pubPoints       Int?
   lastSyncedAt    DateTime?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   @@index([registry])
+}
+
+// ── Project File Storage ─────────────────────────────────────
+// Dynamic per-project vault for reference files (.env, keystores, prod configs).
+// Bytes are stored inline in the DB — fine for small config files on a local,
+// single-user app. Do NOT commit prisma/dev.db; these contents are unencrypted.
+model ProjectFile {
+  id        String    @id @default(cuid())
+  projectId String
+  name      String
+  mimeType  String    @default("application/octet-stream")
+  size      Int       @default(0)
+  data      Bytes
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }
