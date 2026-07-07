@@ -16,6 +16,8 @@ export async function GET(request: Request): Promise<Response> {
     headers: {
       "Content-Type": file.mimeType,
       "Content-Disposition": `attachment; filename="${encodeURIComponent(file.name)}"`,
+      // Force download + block MIME sniffing so stored bytes can't render inline.
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }
