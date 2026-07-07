@@ -40,7 +40,7 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <Tabs defaultValue="board">
         <div className="flex items-center justify-between">
           <TabsList>

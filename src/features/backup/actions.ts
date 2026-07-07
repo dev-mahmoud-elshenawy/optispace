@@ -43,6 +43,14 @@ export async function importBackup(formData: FormData): Promise<ActionResult> {
       const row = { ...rest, data: bytes };
       return db.projectFile.upsert({ where: { id: r.id }, create: row as never, update: row as never });
     }),
+    ...(d.projectLinks ?? []).map((r) => db.projectLink.upsert({ where: { id: r.id }, create: r as never, update: r as never })),
+    ...(d.projectFeedback ?? []).map((r) => db.projectFeedback.upsert({ where: { id: r.id }, create: r as never, update: r as never })),
+    ...(d.feedbackAttachments ?? []).map((r) => {
+      const { data, ...rest } = r as BackupRow & { data: string };
+      const bytes = new Uint8Array(Buffer.from(data, "base64"));
+      const row = { ...rest, data: bytes };
+      return db.feedbackAttachment.upsert({ where: { id: r.id }, create: row as never, update: row as never });
+    }),
   ];
 
   try {

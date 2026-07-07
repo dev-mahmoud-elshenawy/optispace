@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLink, Plus, Trash2 } from "lucide-react";
+import { Download, ExternalLink, Paperclip, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -155,20 +155,25 @@ export function ProjectFeedback({ projectId, feedback }: { projectId: string; fe
   const [adding, setAdding] = useState(false);
   const [pending, startTransition] = useTransition();
   const [form, setForm] = useState({ message: "", from: "", release: "" });
+  const [file, setFile] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function reset() {
     setForm({ message: "", from: "", release: "" });
+    setFile([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     setAdding(false);
   }
 
   function submit() {
     startTransition(async () => {
-      const result = await addProjectFeedback({
-        projectId,
-        message: form.message,
-        from: form.from,
-        release: form.release || undefined,
-      });
+      const formData = new FormData();
+      formData.append("projectId", projectId);
+      formData.append("message", form.message);
+      formData.append("from", form.from);
+      formData.append("release", form.release);
+      for (const f of file) formData.append("file", f);
+      const result = await addProjectFeedback(formData);
       if (result.ok) {
         toast.success("Feedback added.");
         reset();
@@ -218,6 +223,17 @@ export function ProjectFeedback({ projectId, feedback }: { projectId: string; fe
                 {f.release}
               </Badge>
             ) : null}
+            {f.attachments.map((a) => (
+              <a
+                key={a.id}
+                href={`/api/feedback-file?id=${a.id}`}
+                download
+                className="inline-flex items-center gap-1 text-primary hover:underline"
+              >
+                <Download className="h-3 w-3" />
+                {a.name}
+              </a>
+            ))}
           </div>
         </div>
       ))}
@@ -229,13 +245,34 @@ export function ProjectFeedback({ projectId, feedback }: { projectId: string; fe
             <Input placeholder="From (client)" value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })} />
             <Input placeholder="Release / features (optional)" value={form.release} onChange={(e) => setForm({ ...form, release: e.target.value })} />
           </div>
-          <div className="flex justify-end gap-1">
-            <Button variant="ghost" size="sm" onClick={reset} disabled={pending}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={submit} disabled={pending}>
-              Add feedback
-            </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => setFile(Array.from(e.target.files ?? []))}
+          />
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+              {file.length === 0
+                ? "Attach documents (optional)"
+                : file.length === 1
+                  ? file[0].name
+                  : `${file.length} files`}
+            </button>
+            <div className="flex gap-1">
+              <Button variant="ghost" size="sm" onClick={reset} disabled={pending}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={submit} disabled={pending}>
+                Add feedback
+              </Button>
+            </div>
           </div>
         </div>
       ) : (

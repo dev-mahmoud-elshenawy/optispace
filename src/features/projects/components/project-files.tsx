@@ -23,23 +23,23 @@ interface ProjectFilesProps {
 export function ProjectFiles({ projectId, files }: ProjectFilesProps) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [selected, setSelected] = useState<File | null>(null);
+  const [selected, setSelected] = useState<File[]>([]);
   const [pending, startTransition] = useTransition();
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   function handleUpload() {
-    if (!selected) {
+    if (selected.length === 0) {
       inputRef.current?.click();
       return;
     }
     const formData = new FormData();
     formData.append("projectId", projectId);
-    formData.append("file", selected);
+    for (const file of selected) formData.append("file", file);
     startTransition(async () => {
       const result = await uploadProjectFile(formData);
       if (result.ok) {
-        toast.success(`Uploaded ${selected.name}.`);
-        setSelected(null);
+        toast.success(`Uploaded ${selected.length} file${selected.length === 1 ? "" : "s"}.`);
+        setSelected([]);
         if (inputRef.current) inputRef.current.value = "";
         router.refresh();
       } else {
@@ -100,13 +100,18 @@ export function ProjectFiles({ projectId, files }: ProjectFilesProps) {
         <input
           ref={inputRef}
           type="file"
+          multiple
           className="hidden"
-          onChange={(e) => setSelected(e.target.files?.[0] ?? null)}
+          onChange={(e) => setSelected(Array.from(e.target.files ?? []))}
         />
-        {selected ? <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{selected.name}</span> : null}
+        {selected.length > 0 ? (
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            {selected.length === 1 ? selected[0].name : `${selected.length} files selected`}
+          </span>
+        ) : null}
         <Button variant="outline" size="sm" onClick={handleUpload} disabled={pending}>
           <Upload className="h-3.5 w-3.5" />
-          {selected ? "Upload" : "Add file"}
+          {selected.length > 0 ? "Upload" : "Add files"}
         </Button>
       </div>
     </div>

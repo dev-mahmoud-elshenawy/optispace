@@ -43,7 +43,7 @@ private app that runs entirely on your machine. One workspace. Everything in its
 | 🌴 **Annual Leave** | Allowance, monthly accrual, calendar with month picker + drag-to-select, history |
 | 🔗 **Profiles** | Quick links to your GitHub, npm, pub.dev, LinkedIn, site, and more |
 | ✅ **Tasks** | Kanban / list / by-project views — drag & drop, priority flags, inline quick-add |
-| 🛠️ **Development** | Projects with milestone checklists, nested tasks, and a per-project hub: files, links (releases/dashboards/servers, with credentials), and client feedback |
+| 🛠️ **Development** | Projects with milestone checklists, nested tasks, and a per-project hub: files, links (releases/dashboards/servers, with credentials), and client feedback (tied to a release, with optional attached document) |
 | 📦 **Packages** | Published npm / pub.dev packages with on-demand live stats |
 | ♻️ **Archive** | Everything deleted lands here — restore it or permanently purge |
 | ⚙️ **Settings** | One-click backup export / import of your whole workspace |

@@ -116,7 +116,7 @@ export function PackagesView({ packages, projectOptions }: PackagesViewProps) {
       ) : filtered.length === 0 ? (
         <p className="py-12 text-center text-sm text-muted-foreground">No packages match these filters.</p>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((pkg) => (
             <PackageCard key={pkg.id} pkg={pkg} onEdit={openEdit} />
           ))}

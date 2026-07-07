@@ -36,7 +36,7 @@ export function BackupPanel() {
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-6 sm:grid-cols-2">
       <Card className="border-border/60">
         <CardHeader>
           <CardTitle className="text-base">Export</CardTitle>

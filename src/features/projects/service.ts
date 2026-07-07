@@ -47,6 +47,7 @@ export interface ProjectFeedbackItem {
   message: string;
   from: string | null;
   release: string | null;
+  attachments: { id: string; name: string }[];
   createdAt: Date;
 }
 

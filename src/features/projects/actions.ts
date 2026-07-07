@@ -101,24 +101,25 @@ const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
 export async function uploadProjectFile(formData: FormData): Promise<ActionResult> {
   const projectId = String(formData.get("projectId") ?? "");
-  const file = formData.get("file");
-  if (!projectId || !(file instanceof File) || file.size === 0) {
+  const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  if (!projectId || files.length === 0) {
     return { ok: false, error: "Choose a file to upload." };
   }
-  if (file.size > MAX_FILE_BYTES) {
-    return { ok: false, error: "File too large (max 8 MB)." };
+  if (files.some((f) => f.size > MAX_FILE_BYTES)) {
+    return { ok: false, error: "Each file must be under 8 MB." };
   }
   try {
-    const data = new Uint8Array(await file.arrayBuffer());
-    await db.projectFile.create({
-      data: {
-        projectId,
-        name: file.name,
-        mimeType: file.type || "application/octet-stream",
-        size: file.size,
-        data,
-      },
-    });
+    for (const file of files) {
+      await db.projectFile.create({
+        data: {
+          projectId,
+          name: file.name,
+          mimeType: file.type || "application/octet-stream",
+          size: file.size,
+          data: new Uint8Array(await file.arrayBuffer()),
+        },
+      });
+    }
   } catch {
     return { ok: false, error: GENERIC_ERROR };
   }
@@ -181,22 +182,35 @@ export async function deleteProjectLink(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-export async function addProjectFeedback(input: {
-  projectId: string;
-  message: string;
-  from?: string;
-  release?: string;
-}): Promise<ActionResult> {
-  if (!input.projectId || !input.message.trim()) {
+export async function addProjectFeedback(formData: FormData): Promise<ActionResult> {
+  const projectId = String(formData.get("projectId") ?? "");
+  const message = String(formData.get("message") ?? "").trim();
+  if (!projectId || !message) {
     return { ok: false, error: "Feedback message is required." };
   }
+  const from = String(formData.get("from") ?? "").trim() || null;
+  const release = String(formData.get("release") ?? "").trim() || null;
+
+  const files = formData.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.some((f) => f.size > MAX_FILE_BYTES)) {
+    return { ok: false, error: "Each file must be under 8 MB." };
+  }
+  const attachments = await Promise.all(
+    files.map(async (f) => ({
+      name: f.name,
+      mimeType: f.type || "application/octet-stream",
+      data: new Uint8Array(await f.arrayBuffer()),
+    })),
+  );
+
   try {
     await db.projectFeedback.create({
       data: {
-        projectId: input.projectId,
-        message: input.message.trim(),
-        from: input.from?.trim() || null,
-        release: input.release?.trim() || null,
+        projectId,
+        message,
+        from,
+        release,
+        attachments: attachments.length ? { create: attachments } : undefined,
       },
     });
   } catch {

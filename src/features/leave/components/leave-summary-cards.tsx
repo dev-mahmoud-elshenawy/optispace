@@ -20,7 +20,7 @@ export function LeaveSummaryCards({ summary }: LeaveSummaryCardsProps) {
   const asOfLabel = now.toLocaleString("en-US", { month: "short" });
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-sm text-muted-foreground">Allowance</CardTitle>

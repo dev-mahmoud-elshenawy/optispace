@@ -47,14 +47,14 @@ export default async function DashboardPage() {
 
   return (
     <PageShell title={greeting} description={dateLabel}>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard href="/leave" icon={<CalendarDays className="h-5 w-5" />} label="Remaining leave" value={`${leave.remainingDays}`} sub={`of ${leave.allowanceDays} days`} delay={0} />
         <StatCard href="/tasks" icon={<ListChecks className="h-5 w-5" />} label="Open tasks" value={`${openTasks}`} sub={`${taskCounts.done} done`} delay={75} />
         <StatCard href="/projects" icon={<GitBranch className="h-5 w-5" />} label="Active projects" value={`${activeProjects.length}`} sub={`${projects.length} total`} delay={150} />
         <StatCard href="/packages" icon={<PackageIcon className="h-5 w-5" />} label="Packages" value={`${packageCount}`} sub="published" delay={225} />
       </div>
 
-      <div className={`mt-6 grid gap-4 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "150ms" }}>
+      <div className={`mt-6 grid gap-6 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "150ms" }}>
         <Card className="border-border/60 transition-colors hover:border-border">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -94,7 +94,7 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-      <div className={`mt-6 grid gap-4 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "250ms" }}>
+      <div className={`mt-6 grid gap-6 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "250ms" }}>
         <Card className="border-border/60 transition-colors hover:border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">

@@ -46,7 +46,15 @@ export async function listProjectLinksAll(): Promise<ProjectLinkItem[]> {
 export async function listProjectFeedbackAll(): Promise<ProjectFeedbackItem[]> {
   return db.projectFeedback.findMany({
     where: { deletedAt: null },
-    select: { id: true, projectId: true, message: true, from: true, release: true, createdAt: true },
+    select: {
+      id: true,
+      projectId: true,
+      message: true,
+      from: true,
+      release: true,
+      createdAt: true,
+      attachments: { select: { id: true, name: true }, orderBy: { createdAt: "asc" } },
+    },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -56,6 +64,15 @@ export async function getProjectFileForDownload(
 ): Promise<{ name: string; mimeType: string; data: Uint8Array } | null> {
   return db.projectFile.findFirst({
     where: { id, deletedAt: null },
+    select: { name: true, mimeType: true, data: true },
+  });
+}
+
+export async function getFeedbackFileForDownload(
+  id: string,
+): Promise<{ name: string; mimeType: string; data: Uint8Array } | null> {
+  return db.feedbackAttachment.findFirst({
+    where: { id },
     select: { name: true, mimeType: true, data: true },
   });
 }
