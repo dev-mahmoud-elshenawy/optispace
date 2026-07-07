@@ -17,6 +17,39 @@ export interface ProjectFileMeta {
   createdAt: Date;
 }
 
+export const PROJECT_LINK_TYPES = ["release", "dashboard", "server", "repo", "design", "other"] as const;
+export type ProjectLinkType = (typeof PROJECT_LINK_TYPES)[number];
+
+export const PROJECT_LINK_TYPE_LABELS: Record<ProjectLinkType, string> = {
+  release: "Release",
+  dashboard: "Dashboard",
+  server: "Server",
+  repo: "Repo",
+  design: "Design",
+  other: "Other",
+};
+
+export interface ProjectLinkItem {
+  id: string;
+  projectId: string;
+  label: string;
+  url: string;
+  type: ProjectLinkType;
+  username: string | null;
+  secret: string | null;
+  notes: string | null;
+  createdAt: Date;
+}
+
+export interface ProjectFeedbackItem {
+  id: string;
+  projectId: string;
+  message: string;
+  from: string | null;
+  release: string | null;
+  createdAt: Date;
+}
+
 export interface ProjectView {
   id: string;
   name: string;

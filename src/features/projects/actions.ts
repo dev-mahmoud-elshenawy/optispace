@@ -136,3 +136,83 @@ export async function deleteProjectFile(id: string): Promise<ActionResult> {
   revalidatePath("/archive");
   return { ok: true };
 }
+
+interface LinkInput {
+  projectId: string;
+  label: string;
+  url: string;
+  type: string;
+  username?: string;
+  secret?: string;
+  notes?: string;
+}
+
+export async function addProjectLink(input: LinkInput): Promise<ActionResult> {
+  if (!input.projectId || !input.label.trim() || !input.url.trim()) {
+    return { ok: false, error: "Label and URL are required." };
+  }
+  try {
+    await db.projectLink.create({
+      data: {
+        projectId: input.projectId,
+        label: input.label.trim(),
+        url: input.url.trim(),
+        type: input.type || "other",
+        username: input.username?.trim() || null,
+        secret: input.secret?.trim() || null,
+        notes: input.notes?.trim() || null,
+      },
+    });
+  } catch {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  revalidateProjects();
+  return { ok: true };
+}
+
+export async function deleteProjectLink(id: string): Promise<ActionResult> {
+  try {
+    await db.projectLink.update({ where: { id }, data: { deletedAt: new Date() } });
+  } catch {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  revalidateProjects();
+  revalidatePath("/archive");
+  return { ok: true };
+}
+
+export async function addProjectFeedback(input: {
+  projectId: string;
+  message: string;
+  from?: string;
+  release?: string;
+}): Promise<ActionResult> {
+  if (!input.projectId || !input.message.trim()) {
+    return { ok: false, error: "Feedback message is required." };
+  }
+  try {
+    await db.projectFeedback.create({
+      data: {
+        projectId: input.projectId,
+        message: input.message.trim(),
+        from: input.from?.trim() || null,
+        release: input.release?.trim() || null,
+      },
+    });
+  } catch {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  revalidateProjects();
+  return { ok: true };
+}
+
+export async function deleteProjectFeedback(id: string): Promise<ActionResult> {
+  try {
+    await db.projectFeedback.update({ where: { id }, data: { deletedAt: new Date() } });
+  } catch {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  revalidateProjects();
+  revalidatePath("/archive");
+  return { ok: true };
+}

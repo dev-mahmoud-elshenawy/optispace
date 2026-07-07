@@ -3,13 +3,13 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { archiveKindLabel, type ArchivedItem } from "../types";
-import { restoreItem } from "../actions";
+import { purgeArchive, purgeItem, restoreItem } from "../actions";
 
 interface ArchiveListProps {
   items: ArchivedItem[];
@@ -34,6 +34,34 @@ export function ArchiveList({ items }: ArchiveListProps) {
     });
   }
 
+  function handlePurge(item: ArchivedItem) {
+    if (!window.confirm(`Permanently delete "${item.label}"? This can't be undone.`)) return;
+    setRestoringId(item.id);
+    startTransition(async () => {
+      const result = await purgeItem(item.kind, item.id);
+      if (result.ok) {
+        toast.success("Permanently deleted.");
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+      setRestoringId(null);
+    });
+  }
+
+  function handleEmpty() {
+    if (!window.confirm("Permanently delete everything in the archive? This can't be undone.")) return;
+    startTransition(async () => {
+      const result = await purgeArchive();
+      if (result.ok) {
+        toast.success("Archive emptied.");
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
+
   if (items.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border py-16 text-center">
@@ -43,7 +71,20 @@ export function ArchiveList({ items }: ArchiveListProps) {
   }
 
   return (
-    <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-card">
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleEmpty}
+          disabled={pending}
+          className="text-destructive hover:text-destructive"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Empty archive
+        </Button>
+      </div>
+      <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-card">
       {items.map((item) => (
         <div key={`${item.kind}-${item.id}`} className="flex items-center gap-3 px-4 py-3">
           <Badge variant="outline" className="shrink-0">
@@ -62,8 +103,19 @@ export function ArchiveList({ items }: ArchiveListProps) {
             <RotateCcw className="h-3.5 w-3.5" />
             Restore
           </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => handlePurge(item)}
+            disabled={pending && restoringId === item.id}
+            aria-label="Delete permanently"
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
         </div>
       ))}
+      </div>
     </div>
   );
 }

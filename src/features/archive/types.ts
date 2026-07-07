@@ -1,4 +1,4 @@
-export type ArchiveKind = "task" | "leave" | "project" | "package" | "profile" | "file";
+export type ArchiveKind = "task" | "leave" | "project" | "package" | "profile" | "file" | "link" | "feedback";
 
 export interface ArchivedItem {
   kind: ArchiveKind;
@@ -14,6 +14,8 @@ const KIND_LABELS: Record<ArchiveKind, string> = {
   package: "Package",
   profile: "Profile",
   file: "File",
+  link: "Link",
+  feedback: "Feedback",
 };
 
 export function archiveKindLabel(kind: ArchiveKind): string {

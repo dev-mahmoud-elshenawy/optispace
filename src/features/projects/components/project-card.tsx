@@ -6,16 +6,26 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { taskDaySpan, type TaskView } from "@/features/tasks/service";
 import { TaskMiniRow } from "@/features/tasks/components/task-project-groups";
-import { PROJECT_PLATFORM_LABELS, PROJECT_STATUS_LABELS, type ProjectFileMeta, type ProjectView } from "../service";
+import {
+  PROJECT_PLATFORM_LABELS,
+  PROJECT_STATUS_LABELS,
+  type ProjectFeedbackItem,
+  type ProjectFileMeta,
+  type ProjectLinkItem,
+  type ProjectView,
+} from "../service";
 import { DeleteProjectDialog } from "./delete-project-dialog";
 import { MilestoneChecklist } from "./milestone-checklist";
 import { ProjectFiles } from "./project-files";
+import { ProjectFeedback, ProjectLinks } from "./project-resources";
 import { ProjectFormDialog } from "./project-form-dialog";
 
 interface ProjectCardProps {
   project: ProjectView;
   tasks: TaskView[];
   files: ProjectFileMeta[];
+  links: ProjectLinkItem[];
+  feedback: ProjectFeedbackItem[];
 }
 
 const STATUS_BADGE_VARIANT: Record<ProjectView["status"], "default" | "secondary" | "outline"> = {
@@ -25,7 +35,7 @@ const STATUS_BADGE_VARIANT: Record<ProjectView["status"], "default" | "secondary
   completed: "secondary",
 };
 
-export function ProjectCard({ project, tasks, files }: ProjectCardProps) {
+export function ProjectCard({ project, tasks, files, links, feedback }: ProjectCardProps) {
   const span = taskDaySpan(tasks);
   return (
     <Card>
@@ -98,6 +108,24 @@ export function ProjectCard({ project, tasks, files }: ProjectCardProps) {
           </summary>
           <div className="mt-2">
             <ProjectFiles projectId={project.id} files={files} />
+          </div>
+        </details>
+        <details className="group border-t border-border/60 pt-3">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+            Links{links.length ? ` (${links.length})` : ""}
+          </summary>
+          <div className="mt-2">
+            <ProjectLinks projectId={project.id} links={links} />
+          </div>
+        </details>
+        <details className="group border-t border-border/60 pt-3">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+            Feedback{feedback.length ? ` (${feedback.length})` : ""}
+          </summary>
+          <div className="mt-2">
+            <ProjectFeedback projectId={project.id} feedback={feedback} />
           </div>
         </details>
       </CardContent>

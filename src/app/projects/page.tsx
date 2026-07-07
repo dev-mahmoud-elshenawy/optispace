@@ -3,13 +3,34 @@ import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { ProjectCard } from "@/features/projects/components/project-card";
 import { ProjectFormDialog } from "@/features/projects/components/project-form-dialog";
-import { listProjectFilesMeta, listProjects } from "@/features/projects/queries";
-import type { ProjectFileMeta } from "@/features/projects/service";
+import {
+  listProjectFeedbackAll,
+  listProjectFilesMeta,
+  listProjectLinksAll,
+  listProjects,
+} from "@/features/projects/queries";
+import type { ProjectFeedbackItem, ProjectFileMeta, ProjectLinkItem } from "@/features/projects/service";
 import { listTasks } from "@/features/tasks/queries";
 import type { TaskView } from "@/features/tasks/service";
 
+function groupByProject<T extends { projectId: string }>(rows: T[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    const existing = map.get(row.projectId);
+    if (existing) existing.push(row);
+    else map.set(row.projectId, [row]);
+  }
+  return map;
+}
+
 export default async function ProjectsPage() {
-  const [projects, tasks, files] = await Promise.all([listProjects(), listTasks(), listProjectFilesMeta()]);
+  const [projects, tasks, files, links, feedback] = await Promise.all([
+    listProjects(),
+    listTasks(),
+    listProjectFilesMeta(),
+    listProjectLinksAll(),
+    listProjectFeedbackAll(),
+  ]);
 
   const tasksByProject = new Map<string, TaskView[]>();
   for (const task of tasks) {
@@ -19,12 +40,9 @@ export default async function ProjectsPage() {
     else tasksByProject.set(task.projectId, [task]);
   }
 
-  const filesByProject = new Map<string, ProjectFileMeta[]>();
-  for (const file of files) {
-    const existing = filesByProject.get(file.projectId);
-    if (existing) existing.push(file);
-    else filesByProject.set(file.projectId, [file]);
-  }
+  const filesByProject = groupByProject<ProjectFileMeta>(files);
+  const linksByProject = groupByProject<ProjectLinkItem>(links);
+  const feedbackByProject = groupByProject<ProjectFeedbackItem>(feedback);
 
   return (
     <PageShell
@@ -56,6 +74,8 @@ export default async function ProjectsPage() {
               project={project}
               tasks={tasksByProject.get(project.id) ?? []}
               files={filesByProject.get(project.id) ?? []}
+              links={linksByProject.get(project.id) ?? []}
+              feedback={feedbackByProject.get(project.id) ?? []}
             />
           ))}
         </div>

@@ -64,6 +64,8 @@ model Project {
   tasks      Task[]
   packages   Package[]
   files      ProjectFile[]
+  links      ProjectLink[]
+  feedback   ProjectFeedback[]
 }
 
 model Milestone {
@@ -142,6 +144,40 @@ model ProjectFile {
   mimeType  String    @default("application/octet-stream")
   size      Int       @default(0)
   data      Bytes
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ── Project Links (releases, dashboards, servers, repos) ─────
+// Optional username/secret let a dashboard/server link carry its login.
+model ProjectLink {
+  id        String    @id @default(cuid())
+  projectId String
+  label     String
+  url       String
+  type      String    @default("other") // release | dashboard | server | repo | design | other
+  username  String?
+  secret    String?
+  notes     String?
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ── Project Client Feedback ──────────────────────────────────
+model ProjectFeedback {
+  id        String    @id @default(cuid())
+  projectId String
+  message   String
+  from      String?
+  release   String? // the release / features / sprint this feedback is about
   createdAt DateTime  @default(now())
   deletedAt DateTime?
 

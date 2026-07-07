@@ -1,6 +1,12 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { toProjectView, type ProjectFileMeta, type ProjectView } from "./service";
+import {
+  toProjectView,
+  type ProjectFeedbackItem,
+  type ProjectFileMeta,
+  type ProjectLinkItem,
+  type ProjectView,
+} from "./service";
 
 export async function listProjects(): Promise<ProjectView[]> {
   const rows = await db.project.findMany({
@@ -15,6 +21,32 @@ export async function listProjectFilesMeta(): Promise<ProjectFileMeta[]> {
   return db.projectFile.findMany({
     where: { deletedAt: null },
     select: { id: true, projectId: true, name: true, mimeType: true, size: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function listProjectLinksAll(): Promise<ProjectLinkItem[]> {
+  const rows = await db.projectLink.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    projectId: r.projectId,
+    label: r.label,
+    url: r.url,
+    type: r.type as ProjectLinkItem["type"],
+    username: r.username,
+    secret: r.secret,
+    notes: r.notes,
+    createdAt: r.createdAt,
+  }));
+}
+
+export async function listProjectFeedbackAll(): Promise<ProjectFeedbackItem[]> {
+  return db.projectFeedback.findMany({
+    where: { deletedAt: null },
+    select: { id: true, projectId: true, message: true, from: true, release: true, createdAt: true },
     orderBy: { createdAt: "desc" },
   });
 }
