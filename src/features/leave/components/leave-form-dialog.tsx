@@ -16,22 +16,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { LEAVE_TYPES, type LeaveType } from "@/types";
+import type { LeaveType } from "@/types";
 import { createLeave, updateLeave } from "../actions";
 import type { LeaveView } from "../service";
-import { LEAVE_TYPE_LABELS } from "./leave-type-style";
 
 interface LeaveFormDialogProps {
   trigger: ReactNode;
   leave?: LeaveView;
+  defaultStart?: string;
+  defaultEnd?: string;
 }
 
-export function LeaveFormDialog({ trigger, leave }: LeaveFormDialogProps) {
+export function LeaveFormDialog({ trigger, leave, defaultStart, defaultEnd }: LeaveFormDialogProps) {
   const isEdit = Boolean(leave);
   const [open, setOpen] = useState(false);
-  const [startDate, setStartDate] = useState(leave ? format(leave.startDate, "yyyy-MM-dd") : "");
-  const [endDate, setEndDate] = useState(leave ? format(leave.endDate, "yyyy-MM-dd") : "");
+  const [startDate, setStartDate] = useState(leave ? format(leave.startDate, "yyyy-MM-dd") : defaultStart ?? "");
+  const [endDate, setEndDate] = useState(leave ? format(leave.endDate, "yyyy-MM-dd") : defaultEnd ?? "");
   const [type, setType] = useState<LeaveType>(leave?.type ?? "annual");
   const [notes, setNotes] = useState(leave?.notes ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +45,10 @@ export function LeaveFormDialog({ trigger, leave }: LeaveFormDialogProps) {
       setEndDate(format(leave.endDate, "yyyy-MM-dd"));
       setType(leave.type);
       setNotes(leave.notes ?? "");
+    } else if (next) {
+      // Pre-fill from the calendar's current selection each time it opens.
+      setStartDate(defaultStart ?? "");
+      setEndDate(defaultEnd ?? "");
     }
   }
 
@@ -72,7 +76,7 @@ export function LeaveFormDialog({ trigger, leave }: LeaveFormDialogProps) {
           <DialogHeader>
             <DialogTitle>{isEdit ? "Edit leave" : "Log leave"}</DialogTitle>
             <DialogDescription>
-              {isEdit ? "Update the dates, type, or notes." : "Record a period of annual, sick, or casual leave."}
+              {isEdit ? "Update the dates or notes." : "Record a period of annual leave."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2">
@@ -97,21 +101,6 @@ export function LeaveFormDialog({ trigger, leave }: LeaveFormDialogProps) {
                   required
                 />
               </div>
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="type">Type</Label>
-              <Select value={type} onValueChange={(value) => setType(value as LeaveType)}>
-                <SelectTrigger id="type" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LEAVE_TYPES.map((leaveType) => (
-                    <SelectItem key={leaveType} value={leaveType}>
-                      {LEAVE_TYPE_LABELS[leaveType]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="notes">Notes</Label>
