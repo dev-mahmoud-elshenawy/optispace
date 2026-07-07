@@ -8,7 +8,8 @@ import { PencilIcon, Trash2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { PRIORITY_BADGE_CLASS, type TaskView } from "@/features/tasks/service";
+import { type TaskView } from "@/features/tasks/service";
+import { PriorityFlag } from "./priority-flag";
 
 interface TaskCardProps {
   task: TaskView;
@@ -28,13 +29,13 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
       {...attributes}
       {...listeners}
       className={cn(
-        "cursor-grab space-y-2 rounded-lg border border-border bg-card p-3 text-sm shadow-xs active:cursor-grabbing",
+        "group cursor-grab space-y-2 rounded-lg border border-border/60 bg-card p-3 text-sm shadow-xs transition-colors hover:border-border active:cursor-grabbing",
         isDragging && "opacity-50"
       )}
     >
       <div className="flex items-start justify-between gap-2">
         <p className="font-medium text-foreground">{task.title}</p>
-        <div className="flex shrink-0 gap-1">
+        <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <Button variant="ghost" size="icon-xs" onPointerDown={(e) => e.stopPropagation()} onClick={onEdit}>
             <PencilIcon />
             <span className="sr-only">Edit</span>
@@ -47,7 +48,7 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <Badge className={PRIORITY_BADGE_CLASS[task.priority]}>{task.priority}</Badge>
+        <PriorityFlag priority={task.priority} />
         {task.dueDate ? (
           <span className="text-xs text-muted-foreground">{format(task.dueDate, "MMM d, yyyy")}</span>
         ) : null}

@@ -15,6 +15,7 @@ interface TaskBoardProps {
   onTasksChange: (tasks: TaskView[]) => void;
   onEdit: (task: TaskView) => void;
   onDelete: (task: TaskView) => void;
+  id?: string;
 }
 
 function statusOf(id: string, tasks: TaskView[]): TaskStatus | null {
@@ -22,7 +23,7 @@ function statusOf(id: string, tasks: TaskView[]): TaskStatus | null {
   return tasks.find((t) => t.id === id)?.status ?? null;
 }
 
-export function TaskBoard({ tasks, onTasksChange, onEdit, onDelete }: TaskBoardProps) {
+export function TaskBoard({ tasks, onTasksChange, onEdit, onDelete, id = "task-board" }: TaskBoardProps) {
   const [, startTransition] = useTransition();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -59,7 +60,7 @@ export function TaskBoard({ tasks, onTasksChange, onEdit, onDelete }: TaskBoardP
   }
 
   return (
-    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+    <DndContext id={id} sensors={sensors} onDragEnd={handleDragEnd}>
       <div className="flex flex-col gap-4 md:flex-row">
         {TASK_STATUSES.map((status) => (
           <TaskColumn

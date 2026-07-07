@@ -6,7 +6,8 @@ import { ArrowDownIcon, ArrowUpIcon, PencilIcon, Trash2Icon } from "lucide-react
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { PRIORITY_BADGE_CLASS, STATUS_LABELS, type TaskView } from "@/features/tasks/service";
+import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
+import { PriorityFlag } from "./priority-flag";
 
 export type SortKey = "dueDate" | "priority" | "createdAt";
 
@@ -38,7 +39,7 @@ export function TaskListTable({ tasks, sortKey, sortDesc, onSort, onEdit, onDele
             <TableCell className="font-medium">{task.title}</TableCell>
             <TableCell>{STATUS_LABELS[task.status]}</TableCell>
             <TableCell>
-              <Badge className={PRIORITY_BADGE_CLASS[task.priority]}>{task.priority}</Badge>
+              <PriorityFlag priority={task.priority} />
             </TableCell>
             <TableCell>{task.dueDate ? format(task.dueDate, "MMM d, yyyy") : "—"}</TableCell>
             <TableCell>

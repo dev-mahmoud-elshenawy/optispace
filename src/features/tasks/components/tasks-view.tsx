@@ -12,6 +12,7 @@ import { DeleteTaskDialog } from "./delete-task-dialog";
 import { TaskBoard } from "./task-board";
 import { TaskFormDialog } from "./task-form-dialog";
 import { TaskList } from "./task-list";
+import { TaskProjectGroups } from "./task-project-groups";
 
 interface TasksViewProps {
   initialTasks: TaskView[];
@@ -45,6 +46,7 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
           <TabsList>
             <TabsTrigger value="board">Board</TabsTrigger>
             <TabsTrigger value="list">List</TabsTrigger>
+            <TabsTrigger value="project">By Project</TabsTrigger>
           </TabsList>
           <Button onClick={openCreate}>
             <PlusIcon />
@@ -58,6 +60,10 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
 
         <TabsContent value="list" className="mt-4">
           <TaskList tasks={tasks} onEdit={openEdit} onDelete={setDeletingTask} />
+        </TabsContent>
+
+        <TabsContent value="project" className="mt-4">
+          <TaskProjectGroups tasks={tasks} onTasksChange={setTasks} onEdit={openEdit} onDelete={setDeletingTask} />
         </TabsContent>
       </Tabs>
 

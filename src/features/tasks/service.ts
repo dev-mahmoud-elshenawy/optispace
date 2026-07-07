@@ -8,11 +8,21 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
   done: "Done",
 };
 
-export const PRIORITY_BADGE_CLASS: Record<TaskPriority, string> = {
-  high: "bg-destructive text-white",
-  medium: "bg-primary text-primary-foreground",
-  low: "bg-muted text-muted-foreground",
+export const PRIORITY_FLAG_CLASS: Record<TaskPriority, string> = {
+  high: "border-destructive/30 bg-destructive/10 text-destructive",
+  medium: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  low: "border-border bg-muted text-muted-foreground",
 };
+
+// Inclusive calendar-day span from the earliest to the latest task due date.
+// Returns null when no task in the set has a due date.
+export function taskDaySpan(tasks: { dueDate: Date | null }[]): number | null {
+  const times = tasks.map((t) => t.dueDate?.getTime()).filter((t): t is number => t != null);
+  if (times.length === 0) {
+    return null;
+  }
+  return Math.round((Math.max(...times) - Math.min(...times)) / 86_400_000) + 1;
+}
 
 export interface TaskView {
   id: string;
