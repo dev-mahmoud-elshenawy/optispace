@@ -7,6 +7,7 @@ import { toTaskView, type TaskView } from "./service";
 
 export async function listTasks(): Promise<TaskView[]> {
   const rows = await db.task.findMany({
+    where: { deletedAt: null },
     include: { project: { select: { name: true } } },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
   });
@@ -15,13 +16,14 @@ export async function listTasks(): Promise<TaskView[]> {
 
 export async function listProjectOptions(): Promise<{ id: string; name: string }[]> {
   return db.project.findMany({
+    where: { deletedAt: null },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
 }
 
 export async function getTaskStatusCounts(): Promise<Record<TaskStatus, number>> {
-  const counts = await db.task.groupBy({ by: ["status"], _count: { _all: true } });
+  const counts = await db.task.groupBy({ by: ["status"], where: { deletedAt: null }, _count: { _all: true } });
   const result = Object.fromEntries(TASK_STATUSES.map((status) => [status, 0])) as Record<
     TaskStatus,
     number

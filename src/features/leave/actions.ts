@@ -81,7 +81,7 @@ export async function updateLeave(id: string, input: LeaveInput): Promise<Action
 
 export async function deleteLeave(id: string): Promise<ActionResult> {
   try {
-    await db.leave.delete({ where: { id } });
+    await db.leave.update({ where: { id }, data: { deletedAt: new Date() } });
     revalidateLeave();
     return { ok: true };
   } catch {

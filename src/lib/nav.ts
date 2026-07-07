@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, CalendarDays, Link2, ListChecks, GitBranch, Package } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Link2, ListChecks, GitBranch, Package, Archive } from "lucide-react";
 
 export interface NavItem {
   label: string;
@@ -15,4 +15,5 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Tasks", href: "/tasks", icon: ListChecks },
   { label: "Development", href: "/projects", icon: GitBranch },
   { label: "Packages", href: "/packages", icon: Package },
+  { label: "Archive", href: "/archive", icon: Archive },
 ];

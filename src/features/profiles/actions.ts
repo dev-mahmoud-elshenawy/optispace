@@ -18,7 +18,7 @@ export async function createProfile(input: ProfileInput): Promise<ActionResult> 
   }
 
   try {
-    const order = await db.profile.count();
+    const order = await db.profile.count({ where: { deletedAt: null } });
     await db.profile.create({
       data: {
         label: parsed.data.label,
@@ -60,7 +60,7 @@ export async function updateProfile(id: string, input: ProfileInput): Promise<Ac
 
 export async function deleteProfile(id: string): Promise<ActionResult> {
   try {
-    await db.profile.delete({ where: { id } });
+    await db.profile.update({ where: { id }, data: { deletedAt: new Date() } });
     revalidateProfiles();
     return { ok: true };
   } catch {

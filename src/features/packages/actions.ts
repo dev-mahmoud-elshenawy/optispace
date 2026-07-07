@@ -63,7 +63,7 @@ export async function updatePackage(id: string, input: PackageInput): Promise<Ac
 
 export async function deletePackage(id: string): Promise<ActionResult> {
   try {
-    await db.package.delete({ where: { id } });
+    await db.package.update({ where: { id }, data: { deletedAt: new Date() } });
     revalidatePackages();
     return { ok: true };
   } catch {
@@ -72,7 +72,7 @@ export async function deletePackage(id: string): Promise<ActionResult> {
 }
 
 export async function refreshPackageStats(id: string): Promise<ActionResult> {
-  const pkg = await db.package.findUnique({ where: { id } });
+  const pkg = await db.package.findFirst({ where: { id, deletedAt: null } });
   if (!pkg) {
     return { ok: false, error: "Package not found." };
   }
@@ -99,7 +99,7 @@ export async function refreshPackageStats(id: string): Promise<ActionResult> {
 // ponytail: sequential + reuses refreshPackageStats (one extra findUnique per item) — fine at
 // personal-app scale (dozens of packages, not thousands). Chunk/parallelize if that ever changes.
 export async function refreshAllStats(): Promise<ActionResult> {
-  const packages = await db.package.findMany({ select: { id: true } });
+  const packages = await db.package.findMany({ where: { deletedAt: null }, select: { id: true } });
   let failures = 0;
 
   for (const pkg of packages) {

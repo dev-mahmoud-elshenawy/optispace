@@ -11,7 +11,7 @@ export async function listLeaves(year: number): Promise<LeaveView[]> {
   const rangeStart = new Date(Date.UTC(year, 0, 1));
   const rangeEnd = new Date(Date.UTC(year + 1, 0, 1));
   const rows = await db.leave.findMany({
-    where: { startDate: { gte: rangeStart, lt: rangeEnd } },
+    where: { startDate: { gte: rangeStart, lt: rangeEnd }, deletedAt: null },
     orderBy: { startDate: "desc" },
   });
   return rows.map(toLeaveView);

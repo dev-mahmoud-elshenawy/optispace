@@ -25,7 +25,7 @@ export async function createTask(input: TaskInput): Promise<ActionResult> {
   const data = parsed.data;
 
   const last = await db.task.findFirst({
-    where: { status: data.status },
+    where: { status: data.status, deletedAt: null },
     orderBy: { order: "desc" },
     select: { order: true },
   });
@@ -72,7 +72,7 @@ export async function updateTask(id: string, input: TaskInput): Promise<ActionRe
 }
 
 export async function deleteTask(id: string): Promise<ActionResult> {
-  await db.task.delete({ where: { id } });
+  await db.task.update({ where: { id }, data: { deletedAt: new Date() } });
   revalidatePath("/tasks");
   revalidatePath("/");
   return { ok: true };
