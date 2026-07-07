@@ -3,6 +3,7 @@ import { Inter, Sora, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Sidebar } from "@/components/layout/sidebar";
+import { CommandPalette } from "@/components/layout/command-palette";
 import { Toaster } from "@/components/ui/sonner";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <Sidebar />
             <main className="flex-1 overflow-y-auto">{children}</main>
           </div>
+          <CommandPalette />
           <Toaster richColors position="top-right" />
         </ThemeProvider>
       </body>

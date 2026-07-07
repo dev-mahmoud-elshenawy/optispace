@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { SearchIcon } from "lucide-react";
 import { NAV_ITEMS } from "@/lib/nav";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,17 @@ export function Sidebar() {
           <span className="text-gradient">OptiSpace</span>
         </Link>
         <ThemeToggle />
+      </div>
+      <div className="px-3 pb-1">
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event("optispace:open-command"))}
+          className="flex w-full items-center gap-2 rounded-lg border border-sidebar-border bg-background/50 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+        >
+          <SearchIcon className="h-4 w-4" />
+          <span>Search…</span>
+          <kbd className="ml-auto rounded border border-sidebar-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd>
+        </button>
       </div>
       <nav className="flex flex-1 flex-col gap-1 px-3 py-2">
         {NAV_ITEMS.map((item) => {
