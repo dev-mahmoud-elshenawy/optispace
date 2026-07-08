@@ -16,11 +16,30 @@ export async function GET(request: Request): Promise<Response> {
     return new Response("Not found or Azure DevOps not configured", { status: 404 });
   }
 
+  // Never trust the upstream Content-Type (could be text/html or image/svg+xml →
+  // stored XSS on our origin). Serve only known-safe image/pdf types inline;
+  // everything else is a forced download as octet-stream. SVG is intentionally
+  // excluded (it can execute script).
+  const SAFE_INLINE: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    bmp: "image/bmp",
+    pdf: "application/pdf",
+  };
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  const safeType = SAFE_INLINE[ext];
+  const contentType = safeType ?? "application/octet-stream";
+  const disposition = safeType ? "inline" : "attachment";
+
   return new Response(new Uint8Array(file.bytes), {
     headers: {
-      "Content-Type": file.contentType,
-      "Content-Disposition": `inline; filename="${encodeURIComponent(name)}"`,
+      "Content-Type": contentType,
+      "Content-Disposition": `${disposition}; filename="${encodeURIComponent(name)}"`,
       "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
     },
   });
 }

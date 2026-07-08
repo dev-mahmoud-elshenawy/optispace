@@ -1,5 +1,7 @@
 import "server-only";
 
+import DOMPurify from "isomorphic-dompurify";
+
 import type { TaskStatus } from "@/types";
 
 // ── Config (per-user, from .env) ─────────────────────────────────────────────
@@ -167,14 +169,13 @@ export interface WorkItemDetail {
   attachments: WorkItemAttachment[];
 }
 
-// Lightweight sanitizer for ADO-authored HTML (internal content). Strips script/
-// style blocks, inline event handlers, and javascript: URLs.
+// Sanitize ADO-authored HTML with DOMPurify + a strict tag/attr allowlist.
 function sanitizeHtml(html: string): string {
-  return html
-    .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
-    .replace(/\son\w+\s*=\s*"[^"]*"/gi, "")
-    .replace(/\son\w+\s*=\s*'[^']*'/gi, "")
-    .replace(/javascript:/gi, "");
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ["p", "br", "b", "i", "strong", "em", "u", "s", "ul", "ol", "li", "a", "code", "pre", "blockquote", "h1", "h2", "h3", "h4", "span", "div", "table", "thead", "tbody", "tr", "th", "td"],
+    ALLOWED_ATTR: ["href", "title"],
+    ALLOWED_URI_REGEXP: /^https?:/i,
+  });
 }
 
 export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemDetail | null> {
@@ -197,7 +198,7 @@ export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemD
     .map((r) => {
       const id = r.url.split("/").pop() ?? "";
       const name = r.attributes?.name ?? id;
-      return { id, name, isImage: /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name) };
+      return { id, name, isImage: /\.(png|jpe?g|gif|webp|bmp)$/i.test(name) };
     });
 
   let comments: WorkItemComment[] = [];
