@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { format } from "date-fns";
-import { ListChecks, PencilIcon, Repeat, Trash2Icon } from "lucide-react";
+import { GitBranch, ListChecks, PencilIcon, Repeat, Trash2Icon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,32 +33,42 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
       {...attributes}
       {...listeners}
       className={cn(
-        "group cursor-grab space-y-2 rounded-lg bg-card p-4 text-sm shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing",
+        "group space-y-2 rounded-lg bg-card p-4 text-sm shadow-sm transition-shadow hover:shadow-md",
+        isSynced ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-50"
       )}
+      onClick={isSynced ? () => setDetailOpen(true) : undefined}
     >
+      {task.projectName ? (
+        <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+          <GitBranch className="size-3 shrink-0" />
+          <span className="truncate">{task.projectName}</span>
+        </span>
+      ) : null}
       <div className="flex items-start justify-between gap-2">
-        {isSynced ? (
-          <button
-            type="button"
-            className="min-w-0 flex-1 text-left font-medium text-foreground hover:text-primary hover:underline"
+        <p className="min-w-0 flex-1 font-medium text-foreground">{task.title}</p>
+        <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              setDetailOpen(true);
+              onEdit();
             }}
           >
-            {task.title}
-          </button>
-        ) : (
-          <p className="font-medium text-foreground">{task.title}</p>
-        )}
-        <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          <Button variant="ghost" size="icon-xs" onPointerDown={(e) => e.stopPropagation()} onClick={onEdit}>
             <PencilIcon />
             <span className="sr-only">Edit</span>
           </Button>
-          <Button variant="ghost" size="icon-xs" onPointerDown={(e) => e.stopPropagation()} onClick={onDelete}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
             <Trash2Icon />
             <span className="sr-only">Delete</span>
           </Button>
