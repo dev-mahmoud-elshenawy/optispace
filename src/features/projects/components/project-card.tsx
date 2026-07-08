@@ -1,11 +1,16 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronRight, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { taskDaySpan, type TaskView } from "@/features/tasks/service";
-import { TaskMiniRow } from "@/features/tasks/components/task-project-groups";
+import { type TaskView } from "@/features/tasks/service";
+import { TaskSprintSubGroups } from "@/features/tasks/components/task-sprint-subgroups";
+import { TaskFormDialog } from "@/features/tasks/components/task-form-dialog";
+import { DeleteTaskDialog } from "@/features/tasks/components/delete-task-dialog";
+import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
 import {
   PROJECT_PLATFORM_LABELS,
   PROJECT_STATUS_LABELS,
@@ -26,6 +31,7 @@ interface ProjectCardProps {
   files: ProjectFileMeta[];
   links: ProjectLinkItem[];
   feedback: ProjectFeedbackItem[];
+  projectOptions: { id: string; name: string }[];
 }
 
 const STATUS_BADGE_VARIANT: Record<ProjectView["status"], "default" | "secondary" | "outline"> = {
@@ -35,8 +41,24 @@ const STATUS_BADGE_VARIANT: Record<ProjectView["status"], "default" | "secondary
   completed: "secondary",
 };
 
-export function ProjectCard({ project, tasks, files, links, feedback }: ProjectCardProps) {
-  const span = taskDaySpan(tasks);
+export function ProjectCard({ project, tasks, files, links, feedback, projectOptions }: ProjectCardProps) {
+  const router = useRouter();
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<TaskView | null>(null);
+  const [deletingTask, setDeletingTask] = useState<TaskView | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+
+  // Synced (DevOps) tasks open the DevOps editor; local tasks use the form dialog —
+  // same routing as the Tasks page, so editing behaves identically everywhere.
+  function openEdit(task: TaskView) {
+    if (task.source === "azure_devops" && task.externalId) {
+      setDetailId(task.externalId);
+      return;
+    }
+    setEditingTask(task);
+    setFormOpen(true);
+  }
+
   return (
     <Card>
       <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
@@ -88,17 +110,14 @@ export function ProjectCard({ project, tasks, files, links, feedback }: ProjectC
         {project.notes ? <p className="text-sm text-muted-foreground">{project.notes}</p> : null}
         <MilestoneChecklist projectId={project.id} milestones={project.milestones} />
         {tasks.length > 0 ? (
-          <div className="space-y-0.5 border-t border-border/60 pt-3">
+          <div className="space-y-1.5 border-t border-border/60 pt-3">
             <div className="flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
               <span>Tasks</span>
               <span className="tabular-nums">
                 {tasks.length} task{tasks.length === 1 ? "" : "s"}
-                {span != null ? ` · ${span} day${span === 1 ? "" : "s"}` : ""}
               </span>
             </div>
-            {tasks.map((task) => (
-              <TaskMiniRow key={task.id} task={task} />
-            ))}
+            <TaskSprintSubGroups tasks={tasks} projectName={project.name} onEdit={openEdit} onDelete={setDeletingTask} />
           </div>
         ) : null}
         <details className="group border-t border-border/60 pt-3">
@@ -129,6 +148,33 @@ export function ProjectCard({ project, tasks, files, links, feedback }: ProjectC
           </div>
         </details>
       </CardContent>
+
+      {formOpen ? (
+        <TaskFormDialog
+          task={editingTask}
+          projectOptions={projectOptions}
+          onOpenChange={setFormOpen}
+          onSaved={() => router.refresh()}
+        />
+      ) : null}
+
+      {deletingTask ? (
+        <DeleteTaskDialog
+          task={deletingTask}
+          onOpenChange={(open) => !open && setDeletingTask(null)}
+          onDeleted={() => router.refresh()}
+        />
+      ) : null}
+
+      {detailId ? (
+        <AzureDevOpsTaskDetail
+          externalId={detailId}
+          open
+          onOpenChange={(open) => {
+            if (!open) setDetailId(null);
+          }}
+        />
+      ) : null}
     </Card>
   );
 }

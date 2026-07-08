@@ -40,6 +40,7 @@ export default async function ProjectsPage() {
     else tasksByProject.set(task.projectId, [task]);
   }
 
+  const projectOptions = projects.map((p) => ({ id: p.id, name: p.name }));
   const filesByProject = groupByProject<ProjectFileMeta>(files);
   const linksByProject = groupByProject<ProjectLinkItem>(links);
   const feedbackByProject = groupByProject<ProjectFeedbackItem>(feedback);
@@ -76,6 +77,7 @@ export default async function ProjectsPage() {
               files={filesByProject.get(project.id) ?? []}
               links={linksByProject.get(project.id) ?? []}
               feedback={feedbackByProject.get(project.id) ?? []}
+              projectOptions={projectOptions}
             />
           ))}
         </div>

@@ -2,56 +2,32 @@
 
 import { ChevronRight } from "lucide-react";
 
-import { taskDaySpan, type TaskView } from "@/features/tasks/service";
+import { type TaskView } from "@/features/tasks/service";
 
-import { TaskMiniRow } from "./task-project-groups";
+import { TaskSprintSubGroups } from "./task-sprint-subgroups";
 
-interface SprintSubGroup {
+interface ProjectGroup {
   key: string;
   name: string;
   tasks: TaskView[];
 }
 
-interface ProjectGroup {
-  key: string;
-  name: string;
-  sprints: SprintSubGroup[];
-  taskCount: number;
-}
-
-// ADO iteration paths are "Project\Sprint\..."; strip the leading project
-// segment so the sprint label doesn't repeat the project name it's nested under.
-function sprintLabel(iterationPath: string, projectName: string): string {
-  const prefix = `${projectName}\\`;
-  return iterationPath.startsWith(prefix) ? iterationPath.slice(prefix.length) : iterationPath;
-}
-
 // Project is the top-level group; sprints are sub-groups within it.
-function groupByProjectThenSprint(tasks: TaskView[]): ProjectGroup[] {
-  const projects = new Map<string, { name: string; tasks: TaskView[] }>();
+function groupByProject(tasks: TaskView[]): ProjectGroup[] {
+  const map = new Map<string, ProjectGroup>();
   for (const task of tasks) {
     const key = task.projectId ?? "none";
-    const existing = projects.get(key);
+    const existing = map.get(key);
     if (existing) existing.tasks.push(task);
-    else projects.set(key, { name: task.projectName ?? "No project", tasks: [task] });
+    else map.set(key, { key, name: task.projectName ?? "No project", tasks: [task] });
   }
+  return [...map.values()].sort(
+    (a, b) => (a.key === "none" ? 1 : 0) - (b.key === "none" ? 1 : 0) || a.name.localeCompare(b.name),
+  );
+}
 
-  return [...projects.entries()]
-    .map(([key, { name, tasks: projectTasks }]) => {
-      const sprintMap = new Map<string, SprintSubGroup>();
-      for (const task of projectTasks) {
-        const sKey = task.iterationPath ?? "none";
-        const sName = task.iterationPath ? sprintLabel(task.iterationPath, name) : "No sprint";
-        const existing = sprintMap.get(sKey);
-        if (existing) existing.tasks.push(task);
-        else sprintMap.set(sKey, { key: sKey, name: sName, tasks: [task] });
-      }
-      const sprints = [...sprintMap.values()].sort(
-        (a, b) => (a.key === "none" ? 1 : 0) - (b.key === "none" ? 1 : 0) || a.name.localeCompare(b.name),
-      );
-      return { key, name, sprints, taskCount: projectTasks.length };
-    })
-    .sort((a, b) => (a.key === "none" ? 1 : 0) - (b.key === "none" ? 1 : 0) || a.name.localeCompare(b.name));
+function sprintCount(tasks: TaskView[]): number {
+  return new Set(tasks.map((t) => t.iterationPath ?? "none")).size;
 }
 
 interface TaskSprintGroupsProps {
@@ -61,7 +37,7 @@ interface TaskSprintGroupsProps {
 }
 
 export function TaskSprintGroups({ tasks, onEdit, onDelete }: TaskSprintGroupsProps) {
-  const groups = groupByProjectThenSprint(tasks);
+  const groups = groupByProject(tasks);
 
   if (groups.length === 0) {
     return <p className="text-sm text-muted-foreground">No tasks yet.</p>;
@@ -77,33 +53,12 @@ export function TaskSprintGroups({ tasks, onEdit, onDelete }: TaskSprintGroupsPr
               {project.name}
             </span>
             <span className="text-xs tabular-nums text-muted-foreground">
-              {project.sprints.length} sprint{project.sprints.length === 1 ? "" : "s"} · {project.taskCount} task
-              {project.taskCount === 1 ? "" : "s"}
+              {sprintCount(project.tasks)} sprint{sprintCount(project.tasks) === 1 ? "" : "s"} · {project.tasks.length} task
+              {project.tasks.length === 1 ? "" : "s"}
             </span>
           </summary>
-          <div className="space-y-2 border-t border-border/60 p-3">
-            {project.sprints.map((sprint) => {
-              const span = taskDaySpan(sprint.tasks);
-              return (
-                <details key={sprint.key} className="group/sprint overflow-hidden rounded-md bg-muted/30">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-2 py-1.5 text-xs font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
-                    <span className="flex items-center gap-1.5">
-                      <ChevronRight className="h-3.5 w-3.5 transition-transform group-open/sprint:rotate-90" />
-                      {sprint.name}
-                    </span>
-                    <span className="tabular-nums">
-                      {sprint.tasks.length} task{sprint.tasks.length === 1 ? "" : "s"}
-                      {span != null ? ` · ${span} day${span === 1 ? "" : "s"}` : ""}
-                    </span>
-                  </summary>
-                  <div className="space-y-0.5 px-1 pb-1">
-                    {sprint.tasks.map((task) => (
-                      <TaskMiniRow key={task.id} task={task} onEdit={() => onEdit(task)} onDelete={() => onDelete(task)} />
-                    ))}
-                  </div>
-                </details>
-              );
-            })}
+          <div className="border-t border-border/60 p-3">
+            <TaskSprintSubGroups tasks={project.tasks} projectName={project.name} onEdit={onEdit} onDelete={onDelete} />
           </div>
         </details>
       ))}
