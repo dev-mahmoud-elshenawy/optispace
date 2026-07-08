@@ -22,7 +22,7 @@ export function AzureDevOpsAutoSync({ enabled }: { enabled: boolean }) {
       running.current = true;
       try {
         const result = await syncAzureDevOps();
-        if (!cancelled && result.ok && (result.imported > 0 || result.updated > 0)) {
+        if (!cancelled && result.ok && (result.imported > 0 || result.updated > 0 || result.pruned > 0)) {
           router.refresh();
         }
       } finally {

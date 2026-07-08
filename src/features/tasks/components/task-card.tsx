@@ -42,20 +42,22 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
       ) : null}
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 flex-1 font-medium text-foreground">{task.title}</p>
-        <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-          >
-            <Trash2Icon />
-            <span className="sr-only">Delete</span>
-          </Button>
-        </div>
+        {task.source !== "azure_devops" ? (
+          <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+            >
+              <Trash2Icon />
+              <span className="sr-only">Delete</span>
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">

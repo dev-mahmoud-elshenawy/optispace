@@ -18,7 +18,7 @@ export function AzureDevOpsPanel({ enabled }: { enabled: boolean }) {
     startSync(async () => {
       const result = await syncAzureDevOps();
       if (result.ok) {
-        toast.success(`Azure DevOps: ${result.imported} imported, ${result.updated} updated.`);
+        toast.success(`Azure DevOps: ${result.imported} imported, ${result.updated} updated, ${result.pruned} removed.`);
         router.refresh();
       } else {
         toast.error(result.error);

@@ -65,7 +65,7 @@ export function TaskMiniRow({
       ) : null}
       {showActions ? (
         <span className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
-          {onDelete ? (
+          {onDelete && task.source !== "azure_devops" ? (
             <Button variant="ghost" size="icon-xs" onClick={onDelete}>
               <Trash2Icon />
               <span className="sr-only">Delete</span>

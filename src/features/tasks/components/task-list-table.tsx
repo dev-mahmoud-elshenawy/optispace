@@ -86,10 +86,12 @@ export function TaskListTable({
               </div>
             </TableCell>
             <TableCell className="text-right">
-              <Button variant="ghost" size="icon-xs" onClick={() => onDelete(task)}>
-                <Trash2Icon />
-                <span className="sr-only">Delete</span>
-              </Button>
+              {task.source !== "azure_devops" ? (
+                <Button variant="ghost" size="icon-xs" onClick={() => onDelete(task)}>
+                  <Trash2Icon />
+                  <span className="sr-only">Delete</span>
+                </Button>
+              ) : null}
             </TableCell>
           </TableRow>
         ))}

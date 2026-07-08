@@ -18,7 +18,7 @@ import {
 
 const SOURCE = "azure_devops";
 
-export type SyncResult = { ok: true; imported: number; updated: number } | { ok: false; error: string };
+export type SyncResult = { ok: true; imported: number; updated: number; pruned: number } | { ok: false; error: string };
 
 // Import work items assigned to me into Tasks. Each ADO project maps to a Development
 // project; the task is linked via projectId. Sync owns title/description/status/
@@ -30,12 +30,13 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
     return { ok: false, error: "Azure DevOps is not configured. Set AZURE_DEVOPS_ORG_URL and AZURE_DEVOPS_PAT in .env." };
   }
 
-  let items;
+  let fetched;
   try {
-    items = await fetchAssignedWorkItems(config);
+    fetched = await fetchAssignedWorkItems(config);
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Azure DevOps sync failed." };
   }
+  const { items, openIds, doneIds } = fetched;
 
   // Resolve (or create) a Development project per ADO project, cached per sync.
   const projectIds = new Map<string, string>();
@@ -89,12 +90,32 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
     }
   }
 
-  if (imported > 0 || updated > 0) {
+  // Prune: synced tasks no longer in the open/assigned set (completed, removed, or
+  // reassigned) are soft-deleted so the board mirrors current DevOps work. Only when
+  // syncing all projects — a project subset can't tell "gone" from "not fetched".
+  let pruned = 0;
+  if (config.projects.length === 0) {
+    const openSet = new Set(openIds);
+    const doneSet = new Set(doneIds);
+    const synced = await db.task.findMany({
+      where: { source: SOURCE, deletedAt: null },
+      select: { id: true, externalId: true },
+    });
+    const stale = synced
+      .filter((t) => t.externalId && (!openSet.has(t.externalId) || doneSet.has(t.externalId)))
+      .map((t) => t.id);
+    if (stale.length > 0) {
+      await db.task.updateMany({ where: { id: { in: stale } }, data: { deletedAt: new Date() } });
+      pruned = stale.length;
+    }
+  }
+
+  if (imported > 0 || updated > 0 || pruned > 0) {
     revalidatePath("/tasks");
     revalidatePath("/projects");
     revalidatePath("/");
   }
-  return { ok: true, imported, updated };
+  return { ok: true, imported, updated, pruned };
 }
 
 export type DetailResult = { ok: true; detail: WorkItemDetail } | { ok: false; error: string };

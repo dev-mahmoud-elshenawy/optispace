@@ -77,7 +77,13 @@ function authHeaders(pat: string): HeadersInit {
   };
 }
 
-export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise<WorkItemDTO[]> {
+export interface AssignedWorkItems {
+  items: WorkItemDTO[]; // open items to import (capped)
+  openIds: string[]; // every not-Removed assigned id (uncapped) — for pruning
+  doneIds: string[]; // ids in the fetched batch that are done — for pruning
+}
+
+export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise<AssignedWorkItems> {
   const { orgUrl, pat, projects, includeDone } = config;
   const headers = authHeaders(pat);
 
@@ -92,8 +98,9 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
     throw new Error(`Azure DevOps WIQL failed (${wiqlRes.status}). Check the PAT scopes and org URL.`);
   }
   const wiql = (await wiqlRes.json()) as { workItems?: { id: number }[] };
-  const ids = (wiql.workItems ?? []).slice(0, MAX_ITEMS).map((w) => w.id);
-  if (ids.length === 0) return [];
+  const openIds = (wiql.workItems ?? []).map((w) => String(w.id));
+  const ids = openIds.slice(0, MAX_ITEMS).map((id) => Number(id));
+  if (ids.length === 0) return { items: [], openIds, doneIds: [] };
 
   const fields = ["System.Title", "System.Description", "System.State", "System.WorkItemType", "System.TeamProject"];
   const detailRes = await fetch(`${orgUrl}/_apis/wit/workitems?ids=${ids.join(",")}&fields=${fields.join(",")}&${API}`, { headers });
@@ -126,6 +133,7 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
   }
 
   const items: WorkItemDTO[] = [];
+  const doneIds: string[] = [];
   for (const wi of detail.value) {
     const f = wi.fields;
     const project = f["System.TeamProject"];
@@ -134,7 +142,10 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
     const category = (await statesFor(project, type))[state];
     const status = category ? categoryToStatus(category) : nameHeuristic(state);
     if (status === null) continue; // Removed/unknown category
-    if (!includeDone && status === "done") continue;
+    if (status === "done") {
+      doneIds.push(String(wi.id));
+      if (!includeDone) continue;
+    }
     items.push({
       externalId: String(wi.id),
       title: f["System.Title"] ?? `Work item ${wi.id}`,
@@ -144,7 +155,7 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
       project,
     });
   }
-  return items;
+  return { items, openIds, doneIds };
 }
 
 // ── Detail (on-demand, for the task popup) ───────────────────────────────────
