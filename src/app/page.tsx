@@ -12,6 +12,7 @@ import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
 import type { LeaveView } from "@/features/leave/service";
 import { listProjects } from "@/features/projects/queries";
 import { countPackages } from "@/features/packages/queries";
+import { DashboardCharts } from "@/features/dashboard/components/dashboard-charts";
 import type { TaskStatus } from "@/types";
 
 export default async function DashboardPage() {
@@ -45,6 +46,16 @@ export default async function DashboardPage() {
     .filter((t) => t.status !== "done" && t.dueDate !== null && t.dueDate <= endToday)
     .sort((a, b) => (a.dueDate as Date).getTime() - (b.dueDate as Date).getTime());
   const onLeaveToday = leaves.filter((l) => l.startDate <= endToday && l.endDate >= startToday);
+
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const leaveByMonth = MONTHS.map((month, i) => ({
+    month,
+    days: leaves.filter((l) => l.startDate.getMonth() === i).reduce((n, l) => n + l.days, 0),
+  }));
+  const projectProgress = projects
+    .filter((p) => p.milestonesTotal > 0)
+    .map((p) => ({ name: p.name, pct: Math.round((p.milestonesDone / p.milestonesTotal) * 100) }))
+    .slice(0, 6);
 
   const hour = now.getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -181,6 +192,10 @@ export default async function DashboardPage() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      <div className={`mt-6 ${enter}`} style={{ animationDelay: "300ms" }}>
+        <DashboardCharts leaveByMonth={leaveByMonth} projectProgress={projectProgress} />
       </div>
 
       <Card className={`mt-6 border-border/60 transition-colors hover:border-border ${enter}`} style={{ animationDelay: "350ms" }}>
