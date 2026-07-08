@@ -45,7 +45,7 @@ export function TaskSprintGroups({ tasks, onEdit, onDelete }: TaskSprintGroupsPr
       {groups.map((group) => {
         const span = taskDaySpan(group.tasks);
         return (
-          <details key={group.key} className="group overflow-hidden rounded-lg border border-border/60 bg-card" open={group.key !== "none"}>
+          <details key={group.key} className="group overflow-hidden rounded-lg border border-border/60 bg-card">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
               <span className="flex items-center gap-2 font-medium">
                 <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
