@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { format } from "date-fns";
@@ -10,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { type TaskView } from "@/features/tasks/service";
-import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
 import { PriorityFlag } from "./priority-flag";
 
 interface TaskCardProps {
@@ -23,7 +21,6 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
   });
-  const [detailOpen, setDetailOpen] = useState(false);
   const isSynced = task.source === "azure_devops" && Boolean(task.externalId);
 
   return (
@@ -37,7 +34,7 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
         isSynced ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-50"
       )}
-      onClick={isSynced ? () => setDetailOpen(true) : undefined}
+      onClick={isSynced ? onEdit : undefined}
     >
       {task.projectName ? (
         <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
@@ -54,8 +51,7 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              if (isSynced) setDetailOpen(true);
-              else onEdit();
+              onEdit();
             }}
           >
             <PencilIcon />
@@ -113,9 +109,6 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
         </div>
       ) : null}
 
-      {isSynced && task.externalId ? (
-        <AzureDevOpsTaskDetail externalId={task.externalId} open={detailOpen} onOpenChange={setDetailOpen} />
-      ) : null}
     </div>
   );
 }

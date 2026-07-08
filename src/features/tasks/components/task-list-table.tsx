@@ -66,7 +66,11 @@ export function TaskListTable({
                 />
               </TableCell>
             ) : null}
-            <TableCell className="font-medium">{task.title}</TableCell>
+            <TableCell className="font-medium">
+              <button type="button" className="text-left hover:text-primary hover:underline" onClick={() => onEdit(task)}>
+                {task.title}
+              </button>
+            </TableCell>
             <TableCell>{STATUS_LABELS[task.status]}</TableCell>
             <TableCell>
               <PriorityFlag priority={task.priority} />
