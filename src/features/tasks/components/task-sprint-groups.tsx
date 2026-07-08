@@ -77,27 +77,31 @@ export function TaskSprintGroups({ tasks, onEdit, onDelete }: TaskSprintGroupsPr
               {project.name}
             </span>
             <span className="text-xs tabular-nums text-muted-foreground">
-              {project.taskCount} task{project.taskCount === 1 ? "" : "s"}
+              {project.sprints.length} sprint{project.sprints.length === 1 ? "" : "s"} · {project.taskCount} task
+              {project.taskCount === 1 ? "" : "s"}
             </span>
           </summary>
           <div className="space-y-2 border-t border-border/60 p-3">
             {project.sprints.map((sprint) => {
               const span = taskDaySpan(sprint.tasks);
               return (
-                <div key={sprint.key} className="rounded-md bg-muted/30 p-2">
-                  <div className="flex items-center justify-between px-1 pb-1.5 text-xs font-medium text-muted-foreground">
-                    <span>{sprint.name}</span>
+                <details key={sprint.key} className="group/sprint overflow-hidden rounded-md bg-muted/30">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-2 py-1.5 text-xs font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
+                    <span className="flex items-center gap-1.5">
+                      <ChevronRight className="h-3.5 w-3.5 transition-transform group-open/sprint:rotate-90" />
+                      {sprint.name}
+                    </span>
                     <span className="tabular-nums">
                       {sprint.tasks.length} task{sprint.tasks.length === 1 ? "" : "s"}
                       {span != null ? ` · ${span} day${span === 1 ? "" : "s"}` : ""}
                     </span>
-                  </div>
-                  <div className="space-y-0.5">
+                  </summary>
+                  <div className="space-y-0.5 px-1 pb-1">
                     {sprint.tasks.map((task) => (
                       <TaskMiniRow key={task.id} task={task} onEdit={() => onEdit(task)} onDelete={() => onDelete(task)} />
                     ))}
                   </div>
-                </div>
+                </details>
               );
             })}
           </div>
