@@ -39,6 +39,12 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
   useEffect(() => setTasks(initialTasks), [initialTasks]);
 
   const hasProjectTasks = useMemo(() => tasks.some((t) => t.projectId), [tasks]);
+  const projectLabel =
+    projectFilter === ALL
+      ? "All projects"
+      : projectFilter === NO_PROJECT
+        ? "No project"
+        : (projectOptions.find((p) => p.id === projectFilter)?.name ?? "Project");
 
   const filteredTasks = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -91,7 +97,7 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
             {hasProjectTasks || projectOptions.length > 0 ? (
               <Select value={projectFilter} onValueChange={setProjectFilter}>
                 <SelectTrigger size="sm">
-                  <SelectValue placeholder="Project" />
+                  <SelectValue>{projectLabel}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={ALL}>All projects</SelectItem>
