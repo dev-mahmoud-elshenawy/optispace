@@ -59,7 +59,9 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
   id (`handleTasksChange`) so filtered-out rows aren't dropped from state.
 - **⌘K command palette** (`components/layout/command-palette.tsx`, mounted in the root layout)
   jumps between pages; opens on ⌘K/Ctrl+K or the sidebar "Search…" button (custom
-  `optispace:open-command` event). Navigation-only for now.
+  `optispace:open-command` event). Searches pages plus a server-built index
+  (`features/search/queries.ts` → passed from the root layout) of task/project/package/profile
+  titles; selecting routes to the owning page.
 
 ## Data & safety
 

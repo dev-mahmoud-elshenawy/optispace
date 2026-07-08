@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Sidebar } from "@/components/layout/sidebar";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { Toaster } from "@/components/ui/sonner";
+import { getSearchIndex } from "@/features/search/queries";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 const sora = Sora({ variable: "--font-sora", subsets: ["latin"], weight: ["500", "600", "700"] });
@@ -15,7 +16,8 @@ export const metadata: Metadata = {
   description: "Local-first personal workspace",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const searchIndex = await getSearchIndex();
   return (
     <html
       lang="en"
@@ -37,7 +39,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <Sidebar />
             <main className="flex-1 overflow-y-auto">{children}</main>
           </div>
-          <CommandPalette />
+          <CommandPalette items={searchIndex} />
           <Toaster richColors position="top-right" />
         </ThemeProvider>
       </body>

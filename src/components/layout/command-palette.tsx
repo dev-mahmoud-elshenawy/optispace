@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { NAV_ITEMS } from "@/lib/nav";
+import type { SearchItem, SearchItemType } from "@/features/search/types";
 import {
   CommandDialog,
   CommandEmpty,
@@ -13,7 +14,9 @@ import {
   CommandList,
 } from "@/components/ui/command";
 
-export function CommandPalette() {
+const GROUP_ORDER: SearchItemType[] = ["Task", "Project", "Package", "Profile"];
+
+export function CommandPalette({ items = [] }: { items?: SearchItem[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
@@ -42,20 +45,34 @@ export function CommandPalette() {
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Jump to a page…" />
+      <CommandInput placeholder="Search pages, tasks, projects, packages…" />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Navigate">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             return (
-              <CommandItem key={item.href} value={item.label} onSelect={() => go(item.href)}>
+              <CommandItem key={item.href} value={`${item.label} page`} onSelect={() => go(item.href)}>
                 <Icon />
                 {item.label}
               </CommandItem>
             );
           })}
         </CommandGroup>
+        {GROUP_ORDER.map((type) => {
+          const group = items.filter((it) => it.type === type);
+          if (group.length === 0) return null;
+          return (
+            <CommandGroup key={type} heading={`${type}s`}>
+              {group.map((it, i) => (
+                <CommandItem key={`${type}-${i}`} value={`${it.label} ${type}`} onSelect={() => go(it.href)}>
+                  <span className="truncate">{it.label}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">{type}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          );
+        })}
       </CommandList>
     </CommandDialog>
   );
