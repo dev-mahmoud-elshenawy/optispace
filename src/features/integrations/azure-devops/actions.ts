@@ -93,8 +93,12 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
   // Prune: synced tasks no longer in the open/assigned set (completed, removed, or
   // reassigned) are soft-deleted so the board mirrors current DevOps work. Only when
   // syncing all projects — a project subset can't tell "gone" from "not fetched".
+  // Fail-safe: an empty openIds set is ambiguous — could mean "you have zero open
+  // assigned items" or a transient WIQL/identity/permission hiccup that returned no
+  // rows without erroring. Treat it as inconclusive and skip pruning rather than
+  // risk soft-deleting every synced task on a fluke empty response.
   let pruned = 0;
-  if (config.projects.length === 0) {
+  if (config.projects.length === 0 && openIds.length > 0) {
     const openSet = new Set(openIds);
     const doneSet = new Set(doneIds);
     const synced = await db.task.findMany({
