@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ExternalLink, FileText, Loader2, Paperclip, Save, Send } from "lucide-react";
@@ -15,6 +15,7 @@ import {
   addAzureDevOpsComment,
   getAzureDevOpsTaskDetail,
   updateAzureDevOpsWorkItem,
+  type WorkItemPatch,
 } from "@/features/integrations/azure-devops/actions";
 import type { WorkItemDetail } from "@/features/integrations/azure-devops/service";
 
@@ -25,6 +26,36 @@ interface AzureDevOpsTaskDetailProps {
 }
 
 const htmlBox = "max-w-none text-sm leading-relaxed [&_a]:text-primary [&_a]:underline [&_img]:max-w-full [&_img]:rounded";
+const PRIORITIES = ["1", "2", "3", "4"];
+
+// Editable form values, seeded from the fetched work item.
+interface Form {
+  title: string;
+  state: string;
+  assignedTo: string;
+  iterationPath: string;
+  priority: string;
+  effort: string;
+  originalEstimate: string;
+  remainingWork: string;
+  completedWork: string;
+  description: string;
+}
+
+function toForm(d: WorkItemDetail): Form {
+  return {
+    title: d.title,
+    state: d.state,
+    assignedTo: d.assignedTo,
+    iterationPath: d.iterationPath,
+    priority: d.priority,
+    effort: d.effort,
+    originalEstimate: d.originalEstimate,
+    remainingWork: d.remainingWork,
+    completedWork: d.completedWork,
+    description: d.descriptionRaw,
+  };
+}
 
 export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureDevOpsTaskDetailProps) {
   const router = useRouter();
@@ -32,9 +63,18 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<WorkItemDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [state, setState] = useState("");
+  const [form, setForm] = useState<Form | null>(null);
   const [comment, setComment] = useState("");
+  const descRef = useRef<HTMLDivElement>(null);
+
+  function handleOpenChange(next: boolean) {
+    onOpenChange(next);
+    if (!next) {
+      setDetail(null);
+      setForm(null);
+      setError(null);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -42,62 +82,60 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
     const result = await getAzureDevOpsTaskDetail(externalId);
     if (result.ok) {
       setDetail(result.detail);
-      setTitle(result.detail.title);
-      setState(result.detail.state);
+      setForm(toForm(result.detail));
     } else {
       setError(result.error);
     }
     setLoading(false);
   }
 
-  function handleOpenChange(next: boolean) {
-    onOpenChange(next);
-    if (!next) {
-      // Reset on close so reopening refetches fresh (and a new rev).
-      setDetail(null);
-      setError(null);
-    }
+  useEffect(() => {
+    if (!open) return;
+    setDetail(null);
+    setForm(null);
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, externalId]);
+
+  // Seed the contentEditable with the rendered HTML when the item (re)loads.
+  useEffect(() => {
+    if (descRef.current) descRef.current.innerHTML = detail?.descriptionHtml ?? "";
+  }, [detail]);
+
+  function set<K extends keyof Form>(key: K, value: Form[K]) {
+    setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
   }
 
-  // Fetch whenever the popup is open but has no data yet. Keyed off open + the
-  // absence of detail/loading/error so it survives tree re-renders (e.g. the
-  // auto-sync's router.refresh) that can reset state while the dialog stays open.
-  useEffect(() => {
-    if (!open || detail || loading || error) return;
-    let cancelled = false;
-    setLoading(true);
-    getAzureDevOpsTaskDetail(externalId).then((result) => {
-      if (cancelled) return;
-      if (result.ok) {
-        setDetail(result.detail);
-        setTitle(result.detail.title);
-        setState(result.detail.state);
-      } else {
-        setError(result.error);
-      }
-      setLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, externalId, detail, loading, error]);
-
-  const dirty = detail !== null && (title !== detail.title || state !== detail.state);
+  const base = detail ? toForm(detail) : null;
+  const dirty = form !== null && base !== null && (Object.keys(form) as (keyof Form)[]).some((k) => form[k] !== base[k]);
 
   async function save() {
-    if (!detail || !dirty) return;
+    if (!detail || !form || !base || !dirty) return;
+    const patch: WorkItemPatch = {};
+    const fieldMap: Record<keyof Form, keyof WorkItemPatch> = {
+      title: "title",
+      state: "state",
+      assignedTo: "assignedTo",
+      iterationPath: "iterationPath",
+      priority: "priority",
+      effort: "effort",
+      originalEstimate: "originalEstimate",
+      remainingWork: "remainingWork",
+      completedWork: "completedWork",
+      description: "description",
+    };
+    for (const key of Object.keys(form) as (keyof Form)[]) {
+      if (form[key] !== base[key]) patch[fieldMap[key]] = form[key];
+    }
     setSaving(true);
-    const result = await updateAzureDevOpsWorkItem(
-      externalId,
-      detail.rev,
-      { title: title !== detail.title ? title : undefined, state: state !== detail.state ? state : undefined },
-      { project: detail.project, type: detail.type },
-    );
+    const result = await updateAzureDevOpsWorkItem(externalId, detail.rev, patch, {
+      project: detail.project,
+      type: detail.type,
+    });
     setSaving(false);
     if (result.ok) {
       toast.success("Saved to Azure DevOps.");
-      await load();
+      await load(); // refetch fresh rev + values
       router.refresh();
     } else {
       toast.error(result.error);
@@ -112,7 +150,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
     if (result.ok) {
       toast.success("Comment added to Azure DevOps.");
       setComment("");
-      await load();
+      await load(); // refetch to show the new comment
     } else {
       toast.error(result.error);
     }
@@ -132,8 +170,8 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
         ) : null}
         {error ? <p className="py-6 text-sm text-destructive">{error}</p> : null}
 
-        {detail ? (
-          <div className="space-y-5 text-sm">
+        {detail && form ? (
+          <div className="space-y-4 text-sm">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{detail.type}</span>
               <a
@@ -146,15 +184,16 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
               </a>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-              <div className="space-y-1.5">
-                <Label htmlFor="wi-title">Title</Label>
-                <Input id="wi-title" value={title} onChange={(e) => setTitle(e.target.value)} />
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="wi-title">Title</Label>
+              <Input id="wi-title" value={form.title} onChange={(e) => set("title", e.target.value)} />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>State</Label>
-                <Select value={state} onValueChange={setState}>
-                  <SelectTrigger className="w-full sm:w-44">
+                <Select value={form.state} onValueChange={(v) => set("state", v)}>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -166,13 +205,70 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1.5">
+                <Label>Iteration / sprint</Label>
+                <Select value={form.iterationPath} onValueChange={(v) => set("iterationPath", v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="—" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(detail.iterations.includes(form.iterationPath) || !form.iterationPath
+                      ? detail.iterations
+                      : [form.iterationPath, ...detail.iterations]
+                    ).map((it) => (
+                      <SelectItem key={it} value={it}>
+                        {it}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="wi-assignee">Assignee (email)</Label>
+                <Input id="wi-assignee" value={form.assignedTo} onChange={(e) => set("assignedTo", e.target.value)} placeholder="name@company.com" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Priority</Label>
+                <Select value={form.priority} onValueChange={(v) => set("priority", v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="—" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRIORITIES.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            {dirty ? (
-              <Button onClick={save} disabled={saving} size="sm">
-                <Save /> Save to Azure DevOps
-              </Button>
-            ) : null}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="wi-effort">Estimated effort</Label>
+                <Input id="wi-effort" type="number" min="0" step="0.1" value={form.effort} onChange={(e) => set("effort", e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="wi-cw">Actual effort</Label>
+                <Input id="wi-cw" type="number" min="0" step="0.1" value={form.completedWork} onChange={(e) => set("completedWork", e.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <div
+                ref={descRef}
+                contentEditable
+                suppressContentEditableWarning
+                onInput={(e) => set("description", e.currentTarget.innerHTML)}
+                className={`min-h-[120px] rounded-lg border border-border p-3 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${htmlBox}`}
+              />
+            </div>
+
+            <Button onClick={save} disabled={saving || !dirty} size="sm">
+              <Save /> Save to Azure DevOps
+            </Button>
 
             {detail.details.length > 0 ? (
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-border p-3">
@@ -184,17 +280,6 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
                 ))}
               </dl>
             ) : null}
-
-            <section>
-              <h4 className="mb-1.5 flex items-center gap-1.5 font-medium">
-                <FileText className="size-4" /> Description
-              </h4>
-              {detail.descriptionHtml ? (
-                <div className={`rounded-lg border border-border p-3 ${htmlBox}`} dangerouslySetInnerHTML={{ __html: detail.descriptionHtml }} />
-              ) : (
-                <p className="text-muted-foreground">No description.</p>
-              )}
-            </section>
 
             {detail.attachments.length > 0 ? (
               <section>
@@ -227,7 +312,9 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
             ) : null}
 
             <section>
-              <h4 className="mb-2 font-medium">Comments ({detail.comments.length})</h4>
+              <h4 className="mb-2 flex items-center gap-1.5 font-medium">
+                <FileText className="size-4" /> Comments ({detail.comments.length})
+              </h4>
               {detail.comments.length > 0 ? (
                 <ul className="mb-3 space-y-3">
                   {detail.comments.map((c, i) => (
@@ -243,12 +330,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
               ) : (
                 <p className="mb-3 text-muted-foreground">No comments.</p>
               )}
-              <Textarea
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                placeholder="Add a comment…"
-                rows={3}
-              />
+              <Textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Add a comment…" rows={3} />
               <Button onClick={submitComment} disabled={saving || comment.trim().length === 0} size="sm" className="mt-2">
                 <Send /> Comment
               </Button>

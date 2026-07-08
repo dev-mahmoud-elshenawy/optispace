@@ -112,18 +112,56 @@ export async function getAzureDevOpsTaskDetail(externalId: string): Promise<Deta
 
 export type WriteResult = { ok: true } | { ok: false; error: string };
 
-// Push a title/state edit to Azure DevOps, then mirror it onto the local task.
+export type WorkItemPatch = {
+  title?: string;
+  state?: string;
+  description?: string;
+  priority?: string;
+  effort?: string;
+  originalEstimate?: string;
+  remainingWork?: string;
+  completedWork?: string;
+  iterationPath?: string;
+  assignedTo?: string; // email/UPN; "" clears
+};
+
+const FIELD_MAP: Record<keyof WorkItemPatch, string> = {
+  title: "System.Title",
+  state: "System.State",
+  description: "System.Description",
+  priority: "Microsoft.VSTS.Common.Priority",
+  effort: "Microsoft.VSTS.Scheduling.Effort",
+  originalEstimate: "Microsoft.VSTS.Scheduling.OriginalEstimate",
+  remainingWork: "Microsoft.VSTS.Scheduling.RemainingWork",
+  completedWork: "Microsoft.VSTS.Scheduling.CompletedWork",
+  iterationPath: "System.IterationPath",
+  assignedTo: "System.AssignedTo",
+};
+
+const NUMERIC_KEYS = new Set<keyof WorkItemPatch>(["priority", "effort", "originalEstimate", "remainingWork", "completedWork"]);
+
+// Push any set of edited fields to Azure DevOps, then mirror the ones OptiSpace
+// tracks (title/description/status) onto the local task.
 export async function updateAzureDevOpsWorkItem(
   externalId: string,
   rev: number,
-  patch: { title?: string; state?: string },
+  patch: WorkItemPatch,
   meta: { project: string; type: string },
 ): Promise<WriteResult> {
   try {
-    await updateWorkItem(externalId, rev, patch);
+    const fields: Record<string, unknown> = {};
+    for (const key of Object.keys(patch) as (keyof WorkItemPatch)[]) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      fields[FIELD_MAP[key]] = NUMERIC_KEYS.has(key) ? (value === "" ? null : Number(value)) : value;
+    }
+    if (Object.keys(fields).length > 0) {
+      await updateWorkItem(externalId, rev, fields);
+    }
 
-    const data: { title?: string; status?: TaskStatus } = {};
+    const data: { title?: string; description?: string | null; status?: TaskStatus } = {};
     if (patch.title !== undefined) data.title = patch.title;
+    if (patch.description !== undefined) data.description = patch.description || null;
     if (patch.state !== undefined) {
       const status = await statusForState(meta.project, meta.type, patch.state);
       if (status) data.status = status;

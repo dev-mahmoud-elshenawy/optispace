@@ -54,7 +54,8 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              onEdit();
+              if (isSynced) setDetailOpen(true);
+              else onEdit();
             }}
           >
             <PencilIcon />

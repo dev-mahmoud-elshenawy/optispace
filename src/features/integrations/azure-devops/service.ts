@@ -166,26 +166,31 @@ export interface WorkItemDetail {
   rev: number; // for optimistic-concurrency on write-back
   project: string;
   descriptionHtml: string | null;
+  descriptionRaw: string; // for editing
   state: string;
   type: string;
   allowedStates: string[]; // valid states for this work item type (for the editor)
-  details: { label: string; value: string }[]; // assignee, priority, iteration, effort, …
+  // Editable current values (strings for form binding; "" = unset)
+  priority: string;
+  effort: string;
+  originalEstimate: string;
+  remainingWork: string;
+  completedWork: string;
+  iterationPath: string;
+  assignedTo: string; // email/UPN
+  iterations: string[]; // sprint options for this project
+  details: { label: string; value: string }[]; // remaining read-only extras (area, story points, tags)
   url: string;
   comments: WorkItemComment[];
   attachments: WorkItemAttachment[];
 }
 
 // Notable work-item fields to surface in the popup (only shown when populated).
+// Read-only extras shown below the editable form (the editable fields — assignee,
+// iteration, priority, effort, estimates — are handled as inputs, not here).
 const DETAIL_FIELDS: { key: string; label: string; format: (v: unknown) => string }[] = [
-  { key: "System.AssignedTo", label: "Assignee", format: (v) => (v as { displayName?: string })?.displayName ?? String(v) },
-  { key: "System.IterationPath", label: "Iteration", format: String },
   { key: "System.AreaPath", label: "Area", format: String },
-  { key: "Microsoft.VSTS.Common.Priority", label: "Priority", format: String },
   { key: "Microsoft.VSTS.Scheduling.StoryPoints", label: "Story points", format: String },
-  { key: "Microsoft.VSTS.Scheduling.Effort", label: "Effort (estimated)", format: String },
-  { key: "Microsoft.VSTS.Scheduling.OriginalEstimate", label: "Original estimate", format: (v) => `${v}h` },
-  { key: "Microsoft.VSTS.Scheduling.RemainingWork", label: "Remaining work", format: (v) => `${v}h` },
-  { key: "Microsoft.VSTS.Scheduling.CompletedWork", label: "Completed work (actual)", format: (v) => `${v}h` },
   { key: "System.Tags", label: "Tags", format: String },
 ];
 
@@ -254,15 +259,27 @@ export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemD
     comments = [];
   }
 
+  const iterations = await fetchIterations(project);
+  const assignedTo = (wi.fields["System.AssignedTo"] as { uniqueName?: string } | undefined)?.uniqueName ?? "";
+
   return {
     externalId: String(externalId),
     title: str("System.Title"),
     rev: wi.rev,
     project,
     descriptionHtml: description ? sanitizeHtml(description) : null,
+    descriptionRaw: description ?? "",
     state: str("System.State"),
     type,
     allowedStates,
+    priority: str("Microsoft.VSTS.Common.Priority"),
+    effort: str("Microsoft.VSTS.Scheduling.Effort"),
+    originalEstimate: str("Microsoft.VSTS.Scheduling.OriginalEstimate"),
+    remainingWork: str("Microsoft.VSTS.Scheduling.RemainingWork"),
+    completedWork: str("Microsoft.VSTS.Scheduling.CompletedWork"),
+    iterationPath: str("System.IterationPath"),
+    assignedTo,
+    iterations,
     details,
     url: `${orgUrl}/${encodeURIComponent(project)}/_workitems/edit/${externalId}`,
     comments,
@@ -294,17 +311,19 @@ export async function statusForState(project: string, type: string, state: strin
   return match ? categoryToStatus(match.category) : null;
 }
 
-// PATCH title/state with optimistic concurrency (rev test → 412 if changed upstream).
+// PATCH arbitrary fields (ADO field key → value) with optimistic concurrency
+// (rev test → 412 if changed upstream). Empty-string values clear the field.
 export async function updateWorkItem(
   externalId: string,
   rev: number,
-  patch: { title?: string; state?: string },
+  fields: Record<string, unknown>,
 ): Promise<void> {
   const config = getAzureDevOpsConfig();
   if (!config) throw new Error("Azure DevOps is not configured.");
-  const ops: { op: string; path: string; value: unknown }[] = [{ op: "test", path: "/rev", value: rev }];
-  if (patch.title !== undefined) ops.push({ op: "add", path: "/fields/System.Title", value: patch.title });
-  if (patch.state !== undefined) ops.push({ op: "add", path: "/fields/System.State", value: patch.state });
+  const ops: { op: string; path: string; value: unknown }[] = [
+    { op: "test", path: "/rev", value: rev },
+    ...Object.entries(fields).map(([key, value]) => ({ op: "add", path: `/fields/${key}`, value })),
+  ];
 
   const res = await fetch(`${config.orgUrl}/_apis/wit/workitems/${encodeURIComponent(externalId)}?${API}`, {
     method: "PATCH",
@@ -313,6 +332,32 @@ export async function updateWorkItem(
   });
   if (res.status === 412) throw new Error("This work item changed in Azure DevOps — reopen it and try again.");
   if (!res.ok) throw new Error(`Azure DevOps update failed (${res.status}).`);
+}
+
+// Iteration paths available in a project (for the sprint dropdown).
+export async function fetchIterations(project: string): Promise<string[]> {
+  const config = getAzureDevOpsConfig();
+  if (!config) return [];
+  const res = await fetch(
+    `${config.orgUrl}/${encodeURIComponent(project)}/_apis/wit/classificationnodes/iterations?$depth=5&${API}`,
+    { headers: authHeaders(config.pat) },
+  );
+  if (!res.ok) return [];
+  const root = (await res.json()) as IterationNode;
+  const paths: string[] = [];
+  const walk = (node: IterationNode, prefix: string) => {
+    const path = prefix ? `${prefix}\\${node.name}` : node.name;
+    if (!node.hasChildren || (node.children?.length ?? 0) === 0) paths.push(path);
+    node.children?.forEach((c) => walk(c, path));
+  };
+  walk(root, "");
+  return paths;
+}
+
+interface IterationNode {
+  name: string;
+  hasChildren?: boolean;
+  children?: IterationNode[];
 }
 
 export async function postComment(project: string, externalId: string, text: string): Promise<void> {
