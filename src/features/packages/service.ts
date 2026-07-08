@@ -19,6 +19,7 @@ export interface PackageView {
   pubPoints: number | null;
   lastSyncedAt: Date | null;
   displayVersion: string;
+  hasUpdate: boolean;
 }
 
 export function toPackageView(row: Package): PackageView {
@@ -40,5 +41,6 @@ export function toPackageView(row: Package): PackageView {
     pubPoints: row.pubPoints,
     lastSyncedAt: row.lastSyncedAt,
     displayVersion: row.latestVersion ?? row.currentVersion ?? "—",
+    hasUpdate: Boolean(row.latestVersion && row.currentVersion && row.latestVersion !== row.currentVersion),
   };
 }

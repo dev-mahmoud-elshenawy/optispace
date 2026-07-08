@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
-import { ExternalLink, GitFork, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowUpCircle, ExternalLink, GitFork, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -71,7 +71,15 @@ export function PackageCard({ pkg, onEdit }: PackageCardProps) {
               <Badge variant={STATUS_VARIANT[pkg.status]}>{pkg.status}</Badge>
             </div>
           </div>
-          <span className="shrink-0 text-sm font-medium text-muted-foreground">{pkg.displayVersion}</span>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <span className="text-sm font-medium text-muted-foreground">{pkg.displayVersion}</span>
+            {pkg.hasUpdate ? (
+              <Badge variant="default" className="gap-1" title={`${pkg.currentVersion} → ${pkg.latestVersion}`}>
+                <ArrowUpCircle className="size-3" />
+                Update
+              </Badge>
+            ) : null}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
