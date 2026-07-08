@@ -149,6 +149,17 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
               </Button>
             ) : null}
 
+            {detail.details.length > 0 ? (
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-border p-3">
+                {detail.details.map((d) => (
+                  <div key={d.label} className="flex flex-col">
+                    <dt className="text-xs text-muted-foreground">{d.label}</dt>
+                    <dd className="truncate">{d.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+
             <section>
               <h4 className="mb-1.5 flex items-center gap-1.5 font-medium">
                 <FileText className="size-4" /> Description

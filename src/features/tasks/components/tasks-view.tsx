@@ -107,7 +107,7 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
         </TabsContent>
 
         <TabsContent value="list" className="mt-4">
-          <TaskList tasks={filteredTasks} onEdit={openEdit} onDelete={setDeletingTask} />
+          <TaskList tasks={filteredTasks} projectOptions={projectOptions} onEdit={openEdit} onDelete={setDeletingTask} />
         </TabsContent>
 
         <TabsContent value="project" className="mt-4">

@@ -5,6 +5,7 @@ import { ArrowDownIcon, ArrowUpIcon, PencilIcon, Trash2Icon } from "lucide-react
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
 import { PriorityFlag } from "./priority-flag";
@@ -18,13 +19,33 @@ interface TaskListTableProps {
   onSort: (key: SortKey) => void;
   onEdit: (task: TaskView) => void;
   onDelete: (task: TaskView) => void;
+  selectedIds?: Set<string>;
+  onToggle?: (id: string) => void;
+  onToggleAll?: () => void;
+  allChecked?: boolean;
 }
 
-export function TaskListTable({ tasks, sortKey, sortDesc, onSort, onEdit, onDelete }: TaskListTableProps) {
+export function TaskListTable({
+  tasks,
+  sortKey,
+  sortDesc,
+  onSort,
+  onEdit,
+  onDelete,
+  selectedIds,
+  onToggle,
+  onToggleAll,
+  allChecked,
+}: TaskListTableProps) {
   return (
     <Table>
       <TableHeader>
         <TableRow>
+          {onToggle ? (
+            <TableHead className="w-8">
+              <Checkbox checked={allChecked} onCheckedChange={onToggleAll} aria-label="Select all" />
+            </TableHead>
+          ) : null}
           <TableHead>Title</TableHead>
           <TableHead>Status</TableHead>
           <SortableHead label="Priority" active={sortKey === "priority"} desc={sortDesc} onClick={() => onSort("priority")} />
@@ -36,6 +57,15 @@ export function TaskListTable({ tasks, sortKey, sortDesc, onSort, onEdit, onDele
       <TableBody>
         {tasks.map((task) => (
           <TableRow key={task.id}>
+            {onToggle ? (
+              <TableCell className="w-8">
+                <Checkbox
+                  checked={selectedIds?.has(task.id) ?? false}
+                  onCheckedChange={() => onToggle(task.id)}
+                  aria-label={`Select ${task.title}`}
+                />
+              </TableCell>
+            ) : null}
             <TableCell className="font-medium">{task.title}</TableCell>
             <TableCell>{STATUS_LABELS[task.status]}</TableCell>
             <TableCell>

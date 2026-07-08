@@ -169,10 +169,24 @@ export interface WorkItemDetail {
   state: string;
   type: string;
   allowedStates: string[]; // valid states for this work item type (for the editor)
+  details: { label: string; value: string }[]; // assignee, priority, iteration, effort, …
   url: string;
   comments: WorkItemComment[];
   attachments: WorkItemAttachment[];
 }
+
+// Notable work-item fields to surface in the popup (only shown when populated).
+const DETAIL_FIELDS: { key: string; label: string; format: (v: unknown) => string }[] = [
+  { key: "System.AssignedTo", label: "Assignee", format: (v) => (v as { displayName?: string })?.displayName ?? String(v) },
+  { key: "System.IterationPath", label: "Iteration", format: String },
+  { key: "System.AreaPath", label: "Area", format: String },
+  { key: "Microsoft.VSTS.Common.Priority", label: "Priority", format: String },
+  { key: "Microsoft.VSTS.Scheduling.StoryPoints", label: "Story points", format: String },
+  { key: "Microsoft.VSTS.Scheduling.OriginalEstimate", label: "Original estimate", format: (v) => `${v}h` },
+  { key: "Microsoft.VSTS.Scheduling.RemainingWork", label: "Remaining work", format: (v) => `${v}h` },
+  { key: "Microsoft.VSTS.Scheduling.CompletedWork", label: "Completed work", format: (v) => `${v}h` },
+  { key: "System.Tags", label: "Tags", format: String },
+];
 
 // Sanitize ADO-authored HTML with DOMPurify + a strict tag/attr allowlist.
 function sanitizeHtml(html: string): string {
@@ -189,17 +203,27 @@ export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemD
   const { orgUrl, pat } = config;
   const headers = authHeaders(pat);
 
-  const wiRes = await fetch(`${orgUrl}/_apis/wit/workitems/${encodeURIComponent(externalId)}?$expand=relations&${API}`, { headers });
+  const wiRes = await fetch(`${orgUrl}/_apis/wit/workitems/${encodeURIComponent(externalId)}?$expand=all&${API}`, { headers });
   if (!wiRes.ok) throw new Error(`Failed to load work item ${externalId} (${wiRes.status}).`);
   const wi = (await wiRes.json()) as {
     rev: number;
-    fields: Record<string, string>;
+    fields: Record<string, unknown>;
     relations?: { rel: string; url: string; attributes?: { name?: string } }[];
   };
-  const project = wi.fields["System.TeamProject"];
-  const type = wi.fields["System.WorkItemType"] ?? "";
-  const description = wi.fields["System.Description"] ?? null;
+  const str = (k: string): string => {
+    const v = wi.fields[k];
+    return v == null ? "" : String(v);
+  };
+  const project = str("System.TeamProject");
+  const type = str("System.WorkItemType");
+  const description = (wi.fields["System.Description"] as string | undefined) ?? null;
   const allowedStates = (await fetchStates(project, type)).map((s) => s.name);
+
+  const details = DETAIL_FIELDS.flatMap(({ key, label, format }) => {
+    const v = wi.fields[key];
+    if (v === undefined || v === null || v === "") return [];
+    return [{ label, value: format(v) }];
+  });
 
   const attachments: WorkItemAttachment[] = (wi.relations ?? [])
     .filter((r) => r.rel === "AttachedFile")
@@ -231,13 +255,14 @@ export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemD
 
   return {
     externalId: String(externalId),
-    title: wi.fields["System.Title"] ?? "",
+    title: str("System.Title"),
     rev: wi.rev,
     project,
     descriptionHtml: description ? sanitizeHtml(description) : null,
-    state: wi.fields["System.State"] ?? "",
+    state: str("System.State"),
     type,
     allowedStates,
+    details,
     url: `${orgUrl}/${encodeURIComponent(project)}/_workitems/edit/${externalId}`,
     comments,
     attachments,

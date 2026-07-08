@@ -1,29 +1,39 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
+import { moveTasksToProject } from "@/features/tasks/actions";
 import { TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from "@/types";
 
 import { TaskListTable, type SortKey } from "./task-list-table";
 
 const PRIORITY_WEIGHT: Record<TaskPriority, number> = { low: 0, medium: 1, high: 2 };
 const ALL = "all";
+const NO_PROJECT = "none";
 
 interface TaskListProps {
   tasks: TaskView[];
+  projectOptions: { id: string; name: string }[];
   onEdit: (task: TaskView) => void;
   onDelete: (task: TaskView) => void;
 }
 
-export function TaskList({ tasks, onEdit, onDelete }: TaskListProps) {
+export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListProps) {
+  const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<TaskStatus | typeof ALL>(ALL);
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | typeof ALL>(ALL);
   const [tagSearch, setTagSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [sortDesc, setSortDesc] = useState(true);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [moveTarget, setMoveTarget] = useState<string>("");
+  const [isMoving, startMove] = useTransition();
 
   const rows = useMemo(() => {
     const search = tagSearch.trim().toLowerCase();
@@ -49,6 +59,37 @@ export function TaskList({ tasks, onEdit, onDelete }: TaskListProps) {
       setSortKey(key);
       setSortDesc(true);
     }
+  }
+
+  const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.id));
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected((prev) => (prev.size === rows.length ? new Set() : new Set(rows.map((r) => r.id))));
+  }
+
+  function move() {
+    if (selected.size === 0 || moveTarget === "") return;
+    const projectId = moveTarget === NO_PROJECT ? null : moveTarget;
+    const count = selected.size;
+    startMove(async () => {
+      const result = await moveTasksToProject([...selected], projectId);
+      if (result.ok) {
+        toast.success(`Moved ${count} task${count === 1 ? "" : "s"}.`);
+        setSelected(new Set());
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
   }
 
   return (
@@ -90,6 +131,31 @@ export function TaskList({ tasks, onEdit, onDelete }: TaskListProps) {
         />
       </div>
 
+      {selected.size > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/40 p-2">
+          <span className="text-sm font-medium">{selected.size} selected</span>
+          <Select value={moveTarget} onValueChange={setMoveTarget}>
+            <SelectTrigger className="h-8 w-52">
+              <SelectValue placeholder="Move to project…" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_PROJECT}>No project</SelectItem>
+              {projectOptions.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button size="sm" onClick={move} disabled={isMoving || moveTarget === ""}>
+            Move
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+            Clear
+          </Button>
+        </div>
+      ) : null}
+
       {rows.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           No tasks yet — add your first task to get started.
@@ -102,6 +168,10 @@ export function TaskList({ tasks, onEdit, onDelete }: TaskListProps) {
           onSort={toggleSort}
           onEdit={onEdit}
           onDelete={onDelete}
+          selectedIds={selected}
+          onToggle={toggleSelect}
+          onToggleAll={toggleAll}
+          allChecked={allChecked}
         />
       )}
     </div>

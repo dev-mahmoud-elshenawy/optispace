@@ -195,3 +195,13 @@ export async function deleteSubtask(id: string): Promise<ActionResult> {
   revalidatePath("/");
   return { ok: true };
 }
+
+// Bulk-reassign tasks to a project (or clear with null).
+export async function moveTasksToProject(ids: string[], projectId: string | null): Promise<ActionResult> {
+  if (ids.length === 0) return { ok: false, error: "No tasks selected." };
+  await db.task.updateMany({ where: { id: { in: ids } }, data: { projectId } });
+  revalidatePath("/tasks");
+  revalidatePath("/projects");
+  revalidatePath("/");
+  return { ok: true };
+}
