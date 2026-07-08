@@ -182,9 +182,10 @@ const DETAIL_FIELDS: { key: string; label: string; format: (v: unknown) => strin
   { key: "System.AreaPath", label: "Area", format: String },
   { key: "Microsoft.VSTS.Common.Priority", label: "Priority", format: String },
   { key: "Microsoft.VSTS.Scheduling.StoryPoints", label: "Story points", format: String },
+  { key: "Microsoft.VSTS.Scheduling.Effort", label: "Effort (estimated)", format: String },
   { key: "Microsoft.VSTS.Scheduling.OriginalEstimate", label: "Original estimate", format: (v) => `${v}h` },
   { key: "Microsoft.VSTS.Scheduling.RemainingWork", label: "Remaining work", format: (v) => `${v}h` },
-  { key: "Microsoft.VSTS.Scheduling.CompletedWork", label: "Completed work", format: (v) => `${v}h` },
+  { key: "Microsoft.VSTS.Scheduling.CompletedWork", label: "Completed work (actual)", format: (v) => `${v}h` },
   { key: "System.Tags", label: "Tags", format: String },
 ];
 
