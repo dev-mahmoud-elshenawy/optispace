@@ -3,7 +3,7 @@ import { format } from "date-fns";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, ListChecks, GitBranch, Package as PackageIcon, ExternalLink, ArrowUpRight, Activity, Link2 } from "lucide-react";
+import { CalendarDays, ListChecks, GitBranch, Package as PackageIcon, ExternalLink, ArrowUpRight, Activity, Link2, Sun } from "lucide-react";
 import type { ReactNode } from "react";
 import { listProfiles } from "@/features/profiles/queries";
 import { getLeaveSummary, listLeaves } from "@/features/leave/queries";
@@ -40,6 +40,12 @@ export default async function DashboardPage() {
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
     .slice(0, 5);
 
+  const endToday = new Date(year, now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  const dueTodayOrOverdue = tasks
+    .filter((t) => t.status !== "done" && t.dueDate !== null && t.dueDate <= endToday)
+    .sort((a, b) => (a.dueDate as Date).getTime() - (b.dueDate as Date).getTime());
+  const onLeaveToday = leaves.filter((l) => l.startDate <= endToday && l.endDate >= startToday);
+
   const hour = now.getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const dateLabel = format(now, "EEEE, MMMM d");
@@ -53,6 +59,48 @@ export default async function DashboardPage() {
         <StatCard href="/projects" icon={<GitBranch className="h-5 w-5" />} label="Active projects" value={`${activeProjects.length}`} sub={`${projects.length} total`} delay={150} />
         <StatCard href="/packages" icon={<PackageIcon className="h-5 w-5" />} label="Packages" value={`${packageCount}`} sub="published" delay={225} />
       </div>
+
+      <Card className={`mt-6 border-border/60 transition-colors hover:border-border ${enter}`} style={{ animationDelay: "100ms" }}>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <IconChip>
+              <Sun className="h-3.5 w-3.5" />
+            </IconChip>
+            Today
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {onLeaveToday.map((l) => (
+            <div key={l.id} className="flex items-center gap-2 text-sm">
+              <CalendarDays className="h-4 w-4 text-primary" />
+              <span>On leave today</span>
+              <span className="ml-auto text-xs text-muted-foreground">until {format(l.endDate, "MMM d")}</span>
+            </div>
+          ))}
+          {dueTodayOrOverdue.length === 0 && onLeaveToday.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing due today — you&rsquo;re all clear.</p>
+          ) : (
+            dueTodayOrOverdue.map((t) => {
+              const overdue = (t.dueDate as Date) < startToday;
+              return (
+                <div key={t.id} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className={`size-2 shrink-0 rounded-full ${TASK_DOT_CLASS[t.status]}`} />
+                    <span className="truncate">{t.title}</span>
+                  </span>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
+                      overdue ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary"
+                    }`}
+                  >
+                    {overdue ? `Overdue · ${format(t.dueDate as Date, "MMM d")}` : "Due today"}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
 
       <div className={`mt-6 grid gap-6 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "150ms" }}>
         <Card className="border-border/60 transition-colors hover:border-border">
