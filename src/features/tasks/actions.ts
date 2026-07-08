@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { serializeTags, type TaskStatus } from "@/types";
 
-import { moveTaskSchema, taskInputSchema, type TaskInput } from "./schema";
+import { moveTaskSchema, subtaskTitleSchema, taskInputSchema, type TaskInput } from "./schema";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -90,6 +90,44 @@ export async function moveTask(id: string, status: TaskStatus, order: number): P
     data: { status: parsed.data.status, order: parsed.data.order },
   });
 
+  revalidatePath("/tasks");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export type AddSubtaskResult =
+  | { ok: true; subtask: { id: string; title: string; done: boolean } }
+  | { ok: false; error: string };
+
+export async function addSubtask(taskId: string, title: string): Promise<AddSubtaskResult> {
+  const parsed = subtaskTitleSchema.safeParse(title);
+  if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
+
+  const last = await db.subtask.findFirst({
+    where: { taskId, deletedAt: null },
+    orderBy: { order: "desc" },
+    select: { order: true },
+  });
+
+  const subtask = await db.subtask.create({
+    data: { taskId, title: parsed.data, order: (last?.order ?? -1) + 1 },
+    select: { id: true, title: true, done: true },
+  });
+
+  revalidatePath("/tasks");
+  revalidatePath("/");
+  return { ok: true, subtask };
+}
+
+export async function toggleSubtask(id: string, done: boolean): Promise<ActionResult> {
+  await db.subtask.update({ where: { id }, data: { done } });
+  revalidatePath("/tasks");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function deleteSubtask(id: string): Promise<ActionResult> {
+  await db.subtask.update({ where: { id }, data: { deletedAt: new Date() } });
   revalidatePath("/tasks");
   revalidatePath("/");
   return { ok: true };

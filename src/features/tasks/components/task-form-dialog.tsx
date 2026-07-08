@@ -9,6 +9,7 @@ import { createTask, updateTask } from "@/features/tasks/actions";
 import type { TaskView } from "@/features/tasks/service";
 
 import { NO_PROJECT, TaskFormFields, type TaskFormValues } from "./task-form-fields";
+import { SubtaskChecklist } from "./subtask-checklist";
 
 interface TaskFormDialogProps {
   task: TaskView | null;
@@ -77,6 +78,12 @@ export function TaskFormDialog({ task, projectOptions, onOpenChange, onSaved }: 
           </DialogHeader>
 
           <TaskFormFields values={values} onChange={handleChange} projectOptions={projectOptions} />
+
+          {task ? (
+            <div className="border-t pt-4">
+              <SubtaskChecklist taskId={task.id} subtasks={task.subtasks} />
+            </div>
+          ) : null}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

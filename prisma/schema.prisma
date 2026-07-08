@@ -97,10 +97,25 @@ model Task {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
-  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  subtasks Subtask[]
 
   @@index([status])
   @@index([projectId])
+}
+
+model Subtask {
+  id        String    @id @default(cuid())
+  taskId    String
+  title     String
+  done      Boolean   @default(false)
+  order     Int       @default(0)
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
 }
 
 // ── Packages ─────────────────────────────────────────────────

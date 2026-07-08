@@ -8,7 +8,10 @@ import { toTaskView, type TaskView } from "./service";
 export async function listTasks(): Promise<TaskView[]> {
   const rows = await db.task.findMany({
     where: { deletedAt: null },
-    include: { project: { select: { name: true } } },
+    include: {
+      project: { select: { name: true } },
+      subtasks: { where: { deletedAt: null }, orderBy: { order: "asc" }, select: { id: true, title: true, done: true } },
+    },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
   });
   return rows.map(toTaskView);

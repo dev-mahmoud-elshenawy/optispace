@@ -42,6 +42,9 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
 
 ## Conventions (follow these)
 
+- **Subtasks** live in the `Subtask` model (FK → `Task`, `onDelete: Cascade`, mirrors `Milestone`).
+  Included in `TaskView.subtasks` via `listTasks`; edited through `SubtaskChecklist` in the task
+  dialog (optimistic local state). `addSubtask` returns the created row so the client can append it.
 - **Soft delete everywhere.** Deletes set `deletedAt`; every read filters `deletedAt: null`.
   Deleted rows surface in `/archive` for restore/purge. Never hard-delete in feature actions.
 - **Server-only vs client:** never import a `server-only` file (queries) into a client component.

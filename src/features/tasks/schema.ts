@@ -14,6 +14,8 @@ export const taskInputSchema = z.object({
 
 export type TaskInput = z.infer<typeof taskInputSchema>;
 
+export const subtaskTitleSchema = z.string().trim().min(1, "Subtask title is required");
+
 export const moveTaskSchema = z.object({
   id: z.string().trim().min(1),
   status: z.enum(TASK_STATUSES),

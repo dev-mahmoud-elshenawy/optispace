@@ -24,6 +24,12 @@ export function taskDaySpan(tasks: { dueDate: Date | null }[]): number | null {
   return Math.round((Math.max(...times) - Math.min(...times)) / 86_400_000) + 1;
 }
 
+export interface SubtaskView {
+  id: string;
+  title: string;
+  done: boolean;
+}
+
 export interface TaskView {
   id: string;
   title: string;
@@ -35,11 +41,15 @@ export interface TaskView {
   order: number;
   projectId: string | null;
   projectName: string | null;
+  subtasks: SubtaskView[];
   createdAt: Date;
   updatedAt: Date;
 }
 
-type TaskRow = Task & { project?: { name: string } | null };
+type TaskRow = Task & {
+  project?: { name: string } | null;
+  subtasks?: { id: string; title: string; done: boolean }[];
+};
 
 export function toTaskView(row: TaskRow): TaskView {
   return {
@@ -53,6 +63,7 @@ export function toTaskView(row: TaskRow): TaskView {
     order: row.order,
     projectId: row.projectId,
     projectName: row.project?.name ?? null,
+    subtasks: (row.subtasks ?? []).map((s) => ({ id: s.id, title: s.title, done: s.done })),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
