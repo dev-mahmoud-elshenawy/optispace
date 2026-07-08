@@ -3,7 +3,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { format } from "date-fns";
-import { ListChecks, PencilIcon, Trash2Icon } from "lucide-react";
+import { ListChecks, PencilIcon, Repeat, Trash2Icon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,7 +50,21 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
       <div className="flex flex-wrap items-center gap-1.5">
         <PriorityFlag priority={task.priority} />
         {task.dueDate ? (
-          <span className="text-xs text-muted-foreground">{format(task.dueDate, "MMM d, yyyy")}</span>
+          <span
+            className={
+              task.status !== "done" && task.dueDate < new Date(new Date().setHours(0, 0, 0, 0))
+                ? "text-xs font-medium text-destructive"
+                : "text-xs text-muted-foreground"
+            }
+          >
+            {format(task.dueDate, "MMM d, yyyy")}
+          </span>
+        ) : null}
+        {task.recurrence !== "none" ? (
+          <span className="flex items-center gap-1 text-xs text-muted-foreground capitalize">
+            <Repeat className="size-3.5" />
+            {task.recurrence}
+          </span>
         ) : null}
         {task.subtasks.length > 0 ? (
           <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">

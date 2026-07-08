@@ -42,6 +42,9 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
 
 ## Conventions (follow these)
 
+- **Recurring tasks:** `Task.recurrence` (`none|daily|weekly|monthly`). When a task transitions
+  to done (via `moveTask` drag or `updateTask`), a recurring task spawns its next occurrence as a
+  fresh To Do with the due date advanced (`spawnNextOccurrence` in `tasks/actions.ts`).
 - **Subtasks** live in the `Subtask` model (FK → `Task`, `onDelete: Cascade`, mirrors `Milestone`).
   Included in `TaskView.subtasks` via `listTasks`; edited through `SubtaskChecklist` in the task
   dialog (optimistic local state). `addSubtask` returns the created row so the client can append it.

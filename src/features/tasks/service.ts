@@ -1,6 +1,6 @@
 import type { Task } from "@prisma/client";
 
-import { parseTags, type TaskPriority, type TaskStatus } from "@/types";
+import { parseTags, type TaskPriority, type TaskRecurrence, type TaskStatus } from "@/types";
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "To Do",
@@ -41,6 +41,7 @@ export interface TaskView {
   order: number;
   projectId: string | null;
   projectName: string | null;
+  recurrence: TaskRecurrence;
   subtasks: SubtaskView[];
   createdAt: Date;
   updatedAt: Date;
@@ -63,6 +64,7 @@ export function toTaskView(row: TaskRow): TaskView {
     order: row.order,
     projectId: row.projectId,
     projectName: row.project?.name ?? null,
+    recurrence: row.recurrence as TaskRecurrence,
     subtasks: (row.subtasks ?? []).map((s) => ({ id: s.id, title: s.title, done: s.done })),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

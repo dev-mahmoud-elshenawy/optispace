@@ -30,6 +30,7 @@ function initialValues(task: TaskView | null): TaskFormValues {
     priority: task?.priority ?? "medium",
     dueDate: toDateInputValue(task?.dueDate),
     tagsInput: task?.tags.join(", ") ?? "",
+    recurrence: task?.recurrence ?? "none",
     projectId: task?.projectId ?? NO_PROJECT,
   };
 }
@@ -54,6 +55,7 @@ export function TaskFormDialog({ task, projectOptions, onOpenChange, onSaved }: 
         .split(",")
         .map((tag) => tag.trim())
         .filter(Boolean),
+      recurrence: values.recurrence,
       projectId: values.projectId === NO_PROJECT ? undefined : values.projectId,
     };
 

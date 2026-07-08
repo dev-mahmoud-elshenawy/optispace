@@ -91,6 +91,7 @@ model Task {
   priority    String    @default("medium") // low | medium | high
   dueDate     DateTime?
   tags        String    @default("[]") // JSON array of strings
+  recurrence  String    @default("none") // none | daily | weekly | monthly
   order       Int       @default(0) // position within its Kanban column
   projectId   String?
   createdAt   DateTime  @default(now())

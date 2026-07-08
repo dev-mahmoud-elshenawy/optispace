@@ -5,9 +5,23 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { STATUS_LABELS } from "@/features/tasks/service";
-import { TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from "@/types";
+import {
+  TASK_PRIORITIES,
+  TASK_RECURRENCES,
+  TASK_STATUSES,
+  type TaskPriority,
+  type TaskRecurrence,
+  type TaskStatus,
+} from "@/types";
 
 export const NO_PROJECT = "none";
+
+const RECURRENCE_LABELS: Record<TaskRecurrence, string> = {
+  none: "Does not repeat",
+  daily: "Daily",
+  weekly: "Weekly",
+  monthly: "Monthly",
+};
 
 export interface TaskFormValues {
   title: string;
@@ -16,6 +30,7 @@ export interface TaskFormValues {
   priority: TaskPriority;
   dueDate: string;
   tagsInput: string;
+  recurrence: TaskRecurrence;
   projectId: string;
 }
 
@@ -108,6 +123,22 @@ export function TaskFormFields({ values, onChange, projectOptions }: TaskFormFie
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Repeat</Label>
+        <Select value={values.recurrence} onValueChange={(v) => onChange("recurrence", v as TaskRecurrence)}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TASK_RECURRENCES.map((r) => (
+              <SelectItem key={r} value={r}>
+                {RECURRENCE_LABELS[r]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-2">

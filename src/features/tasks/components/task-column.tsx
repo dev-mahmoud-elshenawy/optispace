@@ -45,7 +45,7 @@ export function TaskColumn({ status, tasks, onEdit, onDelete }: TaskColumnProps)
       return;
     }
     startTransition(async () => {
-      const result = await createTask({ title: trimmed, status, priority: "medium", tags: [] });
+      const result = await createTask({ title: trimmed, status, priority: "medium", tags: [], recurrence: "none" });
       if (result.ok) {
         setTitle(""); // keep the input open for rapid entry, Notion-style
         router.refresh();
