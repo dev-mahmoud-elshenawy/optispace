@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { type TaskView } from "@/features/tasks/service";
+import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
 import { PriorityFlag } from "./priority-flag";
 
 interface TaskCardProps {
@@ -35,6 +36,11 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
     >
       <div className="flex items-start justify-between gap-2">
         <p className="font-medium text-foreground">{task.title}</p>
+        {task.source === "azure_devops" && task.externalId ? (
+          <div className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+            <AzureDevOpsTaskDetail externalId={task.externalId} title={task.title} />
+          </div>
+        ) : null}
         <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <Button variant="ghost" size="icon-xs" onPointerDown={(e) => e.stopPropagation()} onClick={onEdit}>
             <PencilIcon />

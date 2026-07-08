@@ -42,6 +42,9 @@ export interface TaskView {
   projectId: string | null;
   projectName: string | null;
   recurrence: TaskRecurrence;
+  source: string | null;
+  externalId: string | null;
+  externalUrl: string | null;
   subtasks: SubtaskView[];
   createdAt: Date;
   updatedAt: Date;
@@ -65,6 +68,9 @@ export function toTaskView(row: TaskRow): TaskView {
     projectId: row.projectId,
     projectName: row.project?.name ?? null,
     recurrence: row.recurrence as TaskRecurrence,
+    source: row.source,
+    externalId: row.externalId,
+    externalUrl: row.externalUrl,
     subtasks: (row.subtasks ?? []).map((s) => ({ id: s.id, title: s.title, done: s.done })),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

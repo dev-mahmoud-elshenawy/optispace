@@ -52,7 +52,10 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
   `(source="azure_devops", externalId)` — sync owns title/description/status/externalUrl, never
   deletes local tasks. Manual **Sync now** in Settings + a mount/interval **auto-poller** in the
   layout (local-first "background" = while the app is open). `Task.source/externalId/externalUrl`
-  link synced rows.
+  link synced rows. Synced kanban cards show an **info button** → `AzureDevOpsTaskDetail` modal that
+  **on-demand** loads description + comments + attachments (`fetchWorkItemDetail`); images stream
+  through `/api/devops/attachment` (PAT server-side, GUID-only → no SSRF). ADO HTML is sanitized
+  server-side (basic strip; swap for isomorphic-dompurify if stricter needed).
 - **Recurring tasks:** `Task.recurrence` (`none|daily|weekly|monthly`). When a task transitions
   to done (via `moveTask` drag or `updateTask`), a recurring task spawns its next occurrence as a
   fresh To Do with the due date advanced (`spawnNextOccurrence` in `tasks/actions.ts`).

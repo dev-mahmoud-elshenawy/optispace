@@ -144,3 +144,102 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
   }
   return items;
 }
+
+// ── Detail (on-demand, for the task popup) ───────────────────────────────────
+export interface WorkItemComment {
+  author: string;
+  text: string; // sanitized HTML
+  date: string;
+}
+
+export interface WorkItemAttachment {
+  id: string;
+  name: string;
+  isImage: boolean;
+}
+
+export interface WorkItemDetail {
+  descriptionHtml: string | null;
+  state: string;
+  type: string;
+  url: string;
+  comments: WorkItemComment[];
+  attachments: WorkItemAttachment[];
+}
+
+// Lightweight sanitizer for ADO-authored HTML (internal content). Strips script/
+// style blocks, inline event handlers, and javascript: URLs.
+function sanitizeHtml(html: string): string {
+  return html
+    .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
+export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemDetail | null> {
+  const config = getAzureDevOpsConfig();
+  if (!config) return null;
+  const { orgUrl, pat } = config;
+  const headers = authHeaders(pat);
+
+  const wiRes = await fetch(`${orgUrl}/_apis/wit/workitems/${encodeURIComponent(externalId)}?$expand=relations&${API}`, { headers });
+  if (!wiRes.ok) throw new Error(`Failed to load work item ${externalId} (${wiRes.status}).`);
+  const wi = (await wiRes.json()) as {
+    fields: Record<string, string>;
+    relations?: { rel: string; url: string; attributes?: { name?: string } }[];
+  };
+  const project = wi.fields["System.TeamProject"];
+  const description = wi.fields["System.Description"] ?? null;
+
+  const attachments: WorkItemAttachment[] = (wi.relations ?? [])
+    .filter((r) => r.rel === "AttachedFile")
+    .map((r) => {
+      const id = r.url.split("/").pop() ?? "";
+      const name = r.attributes?.name ?? id;
+      return { id, name, isImage: /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(name) };
+    });
+
+  let comments: WorkItemComment[] = [];
+  try {
+    const cRes = await fetch(
+      `${orgUrl}/${encodeURIComponent(project)}/_apis/wit/workItems/${encodeURIComponent(externalId)}/comments?api-version=7.1-preview.4`,
+      { headers },
+    );
+    if (cRes.ok) {
+      const c = (await cRes.json()) as {
+        comments?: { text?: string; createdBy?: { displayName?: string }; createdDate?: string }[];
+      };
+      comments = (c.comments ?? []).map((x) => ({
+        author: x.createdBy?.displayName ?? "Unknown",
+        text: sanitizeHtml(x.text ?? ""),
+        date: x.createdDate ?? "",
+      }));
+    }
+  } catch {
+    comments = [];
+  }
+
+  return {
+    descriptionHtml: description ? sanitizeHtml(description) : null,
+    state: wi.fields["System.State"] ?? "",
+    type: wi.fields["System.WorkItemType"] ?? "",
+    url: `${orgUrl}/${encodeURIComponent(project)}/_workitems/edit/${externalId}`,
+    comments,
+    attachments,
+  };
+}
+
+// Fetch attachment bytes with the PAT (used by the media proxy route). The id is
+// an ADO attachment GUID; the URL is rebuilt from the configured org (no arbitrary
+// URLs → no SSRF).
+export async function fetchAttachment(id: string, name: string): Promise<{ bytes: ArrayBuffer; contentType: string } | null> {
+  const config = getAzureDevOpsConfig();
+  if (!config) return null;
+  const res = await fetch(
+    `${config.orgUrl}/_apis/wit/attachments/${encodeURIComponent(id)}?fileName=${encodeURIComponent(name)}&${API}`,
+    { headers: authHeaders(config.pat) },
+  );
+  if (!res.ok) return null;
+  return { bytes: await res.arrayBuffer(), contentType: res.headers.get("content-type") ?? "application/octet-stream" };
+}

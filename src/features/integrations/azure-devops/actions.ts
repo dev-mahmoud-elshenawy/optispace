@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
 
-import { fetchAssignedWorkItems, getAzureDevOpsConfig } from "./service";
+import { fetchAssignedWorkItems, fetchWorkItemDetail, getAzureDevOpsConfig, type WorkItemDetail } from "./service";
 
 const SOURCE = "azure_devops";
 
@@ -85,4 +85,17 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
     revalidatePath("/");
   }
   return { ok: true, imported, updated };
+}
+
+export type DetailResult = { ok: true; detail: WorkItemDetail } | { ok: false; error: string };
+
+// On-demand: load a synced work item's full detail (description + comments + attachments).
+export async function getAzureDevOpsTaskDetail(externalId: string): Promise<DetailResult> {
+  try {
+    const detail = await fetchWorkItemDetail(externalId);
+    if (!detail) return { ok: false, error: "Azure DevOps is not configured." };
+    return { ok: true, detail };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to load work item details." };
+  }
 }
