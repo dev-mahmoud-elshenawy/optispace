@@ -52,15 +52,19 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
 
   function handleOpenChange(next: boolean) {
     onOpenChange(next);
+    if (!next) {
+      // Reset on close so reopening refetches fresh (and a new rev).
+      setDetail(null);
+      setError(null);
+    }
   }
 
-  // Fetch whenever the dialog opens (opened externally via the card, so the
-  // Dialog's own onOpenChange doesn't fire — key off the `open` prop instead).
+  // Fetch whenever the popup is open but has no data yet. Keyed off open + the
+  // absence of detail/loading/error so it survives tree re-renders (e.g. the
+  // auto-sync's router.refresh) that can reset state while the dialog stays open.
   useEffect(() => {
-    if (!open) return;
+    if (!open || detail || loading || error) return;
     let cancelled = false;
-    setDetail(null);
-    setError(null);
     setLoading(true);
     getAzureDevOpsTaskDetail(externalId).then((result) => {
       if (cancelled) return;
@@ -77,7 +81,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, externalId]);
+  }, [open, externalId, detail, loading, error]);
 
   const dirty = detail !== null && (title !== detail.title || state !== detail.state);
 
