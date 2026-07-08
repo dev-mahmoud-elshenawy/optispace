@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ExternalLink, FileText, Loader2, Paperclip, Save, Send } from "lucide-react";
@@ -52,11 +52,32 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
 
   function handleOpenChange(next: boolean) {
     onOpenChange(next);
-    if (next) {
-      setDetail(null);
-      void load(); // refetch each open → fresh rev for concurrency
-    }
   }
+
+  // Fetch whenever the dialog opens (opened externally via the card, so the
+  // Dialog's own onOpenChange doesn't fire — key off the `open` prop instead).
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setDetail(null);
+    setError(null);
+    setLoading(true);
+    getAzureDevOpsTaskDetail(externalId).then((result) => {
+      if (cancelled) return;
+      if (result.ok) {
+        setDetail(result.detail);
+        setTitle(result.detail.title);
+        setState(result.detail.state);
+      } else {
+        setError(result.error);
+      }
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, externalId]);
 
   const dirty = detail !== null && (title !== detail.title || state !== detail.state);
 
