@@ -6,6 +6,8 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { Toaster } from "@/components/ui/sonner";
 import { getSearchIndex } from "@/features/search/queries";
+import { AzureDevOpsAutoSync } from "@/features/integrations/azure-devops/auto-sync";
+import { isAzureDevOpsEnabled } from "@/features/integrations/azure-devops/service";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 const sora = Sora({ variable: "--font-sora", subsets: ["latin"], weight: ["500", "600", "700"] });
@@ -40,6 +42,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <main className="flex-1 overflow-y-auto">{children}</main>
           </div>
           <CommandPalette items={searchIndex} />
+          <AzureDevOpsAutoSync enabled={isAzureDevOpsEnabled()} />
           <Toaster richColors position="top-right" />
         </ThemeProvider>
       </body>

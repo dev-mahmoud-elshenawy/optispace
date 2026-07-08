@@ -45,6 +45,14 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
 - **Data export:** `/api/export?module=<m>&format=csv|json` (route in `app/api/export`) dumps one
   module (tasks/packages/profiles/leaves/projects); the Settings `ExportPanel` links to it. Full-DB
   backup/restore still lives in `features/backup`.
+- **Azure DevOps sync** (`features/integrations/azure-devops`): imports work items assigned to you
+  into Tasks. Config is **per-user via `.env`** (`AZURE_DEVOPS_*`), never the DB — `service.ts`
+  (`server-only`) reads env + fetches (WIQL `@me`, maps by **state category** so custom states work,
+  caps 200/sync, skips done unless `INCLUDE_DONE`). `syncAzureDevOps` upserts `Task` by
+  `(source="azure_devops", externalId)` — sync owns title/description/status/externalUrl, never
+  deletes local tasks. Manual **Sync now** in Settings + a mount/interval **auto-poller** in the
+  layout (local-first "background" = while the app is open). `Task.source/externalId/externalUrl`
+  link synced rows.
 - **Recurring tasks:** `Task.recurrence` (`none|daily|weekly|monthly`). When a task transitions
   to done (via `moveTask` drag or `updateTask`), a recurring task spawns its next occurrence as a
   fresh To Do with the due date advanced (`spawnNextOccurrence` in `tasks/actions.ts`).

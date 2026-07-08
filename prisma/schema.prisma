@@ -92,6 +92,9 @@ model Task {
   dueDate     DateTime?
   tags        String    @default("[]") // JSON array of strings
   recurrence  String    @default("none") // none | daily | weekly | monthly
+  source      String? // external origin, e.g. "azure_devops" (null = created in-app)
+  externalId  String? // id in the source system, unique per source
+  externalUrl String? // link back to the source item
   order       Int       @default(0) // position within its Kanban column
   projectId   String?
   createdAt   DateTime  @default(now())
@@ -101,6 +104,7 @@ model Task {
   project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
   subtasks Subtask[]
 
+  @@unique([source, externalId])
   @@index([status])
   @@index([projectId])
 }
