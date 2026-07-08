@@ -67,7 +67,15 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
     if (existing) {
       await db.task.update({
         where: { id: existing.id },
-        data: { title: item.title, description: item.description, status: item.status, externalUrl: item.url, projectId, tags: "[]" },
+        data: {
+          title: item.title,
+          description: item.description,
+          status: item.status,
+          externalUrl: item.url,
+          iterationPath: item.iterationPath,
+          projectId,
+          tags: "[]",
+        },
       });
       updated += 1;
     } else {
@@ -83,6 +91,7 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
           source: SOURCE,
           externalId: item.externalId,
           externalUrl: item.url,
+          iterationPath: item.iterationPath,
           projectId,
         },
       });
@@ -184,9 +193,10 @@ export async function updateAzureDevOpsWorkItem(
       await updateWorkItem(externalId, rev, fields);
     }
 
-    const data: { title?: string; description?: string | null; status?: TaskStatus } = {};
+    const data: { title?: string; description?: string | null; status?: TaskStatus; iterationPath?: string | null } = {};
     if (patch.title !== undefined) data.title = patch.title;
     if (patch.description !== undefined) data.description = patch.description || null;
+    if (patch.iterationPath !== undefined) data.iterationPath = patch.iterationPath || null;
     if (patch.state !== undefined) {
       const status = await statusForState(meta.project, meta.type, patch.state);
       if (status) data.status = status;

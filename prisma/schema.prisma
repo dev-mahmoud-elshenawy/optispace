@@ -92,9 +92,10 @@ model Task {
   dueDate     DateTime?
   tags        String    @default("[]") // JSON array of strings
   recurrence  String    @default("none") // none | daily | weekly | monthly
-  source      String? // external origin, e.g. "azure_devops" (null = created in-app)
-  externalId  String? // id in the source system, unique per source
-  externalUrl String? // link back to the source item
+  source        String? // external origin, e.g. "azure_devops" (null = created in-app)
+  externalId    String? // id in the source system, unique per source
+  externalUrl   String? // link back to the source item
+  iterationPath String? // ADO sprint path, e.g. "Canitude\Iteration 2" (source-owned)
   order       Int       @default(0) // position within its Kanban column
   projectId   String?
   createdAt   DateTime  @default(now())

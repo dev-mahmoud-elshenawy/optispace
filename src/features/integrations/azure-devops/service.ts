@@ -41,6 +41,7 @@ export interface WorkItemDTO {
   status: TaskStatus;
   url: string;
   project: string;
+  iterationPath: string | null;
 }
 
 const API = "api-version=7.0";
@@ -102,7 +103,7 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
   const ids = openIds.slice(0, MAX_ITEMS).map((id) => Number(id));
   if (ids.length === 0) return { items: [], openIds, doneIds: [] };
 
-  const fields = ["System.Title", "System.Description", "System.State", "System.WorkItemType", "System.TeamProject"];
+  const fields = ["System.Title", "System.Description", "System.State", "System.WorkItemType", "System.TeamProject", "System.IterationPath"];
   const detailRes = await fetch(`${orgUrl}/_apis/wit/workitems?ids=${ids.join(",")}&fields=${fields.join(",")}&${API}`, { headers });
   if (!detailRes.ok) {
     throw new Error(`Azure DevOps work item fetch failed (${detailRes.status}).`);
@@ -153,6 +154,7 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
       status,
       url: `${orgUrl}/${encodeURIComponent(project)}/_workitems/edit/${wi.id}`,
       project,
+      iterationPath: f["System.IterationPath"] || null,
     });
   }
   return { items, openIds, doneIds };

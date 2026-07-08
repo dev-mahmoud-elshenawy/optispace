@@ -45,6 +45,7 @@ export interface TaskView {
   source: string | null;
   externalId: string | null;
   externalUrl: string | null;
+  iterationPath: string | null;
   subtasks: SubtaskView[];
   createdAt: Date;
   updatedAt: Date;
@@ -71,6 +72,7 @@ export function toTaskView(row: TaskRow): TaskView {
     source: row.source,
     externalId: row.externalId,
     externalUrl: row.externalUrl,
+    iterationPath: row.iterationPath,
     subtasks: (row.subtasks ?? []).map((s) => ({ id: s.id, title: s.title, done: s.done })),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

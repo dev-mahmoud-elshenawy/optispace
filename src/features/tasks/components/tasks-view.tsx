@@ -16,6 +16,7 @@ import { TaskBoard } from "./task-board";
 import { TaskFormDialog } from "./task-form-dialog";
 import { TaskList } from "./task-list";
 import { TaskProjectGroups } from "./task-project-groups";
+import { TaskSprintGroups } from "./task-sprint-groups";
 
 interface TasksViewProps {
   initialTasks: TaskView[];
@@ -39,6 +40,7 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
   useEffect(() => setTasks(initialTasks), [initialTasks]);
 
   const hasProjectTasks = useMemo(() => tasks.some((t) => t.projectId), [tasks]);
+  const hasSprintTasks = useMemo(() => tasks.some((t) => t.iterationPath), [tasks]);
   const projectLabel =
     projectFilter === ALL
       ? "All projects"
@@ -86,6 +88,7 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
             <TabsTrigger value="board">Board</TabsTrigger>
             <TabsTrigger value="list">List</TabsTrigger>
             <TabsTrigger value="project">By Project</TabsTrigger>
+            {hasSprintTasks ? <TabsTrigger value="sprint">By Sprint</TabsTrigger> : null}
           </TabsList>
           <div className="flex flex-wrap items-center gap-2">
             <Input
@@ -128,6 +131,12 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
         <TabsContent value="project" className="mt-4">
           <TaskProjectGroups tasks={filteredTasks} onTasksChange={handleTasksChange} onEdit={openEdit} onDelete={setDeletingTask} />
         </TabsContent>
+
+        {hasSprintTasks ? (
+          <TabsContent value="sprint" className="mt-4">
+            <TaskSprintGroups tasks={filteredTasks} onEdit={openEdit} onDelete={setDeletingTask} />
+          </TabsContent>
+        ) : null}
       </Tabs>
 
       {formOpen ? (
