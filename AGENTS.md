@@ -42,6 +42,9 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
 
 ## Conventions (follow these)
 
+- **Data export:** `/api/export?module=<m>&format=csv|json` (route in `app/api/export`) dumps one
+  module (tasks/packages/profiles/leaves/projects); the Settings `ExportPanel` links to it. Full-DB
+  backup/restore still lives in `features/backup`.
 - **Recurring tasks:** `Task.recurrence` (`none|daily|weekly|monthly`). When a task transitions
   to done (via `moveTask` drag or `updateTask`), a recurring task spawns its next occurrence as a
   fresh To Do with the due date advanced (`spawnNextOccurrence` in `tasks/actions.ts`).
