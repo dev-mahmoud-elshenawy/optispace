@@ -3,7 +3,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { format } from "date-fns";
-import { GitBranch, ListChecks, PencilIcon, Repeat, Trash2Icon } from "lucide-react";
+import { GitBranch, ListChecks, Repeat, Trash2Icon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,6 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
   });
-  const isSynced = task.source === "azure_devops" && Boolean(task.externalId);
 
   return (
     <div
@@ -30,11 +29,10 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
       {...attributes}
       {...listeners}
       className={cn(
-        "group space-y-2 rounded-lg bg-card p-4 text-sm shadow-sm transition-shadow hover:shadow-md",
-        isSynced ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
+        "group cursor-pointer space-y-2 rounded-lg bg-card p-4 text-sm shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing",
         isDragging && "opacity-50"
       )}
-      onClick={isSynced ? onEdit : undefined}
+      onClick={onEdit}
     >
       {task.projectName ? (
         <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
@@ -45,18 +43,6 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 flex-1 font-medium text-foreground">{task.title}</p>
         <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit();
-            }}
-          >
-            <PencilIcon />
-            <span className="sr-only">Edit</span>
-          </Button>
           <Button
             variant="ghost"
             size="icon-xs"

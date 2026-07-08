@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { ArrowDownIcon, ArrowUpIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, Trash2Icon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -86,10 +86,6 @@ export function TaskListTable({
               </div>
             </TableCell>
             <TableCell className="text-right">
-              <Button variant="ghost" size="icon-xs" onClick={() => onEdit(task)}>
-                <PencilIcon />
-                <span className="sr-only">Edit</span>
-              </Button>
               <Button variant="ghost" size="icon-xs" onClick={() => onDelete(task)}>
                 <Trash2Icon />
                 <span className="sr-only">Delete</span>

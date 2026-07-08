@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { ChevronRight, PencilIcon, Trash2Icon } from "lucide-react";
+import { ChevronRight, Trash2Icon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -52,19 +52,19 @@ export function TaskMiniRow({
   return (
     <div className="group/row flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted/50">
       <span className={cn("size-2 shrink-0 rounded-full", STATUS_DOT[task.status])} />
-      <span className="min-w-0 flex-1 truncate">{task.title}</span>
+      {onEdit ? (
+        <button type="button" onClick={onEdit} className="min-w-0 flex-1 truncate text-left hover:text-primary hover:underline">
+          {task.title}
+        </button>
+      ) : (
+        <span className="min-w-0 flex-1 truncate">{task.title}</span>
+      )}
       <PriorityFlag priority={task.priority} />
       {task.dueDate ? (
         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{format(task.dueDate, "MMM d")}</span>
       ) : null}
       {showActions ? (
         <span className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
-          {onEdit ? (
-            <Button variant="ghost" size="icon-xs" onClick={onEdit}>
-              <PencilIcon />
-              <span className="sr-only">Edit</span>
-            </Button>
-          ) : null}
           {onDelete ? (
             <Button variant="ghost" size="icon-xs" onClick={onDelete}>
               <Trash2Icon />
