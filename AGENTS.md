@@ -52,10 +52,14 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
   `(source="azure_devops", externalId)` — sync owns title/description/status/externalUrl, never
   deletes local tasks. Manual **Sync now** in Settings + a mount/interval **auto-poller** in the
   layout (local-first "background" = while the app is open). `Task.source/externalId/externalUrl`
-  link synced rows. Synced kanban cards show an **info button** → `AzureDevOpsTaskDetail` modal that
-  **on-demand** loads description + comments + attachments (`fetchWorkItemDetail`); images stream
-  through `/api/devops/attachment` (PAT server-side, GUID-only → no SSRF). ADO HTML is sanitized
-  server-side (basic strip; swap for isomorphic-dompurify if stricter needed).
+  link synced rows; synced tasks link to a Development project via `projectId` (not tags — tags are
+  cleared on sync). **Clicking a synced task's title** opens `AzureDevOpsTaskDetail` — an editable
+  modal that **on-demand** loads description + comments + attachments + rev + allowed states
+  (`fetchWorkItemDetail`). **Write-back** (needs a Work Items *Read & Write* PAT): edit title + pick
+  state (from the item type's real ADO states) → `updateWorkItem` (JSON-Patch with a `/rev` test for
+  concurrency → 412 on conflict); add comments → `postComment`; writes mirror onto the local task.
+  Images stream through `/api/devops/attachment` (PAT server-side, GUID-only → no SSRF, safe
+  Content-Type allowlist + CSP sandbox). ADO HTML sanitized with DOMPurify (strict allowlist).
 - **Recurring tasks:** `Task.recurrence` (`none|daily|weekly|monthly`). When a task transitions
   to done (via `moveTask` drag or `updateTask`), a recurring task spawns its next occurrence as a
   fresh To Do with the due date advanced (`spawnNextOccurrence` in `tasks/actions.ts`).

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { format } from "date-fns";
@@ -22,6 +23,8 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
   });
+  const [detailOpen, setDetailOpen] = useState(false);
+  const isSynced = task.source === "azure_devops" && Boolean(task.externalId);
 
   return (
     <div
@@ -35,12 +38,21 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <p className="font-medium text-foreground">{task.title}</p>
-        {task.source === "azure_devops" && task.externalId ? (
-          <div className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
-            <AzureDevOpsTaskDetail externalId={task.externalId} title={task.title} />
-          </div>
-        ) : null}
+        {isSynced ? (
+          <button
+            type="button"
+            className="min-w-0 flex-1 text-left font-medium text-foreground hover:text-primary hover:underline"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setDetailOpen(true);
+            }}
+          >
+            {task.title}
+          </button>
+        ) : (
+          <p className="font-medium text-foreground">{task.title}</p>
+        )}
         <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <Button variant="ghost" size="icon-xs" onPointerDown={(e) => e.stopPropagation()} onClick={onEdit}>
             <PencilIcon />
@@ -88,6 +100,10 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
             </Badge>
           ))}
         </div>
+      ) : null}
+
+      {isSynced && task.externalId ? (
+        <AzureDevOpsTaskDetail externalId={task.externalId} open={detailOpen} onOpenChange={setDetailOpen} />
       ) : null}
     </div>
   );

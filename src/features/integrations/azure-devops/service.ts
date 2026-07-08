@@ -161,9 +161,14 @@ export interface WorkItemAttachment {
 }
 
 export interface WorkItemDetail {
+  externalId: string;
+  title: string;
+  rev: number; // for optimistic-concurrency on write-back
+  project: string;
   descriptionHtml: string | null;
   state: string;
   type: string;
+  allowedStates: string[]; // valid states for this work item type (for the editor)
   url: string;
   comments: WorkItemComment[];
   attachments: WorkItemAttachment[];
@@ -187,11 +192,14 @@ export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemD
   const wiRes = await fetch(`${orgUrl}/_apis/wit/workitems/${encodeURIComponent(externalId)}?$expand=relations&${API}`, { headers });
   if (!wiRes.ok) throw new Error(`Failed to load work item ${externalId} (${wiRes.status}).`);
   const wi = (await wiRes.json()) as {
+    rev: number;
     fields: Record<string, string>;
     relations?: { rel: string; url: string; attributes?: { name?: string } }[];
   };
   const project = wi.fields["System.TeamProject"];
+  const type = wi.fields["System.WorkItemType"] ?? "";
   const description = wi.fields["System.Description"] ?? null;
+  const allowedStates = (await fetchStates(project, type)).map((s) => s.name);
 
   const attachments: WorkItemAttachment[] = (wi.relations ?? [])
     .filter((r) => r.rel === "AttachedFile")
@@ -222,13 +230,77 @@ export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemD
   }
 
   return {
+    externalId: String(externalId),
+    title: wi.fields["System.Title"] ?? "",
+    rev: wi.rev,
+    project,
     descriptionHtml: description ? sanitizeHtml(description) : null,
     state: wi.fields["System.State"] ?? "",
-    type: wi.fields["System.WorkItemType"] ?? "",
+    type,
+    allowedStates,
     url: `${orgUrl}/${encodeURIComponent(project)}/_workitems/edit/${externalId}`,
     comments,
     attachments,
   };
+}
+
+// ── Write-back ───────────────────────────────────────────────────────────────
+export interface StateOption {
+  name: string;
+  category: string;
+}
+
+export async function fetchStates(project: string, type: string): Promise<StateOption[]> {
+  const config = getAzureDevOpsConfig();
+  if (!config) return [];
+  const res = await fetch(
+    `${config.orgUrl}/${encodeURIComponent(project)}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/states?${API}`,
+    { headers: authHeaders(config.pat) },
+  );
+  if (!res.ok) return [];
+  const body = (await res.json()) as { value: { name: string; category: string }[] };
+  return body.value.map((s) => ({ name: s.name, category: s.category }));
+}
+
+// Maps an ADO state name back to our TaskStatus (for reflecting a write locally).
+export async function statusForState(project: string, type: string, state: string): Promise<TaskStatus | null> {
+  const match = (await fetchStates(project, type)).find((s) => s.name === state);
+  return match ? categoryToStatus(match.category) : null;
+}
+
+// PATCH title/state with optimistic concurrency (rev test → 412 if changed upstream).
+export async function updateWorkItem(
+  externalId: string,
+  rev: number,
+  patch: { title?: string; state?: string },
+): Promise<void> {
+  const config = getAzureDevOpsConfig();
+  if (!config) throw new Error("Azure DevOps is not configured.");
+  const ops: { op: string; path: string; value: unknown }[] = [{ op: "test", path: "/rev", value: rev }];
+  if (patch.title !== undefined) ops.push({ op: "add", path: "/fields/System.Title", value: patch.title });
+  if (patch.state !== undefined) ops.push({ op: "add", path: "/fields/System.State", value: patch.state });
+
+  const res = await fetch(`${config.orgUrl}/_apis/wit/workitems/${encodeURIComponent(externalId)}?${API}`, {
+    method: "PATCH",
+    headers: { ...authHeaders(config.pat), "Content-Type": "application/json-patch+json" },
+    body: JSON.stringify(ops),
+  });
+  if (res.status === 412) throw new Error("This work item changed in Azure DevOps — reopen it and try again.");
+  if (!res.ok) throw new Error(`Azure DevOps update failed (${res.status}).`);
+}
+
+export async function postComment(project: string, externalId: string, text: string): Promise<void> {
+  const config = getAzureDevOpsConfig();
+  if (!config) throw new Error("Azure DevOps is not configured.");
+  const res = await fetch(
+    `${config.orgUrl}/${encodeURIComponent(project)}/_apis/wit/workItems/${encodeURIComponent(externalId)}/comments?api-version=7.1-preview.4`,
+    {
+      method: "POST",
+      headers: { ...authHeaders(config.pat), "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    },
+  );
+  if (!res.ok) throw new Error(`Adding the comment failed (${res.status}).`);
 }
 
 // Fetch attachment bytes with the PAT (used by the media proxy route). The id is

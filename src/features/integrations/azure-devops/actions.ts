@@ -4,7 +4,17 @@ import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
 
-import { fetchAssignedWorkItems, fetchWorkItemDetail, getAzureDevOpsConfig, type WorkItemDetail } from "./service";
+import type { TaskStatus } from "@/types";
+
+import {
+  fetchAssignedWorkItems,
+  fetchWorkItemDetail,
+  getAzureDevOpsConfig,
+  postComment,
+  statusForState,
+  updateWorkItem,
+  type WorkItemDetail,
+} from "./service";
 
 const SOURCE = "azure_devops";
 
@@ -56,7 +66,7 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
     if (existing) {
       await db.task.update({
         where: { id: existing.id },
-        data: { title: item.title, description: item.description, status: item.status, externalUrl: item.url, projectId },
+        data: { title: item.title, description: item.description, status: item.status, externalUrl: item.url, projectId, tags: "[]" },
       });
       updated += 1;
     } else {
@@ -97,5 +107,45 @@ export async function getAzureDevOpsTaskDetail(externalId: string): Promise<Deta
     return { ok: true, detail };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Failed to load work item details." };
+  }
+}
+
+export type WriteResult = { ok: true } | { ok: false; error: string };
+
+// Push a title/state edit to Azure DevOps, then mirror it onto the local task.
+export async function updateAzureDevOpsWorkItem(
+  externalId: string,
+  rev: number,
+  patch: { title?: string; state?: string },
+  meta: { project: string; type: string },
+): Promise<WriteResult> {
+  try {
+    await updateWorkItem(externalId, rev, patch);
+
+    const data: { title?: string; status?: TaskStatus } = {};
+    if (patch.title !== undefined) data.title = patch.title;
+    if (patch.state !== undefined) {
+      const status = await statusForState(meta.project, meta.type, patch.state);
+      if (status) data.status = status;
+    }
+    if (Object.keys(data).length > 0) {
+      await db.task.updateMany({ where: { source: SOURCE, externalId }, data });
+    }
+
+    revalidatePath("/tasks");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Update failed." };
+  }
+}
+
+export async function addAzureDevOpsComment(externalId: string, project: string, text: string): Promise<WriteResult> {
+  if (!text.trim()) return { ok: false, error: "Comment is empty." };
+  try {
+    await postComment(project, externalId, text.trim());
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Comment failed." };
   }
 }
