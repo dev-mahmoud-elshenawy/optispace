@@ -96,6 +96,8 @@ model Task {
   externalId    String? // id in the source system, unique per source
   externalUrl   String? // link back to the source item
   iterationPath String? // ADO sprint path, e.g. "Canitude\Iteration 2" (source-owned)
+  effort        Float? // ADO estimated effort / original estimate (source-owned; null = unestimated)
+  changedDate   DateTime? // ADO System.ChangedDate — last change in the source (source-owned)
   order       Int       @default(0) // position within its Kanban column
   projectId   String?
   createdAt   DateTime  @default(now())

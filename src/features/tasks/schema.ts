@@ -20,5 +20,5 @@ export const subtaskTitleSchema = z.string().trim().min(1, "Subtask title is req
 export const moveTaskSchema = z.object({
   id: z.string().trim().min(1),
   status: z.enum(TASK_STATUSES),
-  order: z.number().int(),
+  orderedIds: z.array(z.string().trim().min(1)).min(1),
 });

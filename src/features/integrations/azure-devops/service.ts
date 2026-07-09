@@ -4,6 +4,8 @@ import DOMPurify from "isomorphic-dompurify";
 
 import type { TaskStatus } from "@/types";
 
+import type { AdoIdentity } from "./types";
+
 // ── Config (per-user, from .env) ─────────────────────────────────────────────
 export interface AzureDevOpsConfig {
   orgUrl: string;
@@ -42,6 +44,8 @@ export interface WorkItemDTO {
   url: string;
   project: string;
   iterationPath: string | null;
+  effort: number | null; // estimated effort / original estimate; null = unestimated
+  changedDate: string | null; // ADO System.ChangedDate (ISO)
 }
 
 const API = "api-version=7.0";
@@ -103,7 +107,17 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
   const ids = openIds.slice(0, MAX_ITEMS).map((id) => Number(id));
   if (ids.length === 0) return { items: [], openIds, doneIds: [] };
 
-  const fields = ["System.Title", "System.Description", "System.State", "System.WorkItemType", "System.TeamProject", "System.IterationPath"];
+  const fields = [
+    "System.Title",
+    "System.Description",
+    "System.State",
+    "System.WorkItemType",
+    "System.TeamProject",
+    "System.IterationPath",
+    "System.ChangedDate",
+    "Microsoft.VSTS.Scheduling.Effort",
+    "Microsoft.VSTS.Scheduling.OriginalEstimate",
+  ];
   const detailRes = await fetch(`${orgUrl}/_apis/wit/workitems?ids=${ids.join(",")}&fields=${fields.join(",")}&${API}`, { headers });
   if (!detailRes.ok) {
     throw new Error(`Azure DevOps work item fetch failed (${detailRes.status}).`);
@@ -147,6 +161,8 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
       doneIds.push(String(wi.id));
       if (!includeDone) continue;
     }
+    const effortRaw = f["Microsoft.VSTS.Scheduling.Effort"] ?? f["Microsoft.VSTS.Scheduling.OriginalEstimate"];
+    const effort = effortRaw != null && effortRaw !== "" ? Number(effortRaw) : NaN;
     items.push({
       externalId: String(wi.id),
       title: f["System.Title"] ?? `Work item ${wi.id}`,
@@ -155,6 +171,8 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
       url: `${orgUrl}/${encodeURIComponent(project)}/_workitems/edit/${wi.id}`,
       project,
       iterationPath: f["System.IterationPath"] || null,
+      effort: Number.isFinite(effort) ? effort : null,
+      changedDate: f["System.ChangedDate"] ?? null,
     });
   }
   return { items, openIds, doneIds };
@@ -385,6 +403,39 @@ export async function postComment(project: string, externalId: string, text: str
     },
   );
   if (!res.ok) throw new Error(`Adding the comment failed (${res.status}).`);
+}
+
+// Search ADO users for @-mention suggestions via the Identity Picker API.
+// Returns [] on any failure — a suggestion box degrades quietly, no throw.
+export async function searchIdentities(query: string): Promise<AdoIdentity[]> {
+  const config = getAzureDevOpsConfig();
+  const trimmed = query.trim();
+  if (!config || trimmed.length === 0) return [];
+
+  const res = await fetch(`${config.orgUrl}/_apis/IdentityPicker/Identities?api-version=5.0-preview.1`, {
+    method: "POST",
+    headers: { ...authHeaders(config.pat), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query: trimmed,
+      identityTypes: ["user"],
+      operationScopes: ["ims", "source"],
+      properties: ["DisplayName", "Mail"],
+      options: { MinResults: 5, MaxResults: 15 },
+    }),
+  });
+  if (!res.ok) return [];
+
+  const data = (await res.json()) as {
+    results?: { identities?: { localId?: string; displayName?: string; mail?: string; signInAddress?: string }[] }[];
+  };
+  const identities = data.results?.flatMap((r) => r.identities ?? []) ?? [];
+  return identities
+    .filter((i) => i.localId && i.displayName)
+    .map((i) => ({
+      id: i.localId as string,
+      displayName: i.displayName as string,
+      mail: i.mail || i.signInAddress || "",
+    }));
 }
 
 // Fetch attachment bytes with the PAT (used by the media proxy route). The id is

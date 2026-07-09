@@ -82,9 +82,11 @@ interface TaskProjectGroupsProps {
   onTasksChange: (tasks: TaskView[]) => void;
   onEdit: (task: TaskView) => void;
   onDelete: (task: TaskView) => void;
+  onStatusPick?: (task: TaskView) => void;
+  sorted?: boolean;
 }
 
-export function TaskProjectGroups({ tasks, onTasksChange, onEdit, onDelete }: TaskProjectGroupsProps) {
+export function TaskProjectGroups({ tasks, onTasksChange, onEdit, onDelete, onStatusPick, sorted }: TaskProjectGroupsProps) {
   const groups = groupByProject(tasks);
 
   if (groups.length === 0) {
@@ -121,6 +123,8 @@ export function TaskProjectGroups({ tasks, onTasksChange, onEdit, onDelete }: Ta
                 onTasksChange={handleGroupChange}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onStatusPick={onStatusPick}
+                sorted={sorted}
               />
             </div>
           </details>

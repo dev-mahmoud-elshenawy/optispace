@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
 import { PriorityFlag } from "./priority-flag";
 
-export type SortKey = "dueDate" | "priority" | "createdAt";
+export type SortKey = "dueDate" | "priority" | "createdAt" | "changedDate" | "effort";
 
 interface TaskListTableProps {
   tasks: TaskView[];
@@ -50,6 +50,8 @@ export function TaskListTable({
           <TableHead>Status</TableHead>
           <SortableHead label="Priority" active={sortKey === "priority"} desc={sortDesc} onClick={() => onSort("priority")} />
           <SortableHead label="Due date" active={sortKey === "dueDate"} desc={sortDesc} onClick={() => onSort("dueDate")} />
+          <SortableHead label="Effort" active={sortKey === "effort"} desc={sortDesc} onClick={() => onSort("effort")} />
+          <SortableHead label="Changed" active={sortKey === "changedDate"} desc={sortDesc} onClick={() => onSort("changedDate")} />
           <TableHead>Tags</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
@@ -76,6 +78,8 @@ export function TaskListTable({
               <PriorityFlag priority={task.priority} />
             </TableCell>
             <TableCell>{task.dueDate ? format(task.dueDate, "MMM d, yyyy") : "—"}</TableCell>
+            <TableCell className="tabular-nums">{task.effort ?? "—"}</TableCell>
+            <TableCell>{task.changedDate ? format(task.changedDate, "MMM d, yyyy") : "—"}</TableCell>
             <TableCell>
               <div className="flex flex-wrap gap-1">
                 {task.tags.map((tag) => (

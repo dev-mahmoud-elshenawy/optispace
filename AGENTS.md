@@ -49,7 +49,7 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
   into Tasks. Config is **per-user via `.env`** (`AZURE_DEVOPS_*`), never the DB — `service.ts`
   (`server-only`) reads env + fetches (WIQL `@me`, maps by **state category** so custom states work,
   caps 200/sync, skips done unless `INCLUDE_DONE`). `syncAzureDevOps` upserts `Task` by
-  `(source="azure_devops", externalId)` — sync owns title/description/status/externalUrl, never
+  `(source="azure_devops", externalId)` — sync owns title/description/status/externalUrl/effort/changedDate, never
   deletes local tasks. Manual **Sync now** in Settings + a mount/interval **auto-poller** in the
   layout (local-first "background" = while the app is open). `Task.source/externalId/externalUrl`
   link synced rows; synced tasks link to a Development project via `projectId` (not tags — tags are
@@ -60,6 +60,29 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
   concurrency → 412 on conflict); add comments → `postComment`; writes mirror onto the local task.
   Images stream through `/api/devops/attachment` (PAT server-side, GUID-only → no SSRF, safe
   Content-Type allowlist + CSP sandbox). ADO HTML sanitized with DOMPurify (strict allowlist).
+  **@-mentions:** the description + comment fields use `MentionInput` (a contentEditable, not a
+  textarea) — typing `@` queries `searchAzureDevOpsIdentities` (ADO Identity Picker API) and inserts
+  a real `<a data-vss-mention="version:2.0,{guid}">` anchor so ADO notifies the person. Comment/
+  description post as **HTML** (mentions round-trip). Shared `AdoIdentity` type lives in
+  `azure-devops/types.ts` (no `server-only`, so the client can import it). Note: `sanitizeHtml`
+  strips `data-vss-mention` on *display*, so pre-existing mentions render as plain links (cosmetic;
+  posting is unaffected).
+- **Kanban drag/drop** (`tasks/components/task-board.tsx` → `moveTask`): the drop handler
+  renumbers the **whole destination column** contiguously (`moveTask(id, status, orderedIds)`
+  sets order = array index in one `$transaction`) — never persist a lone card's order or
+  siblings collide and cards jump slots. Dropping a card on itself is a no-op. A **cross-column
+  drag of an Azure DevOps task** does NOT flip local status (sync owns it); it calls `onStatusPick`,
+  opening `AzureDevOpsTaskDetail` in `statusOnly` mode — a slim dialog showing only that work item's
+  real ADO state picker + Save (write-back), no title/description/comments. Same-column reorder of a
+  synced task still persists order. (Clicking a card title still opens the full editor via `onEdit`.)
+- **Tasks sort/filter** (`tasks-view.tsx`): top-bar controls apply across Board/Project/Sprint —
+  **status** filter (the stored `status` is already the 3-bucket todo/in_progress/done, so ADO's
+  varied states collapse for free), **sort** (`Manual (drag order)` = Kanban `order`; `Recently
+  changed` = `changedDate ?? updatedAt` desc; `Recently added` = `createdAt` desc), and a **No
+  effort** toggle (DevOps tasks only, `effort == null || 0` — effort is an ADO concept, so local
+  tasks are excluded from this filter). A non-manual sort passes `sorted` to `TaskBoard` so it
+  keeps the given order instead of re-sorting by `order`. The List tab keeps its own column sort
+  (now incl. Effort + Changed columns). DevOps `effort`/`changedDate` come from sync.
 - **Recurring tasks:** `Task.recurrence` (`none|daily|weekly|monthly`). When a task transitions
   to done (via `moveTask` drag or `updateTask`), a recurring task spawns its next occurrence as a
   fresh To Do with the due date advanced (`spawnNextOccurrence` in `tasks/actions.ts`).

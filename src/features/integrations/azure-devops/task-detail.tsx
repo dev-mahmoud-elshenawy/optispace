@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ExternalLink, FileText, Loader2, Paperclip, Save, Send } from "lucide-react";
@@ -10,7 +10,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import {
   addAzureDevOpsComment,
   getAzureDevOpsTaskDetail,
@@ -18,15 +17,26 @@ import {
   type WorkItemPatch,
 } from "@/features/integrations/azure-devops/actions";
 import type { WorkItemDetail } from "@/features/integrations/azure-devops/service";
+import { MentionInput } from "@/features/integrations/azure-devops/mention-input";
 
 interface AzureDevOpsTaskDetailProps {
   externalId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  // Slim mode for drag-to-move: render only the ADO state picker + Save.
+  statusOnly?: boolean;
 }
 
 const htmlBox = "max-w-none text-sm leading-relaxed [&_a]:text-primary [&_a]:underline [&_img]:max-w-full [&_img]:rounded";
 const PRIORITIES = ["1", "2", "3", "4"];
+// ADO priority is numeric (1 = highest … 4 = lowest); show a readable label but
+// keep the number as the stored value so write-back to ADO is unchanged.
+const PRIORITY_LABELS: Record<string, string> = {
+  "1": "1 · Highest",
+  "2": "2 · High",
+  "3": "3 · Medium",
+  "4": "4 · Low",
+};
 
 // Editable form values, seeded from the fetched work item.
 interface Form {
@@ -57,7 +67,7 @@ function toForm(d: WorkItemDetail): Form {
   };
 }
 
-export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureDevOpsTaskDetailProps) {
+export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOnly = false }: AzureDevOpsTaskDetailProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -65,7 +75,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [comment, setComment] = useState("");
-  const descRef = useRef<HTMLDivElement>(null);
+  const [commentKey, setCommentKey] = useState(0); // bump to remount/clear the comment editor after posting
 
   function handleOpenChange(next: boolean) {
     onOpenChange(next);
@@ -96,11 +106,6 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, externalId]);
-
-  // Seed the contentEditable with the rendered HTML when the item (re)loads.
-  useEffect(() => {
-    if (descRef.current) descRef.current.innerHTML = detail?.descriptionHtml ?? "";
-  }, [detail]);
 
   function set<K extends keyof Form>(key: K, value: Form[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -143,13 +148,16 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
   }
 
   async function submitComment() {
-    if (!detail || !comment.trim()) return;
+    // comment is HTML (may contain mention anchors) — check the plain text isn't empty.
+    const text = comment.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+    if (!detail || text.length === 0) return;
     setSaving(true);
     const result = await addAzureDevOpsComment(externalId, detail.project, comment);
     setSaving(false);
     if (result.ok) {
       toast.success("Comment added to Azure DevOps.");
       setComment("");
+      setCommentKey((k) => k + 1); // remount MentionInput so it clears
       await load(); // refetch to show the new comment
     } else {
       toast.error(result.error);
@@ -158,9 +166,11 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className={`max-h-[90vh] overflow-y-auto ${statusOnly ? "sm:max-w-md" : "sm:max-w-4xl"}`}>
         <DialogHeader>
-          <DialogTitle className="pr-6">Work item #{externalId}</DialogTitle>
+          <DialogTitle className="pr-6">
+            {statusOnly ? `Change status · #${externalId}` : `Work item #${externalId}`}
+          </DialogTitle>
         </DialogHeader>
 
         {loading ? (
@@ -171,6 +181,28 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
         {error ? <p className="py-6 text-sm text-destructive">{error}</p> : null}
 
         {detail && form ? (
+          statusOnly ? (
+            <div className="space-y-4 text-sm">
+              <div className="space-y-1.5">
+                <Label>State</Label>
+                <Select value={form.state} onValueChange={(v) => set("state", v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {detail.allowedStates.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={save} disabled={saving || !dirty} size="sm">
+                <Save /> Save to Azure DevOps
+              </Button>
+            </div>
+          ) : (
           <div className="space-y-4 text-sm">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{detail.type}</span>
@@ -236,7 +268,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
                   <SelectContent>
                     {PRIORITIES.map((p) => (
                       <SelectItem key={p} value={p}>
-                        {p}
+                        {PRIORITY_LABELS[p] ?? p}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -257,12 +289,12 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
 
             <div className="space-y-1.5">
               <Label>Description</Label>
-              <div
-                ref={descRef}
-                contentEditable
-                suppressContentEditableWarning
-                onInput={(e) => set("description", e.currentTarget.innerHTML)}
-                className={`min-h-[120px] rounded-lg border border-border p-3 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${htmlBox}`}
+              <MentionInput
+                key={detail.rev}
+                initialHtml={detail.descriptionHtml ?? ""}
+                onChange={(html) => set("description", html)}
+                placeholder="Add a description… use @ to mention"
+                className={`min-h-[120px] ${htmlBox}`}
               />
             </div>
 
@@ -330,12 +362,23 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange }: AzureD
               ) : (
                 <p className="mb-3 text-muted-foreground">No comments.</p>
               )}
-              <Textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Add a comment…" rows={3} />
-              <Button onClick={submitComment} disabled={saving || comment.trim().length === 0} size="sm" className="mt-2">
+              <MentionInput
+                key={`comment-${commentKey}`}
+                onChange={setComment}
+                placeholder="Add a comment… use @ to mention"
+                className="min-h-[80px]"
+              />
+              <Button
+                onClick={submitComment}
+                disabled={saving || comment.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length === 0}
+                size="sm"
+                className="mt-2"
+              >
                 <Send /> Comment
               </Button>
             </section>
           </div>
+          )
         ) : null}
       </DialogContent>
     </Dialog>

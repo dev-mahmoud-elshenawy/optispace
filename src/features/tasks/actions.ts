@@ -135,19 +135,21 @@ export async function deleteTask(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-// ponytail: persists only the dragged card's status+order, not sibling order
-// values in the destination column. Fine for a single-user local app; add a
-// batch reorder action if column order must survive a hard reload exactly.
-export async function moveTask(id: string, status: TaskStatus, order: number): Promise<ActionResult> {
-  const parsed = moveTaskSchema.safeParse({ id, status, order });
+// Renumber the destination column contiguously (orderedIds = the full column
+// order after the drop, dragged card included) so sibling `order` values never
+// collide — a collision is what made cards jump to the wrong slot on reload.
+export async function moveTask(id: string, status: TaskStatus, orderedIds: string[]): Promise<ActionResult> {
+  const parsed = moveTaskSchema.safeParse({ id, status, orderedIds });
   if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
 
   const prior = await db.task.findUnique({ where: { id: parsed.data.id } });
 
-  await db.task.update({
-    where: { id: parsed.data.id },
-    data: { status: parsed.data.status, order: parsed.data.order },
-  });
+  await db.$transaction([
+    db.task.update({ where: { id: parsed.data.id }, data: { status: parsed.data.status } }),
+    ...parsed.data.orderedIds.map((taskId, index) =>
+      db.task.update({ where: { id: taskId }, data: { order: index } }),
+    ),
+  ]);
 
   if (prior && prior.status !== TASK_STATUSES[2] && parsed.data.status === TASK_STATUSES[2] && prior.recurrence !== "none") {
     await spawnNextOccurrence(prior);

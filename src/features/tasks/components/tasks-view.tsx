@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
-import type { TaskView } from "@/features/tasks/service";
+import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
+import { TASK_STATUSES, type TaskStatus } from "@/types";
 
 import { DeleteTaskDialog } from "./delete-task-dialog";
 import { TaskBoard } from "./task-board";
@@ -35,6 +36,10 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
   const [editingTask, setEditingTask] = useState<TaskView | null>(null);
   const [deletingTask, setDeletingTask] = useState<TaskView | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null); // open DevOps popup for this externalId
+  const [detailStatusOnly, setDetailStatusOnly] = useState(false); // drag-to-move opens a slim state picker
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | typeof ALL>(ALL);
+  const [sort, setSort] = useState<"manual" | "changed" | "added">("manual");
+  const [noEffort, setNoEffort] = useState(false); // show only tasks with no effort/estimate
 
   // Server actions revalidate the route; sync local state once fresh props arrive.
   useEffect(() => setTasks(initialTasks), [initialTasks]);
@@ -54,9 +59,26 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
       (t) =>
         (projectFilter === ALL ||
           (projectFilter === NO_PROJECT ? !t.projectId : t.projectId === projectFilter)) &&
+        (statusFilter === ALL || t.status === statusFilter) &&
+        (!noEffort || (t.source === "azure_devops" && (t.effort == null || t.effort === 0))) &&
         (query === "" || t.title.toLowerCase().includes(query)),
     );
-  }, [tasks, search, projectFilter]);
+  }, [tasks, search, projectFilter, statusFilter, noEffort]);
+
+  // Applied sort. "manual" keeps the Kanban order (board stays drag-orderable);
+  // "changed" = most recently changed in ADO (falls back to local updatedAt);
+  // "added" = newest first by creation. Sorting overrides board order by design.
+  const viewTasks = useMemo(() => {
+    if (sort === "manual") return filteredTasks;
+    const arr = [...filteredTasks];
+    if (sort === "added") {
+      arr.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    } else {
+      const changed = (t: TaskView) => (t.changedDate ?? t.updatedAt).getTime();
+      arr.sort((a, b) => changed(b) - changed(a));
+    }
+    return arr;
+  }, [filteredTasks, sort]);
 
   // The board hands back only the tasks it was given (the filtered subset); merge
   // by id so tasks hidden by the filter are never dropped from the full state.
@@ -73,11 +95,20 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
   // Synced (DevOps) tasks open the DevOps editor everywhere; local tasks use the form.
   function openEdit(task: TaskView) {
     if (task.source === "azure_devops" && task.externalId) {
+      setDetailStatusOnly(false);
       setDetailId(task.externalId);
       return;
     }
     setEditingTask(task);
     setFormOpen(true);
+  }
+
+  // Cross-column drag of a DevOps task: open the slim state picker (writes back to ADO).
+  function openStatusPick(task: TaskView) {
+    if (task.source === "azure_devops" && task.externalId) {
+      setDetailStatusOnly(true);
+      setDetailId(task.externalId);
+    }
   }
 
   return (
@@ -113,6 +144,34 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
                 </SelectContent>
               </Select>
             ) : null}
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as TaskStatus | typeof ALL)}>
+              <SelectTrigger size="sm">
+                <SelectValue>{statusFilter === ALL ? "All statuses" : STATUS_LABELS[statusFilter]}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All statuses</SelectItem>
+                {TASK_STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {STATUS_LABELS[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={sort} onValueChange={(v) => setSort(v as typeof sort)}>
+              <SelectTrigger size="sm">
+                <SelectValue>
+                  {sort === "manual" ? "Manual (drag order)" : sort === "changed" ? "Recently changed" : "Recently added"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">Manual (drag order)</SelectItem>
+                <SelectItem value="changed">Recently changed</SelectItem>
+                <SelectItem value="added">Recently added</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant={noEffort ? "default" : "outline"} size="sm" onClick={() => setNoEffort((v) => !v)}>
+              No effort
+            </Button>
             <Button onClick={openCreate}>
               <PlusIcon />
               Add Task
@@ -121,20 +180,20 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
         </div>
 
         <TabsContent value="board" className="mt-4">
-          <TaskBoard tasks={filteredTasks} onTasksChange={handleTasksChange} onEdit={openEdit} onDelete={setDeletingTask} />
+          <TaskBoard tasks={viewTasks} sorted={sort !== "manual"} onTasksChange={handleTasksChange} onEdit={openEdit} onDelete={setDeletingTask} onStatusPick={openStatusPick} />
         </TabsContent>
 
         <TabsContent value="list" className="mt-4">
-          <TaskList tasks={filteredTasks} projectOptions={projectOptions} onEdit={openEdit} onDelete={setDeletingTask} />
+          <TaskList tasks={viewTasks} projectOptions={projectOptions} onEdit={openEdit} onDelete={setDeletingTask} />
         </TabsContent>
 
         <TabsContent value="project" className="mt-4">
-          <TaskProjectGroups tasks={filteredTasks} onTasksChange={handleTasksChange} onEdit={openEdit} onDelete={setDeletingTask} />
+          <TaskProjectGroups tasks={viewTasks} sorted={sort !== "manual"} onTasksChange={handleTasksChange} onEdit={openEdit} onDelete={setDeletingTask} onStatusPick={openStatusPick} />
         </TabsContent>
 
         {hasSprintTasks ? (
           <TabsContent value="sprint" className="mt-4">
-            <TaskSprintGroups tasks={filteredTasks} onEdit={openEdit} onDelete={setDeletingTask} />
+            <TaskSprintGroups tasks={viewTasks} onEdit={openEdit} onDelete={setDeletingTask} />
           </TabsContent>
         ) : null}
       </Tabs>
@@ -160,8 +219,12 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
         <AzureDevOpsTaskDetail
           externalId={detailId}
           open
+          statusOnly={detailStatusOnly}
           onOpenChange={(open) => {
-            if (!open) setDetailId(null);
+            if (!open) {
+              setDetailId(null);
+              setDetailStatusOnly(false);
+            }
           }}
         />
       ) : null}

@@ -15,6 +15,10 @@ interface TaskBoardProps {
   onTasksChange: (tasks: TaskView[]) => void;
   onEdit: (task: TaskView) => void;
   onDelete: (task: TaskView) => void;
+  // Cross-column drag of a DevOps task calls this (slim state picker) if given.
+  onStatusPick?: (task: TaskView) => void;
+  // When true, keep the given task order (a chosen sort) instead of Kanban order.
+  sorted?: boolean;
   id?: string;
 }
 
@@ -23,7 +27,7 @@ function statusOf(id: string, tasks: TaskView[]): TaskStatus | null {
   return tasks.find((t) => t.id === id)?.status ?? null;
 }
 
-export function TaskBoard({ tasks, onTasksChange, onEdit, onDelete, id = "task-board" }: TaskBoardProps) {
+export function TaskBoard({ tasks, onTasksChange, onEdit, onDelete, onStatusPick, sorted = false, id = "task-board" }: TaskBoardProps) {
   const [, startTransition] = useTransition();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -31,32 +35,48 @@ export function TaskBoard({ tasks, onTasksChange, onEdit, onDelete, id = "task-b
     const { active, over } = event;
     if (!over) return;
 
+    const overId = String(over.id);
+    if (overId === String(active.id)) return; // dropped on itself — no-op
+
     const activeTask = tasks.find((t) => t.id === active.id);
-    const targetStatus = statusOf(String(over.id), tasks);
+    const targetStatus = statusOf(overId, tasks);
     if (!activeTask || !targetStatus) return;
 
-    const overId = String(over.id);
+    // Azure DevOps owns the status, and a 3-column board can't pick the specific
+    // ADO state. So a cross-column drag of a synced task opens the detail editor's
+    // state picker (real allowed states, writes back to ADO) instead of silently
+    // flipping local status. Same-column reordering still falls through below.
+    if (targetStatus !== activeTask.status && activeTask.source === "azure_devops") {
+      (onStatusPick ?? onEdit)(activeTask);
+      return;
+    }
+
     const destTasks = tasks
       .filter((t) => t.status === targetStatus && t.id !== activeTask.id)
       .sort((a, b) => a.order - b.order);
     const overIndex = overId.startsWith("column-") ? -1 : destTasks.findIndex((t) => t.id === overId);
     const insertIndex = overIndex === -1 ? destTasks.length : overIndex;
 
+    // Rebuild the destination column with the dragged card inserted, then assign
+    // contiguous orders so sibling positions never collide (the reorder bug).
+    const orderedIds = destTasks.map((t) => t.id);
+    orderedIds.splice(insertIndex, 0, activeTask.id);
+    const orderOf = new Map(orderedIds.map((id, index) => [id, index]));
+
     const previousTasks = tasks;
-    const updatedTasks = tasks.map((t) =>
-      t.id === activeTask.id ? { ...t, status: targetStatus, order: insertIndex } : t
-    );
+    const updatedTasks = tasks.map((t) => {
+      if (t.id === activeTask.id) return { ...t, status: targetStatus, order: orderOf.get(t.id) ?? t.order };
+      return orderOf.has(t.id) ? { ...t, order: orderOf.get(t.id) as number } : t;
+    });
     onTasksChange(updatedTasks);
 
-    if (activeTask.status !== targetStatus || activeTask.order !== insertIndex) {
-      startTransition(async () => {
-        const result = await moveTask(activeTask.id, targetStatus, insertIndex);
-        if (!result.ok) {
-          toast.error(result.error);
-          onTasksChange(previousTasks);
-        }
-      });
-    }
+    startTransition(async () => {
+      const result = await moveTask(activeTask.id, targetStatus, orderedIds);
+      if (!result.ok) {
+        toast.error(result.error);
+        onTasksChange(previousTasks);
+      }
+    });
   }
 
   return (
@@ -66,7 +86,11 @@ export function TaskBoard({ tasks, onTasksChange, onEdit, onDelete, id = "task-b
           <TaskColumn
             key={status}
             status={status}
-            tasks={tasks.filter((t) => t.status === status).sort((a, b) => a.order - b.order)}
+            tasks={
+              sorted
+                ? tasks.filter((t) => t.status === status)
+                : tasks.filter((t) => t.status === status).sort((a, b) => a.order - b.order)
+            }
             onEdit={onEdit}
             onDelete={onDelete}
           />

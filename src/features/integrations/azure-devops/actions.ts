@@ -11,10 +11,12 @@ import {
   fetchWorkItemDetail,
   getAzureDevOpsConfig,
   postComment,
+  searchIdentities,
   statusForState,
   updateWorkItem,
   type WorkItemDetail,
 } from "./service";
+import type { AdoIdentity } from "./types";
 
 const SOURCE = "azure_devops";
 
@@ -73,6 +75,8 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
           status: item.status,
           externalUrl: item.url,
           iterationPath: item.iterationPath,
+          effort: item.effort,
+          changedDate: item.changedDate ? new Date(item.changedDate) : null,
           projectId,
           tags: "[]",
         },
@@ -92,6 +96,8 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
           externalId: item.externalId,
           externalUrl: item.url,
           iterationPath: item.iterationPath,
+          effort: item.effort,
+          changedDate: item.changedDate ? new Date(item.changedDate) : null,
           projectId,
         },
       });
@@ -210,6 +216,17 @@ export async function updateAzureDevOpsWorkItem(
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Update failed." };
+  }
+}
+
+// @-mention autocomplete: search ADO users by the typed query. Config-gated,
+// returns [] when ADO isn't set up so the suggestion box just stays empty.
+export async function searchAzureDevOpsIdentities(query: string): Promise<AdoIdentity[]> {
+  if (!getAzureDevOpsConfig()) return [];
+  try {
+    return await searchIdentities(query);
+  } catch {
+    return [];
   }
 }
 

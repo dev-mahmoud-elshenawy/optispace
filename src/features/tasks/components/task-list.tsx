@@ -48,6 +48,8 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListPr
       let diff = 0;
       if (sortKey === "dueDate") diff = (a.dueDate?.getTime() ?? 0) - (b.dueDate?.getTime() ?? 0);
       else if (sortKey === "priority") diff = PRIORITY_WEIGHT[a.priority] - PRIORITY_WEIGHT[b.priority];
+      else if (sortKey === "changedDate") diff = (a.changedDate ?? a.updatedAt).getTime() - (b.changedDate ?? b.updatedAt).getTime();
+      else if (sortKey === "effort") diff = (a.effort ?? -1) - (b.effort ?? -1);
       else diff = a.createdAt.getTime() - b.createdAt.getTime();
       return sortDesc ? -diff : diff;
     });
