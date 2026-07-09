@@ -111,6 +111,21 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
   null rows are candidates). Detection runs inside the ADO **auto-poller** (`auto-sync.tsx`,
   every 2 min while the app is open) — the local-first stand-in for a webhook (no public URL). Soft-delete like every module. "Real
   time" here means *while the app/dev server is open* — no webhook, no tunnel, no daemon.
+- **Calendar** (`features/calendar`): meetings from a published **ICS feed** (Outlook/Teams →
+  Publish calendar → ICS link), per-user via `.env` `CALENDAR_ICS_URL`. **DB-cached, not live:**
+  `syncCalendar` (in `actions.ts`) fetches + parses the ICS with **node-ical** (RRULE/exdate/overrides
+  expanded over a rolling window, −31d…+186d), then upserts the `CalendarEvent` cache — updating only
+  rows whose `fingerprint` changed and soft-deleting occurrences that left the feed. It runs inside
+  the **background poller** (`auto-sync.tsx`, alongside `syncAzureDevOps`), which dispatches
+  `optispace:calendar-updated` + `router.refresh()` when the cache changed. Reads are DB-only and
+  instant: `getCalendarRange` (client, via action) + `todayCalendarEvents` (dashboard, `server-only`
+  queries) → client-safe `CalendarEventDTO` (ISO dates). `/calendar` is an **Outlook-style month grid
+  + day view** (`CalendarView`) that fetches the whole window **once** and navigates in-memory (no
+  per-month refetch), re-reading only on the `calendar-updated` event. Times are AM/PM. **Attendees/
+  organizer** show only if the feed includes them — published Outlook feeds usually strip them
+  (privacy), so they're often empty; Graph/OAuth would be needed for real attendee lists.
+  **node-ical must stay in `serverExternalPackages`** (next.config) — Turbopack-bundling it crashes
+  on `@js-temporal/polyfill` (`BigInt is not a function`).
 - **Recurring tasks:** `Task.recurrence` (`none|daily|weekly|monthly`). When a task transitions
   to done (via `moveTask` drag or `updateTask`), a recurring task spawns its next occurrence as a
   fresh To Do with the due date advanced (`spawnNextOccurrence` in `tasks/actions.ts`).

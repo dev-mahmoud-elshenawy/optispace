@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, CalendarDays, Link2, ListChecks, GitBranch, Package, Archive, Settings, Bell } from "lucide-react";
+import { LayoutDashboard, CalendarDays, CalendarClock, Link2, ListChecks, GitBranch, Package, Archive, Settings, Bell } from "lucide-react";
 
 export interface NavItem {
   label: string;
@@ -18,6 +18,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     items: [
       { label: "Dashboard", href: "/", icon: LayoutDashboard },
+      { label: "Calendar", href: "/calendar", icon: CalendarClock },
       { label: "Notifications", href: "/notifications", icon: Bell },
     ],
   },

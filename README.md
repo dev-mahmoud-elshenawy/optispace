@@ -47,6 +47,7 @@ private app that runs entirely on your machine. One workspace. Everything in its
 | 📦 **Packages** | Published npm / pub.dev packages with on-demand live stats, source/language/tag filters + update-available badge |
 | 🔄 **Azure DevOps sync** | Imports work items assigned to you into Tasks (configure `AZURE_DEVOPS_*` in `.env`); manual Sync now + auto-sync while the app is open |
 | 🔔 **Notifications** | Bell in the sidebar + a full list + dashboard widget for Azure DevOps assignments and @mentions, with desktop push notifications while the app is open |
+| 📅 **Calendar** | Agenda of your Outlook/Teams meetings from a published ICS feed (`CALENDAR_ICS_URL` in `.env`); today's meetings also surface on the dashboard |
 | ♻️ **Archive** | Everything deleted lands here — restore it or permanently purge |
 | ⚙️ **Settings** | One-click backup export / import of your whole workspace |
 

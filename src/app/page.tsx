@@ -3,7 +3,7 @@ import { format } from "date-fns";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, ListChecks, GitBranch, Package as PackageIcon, ExternalLink, ArrowUpRight, Activity, Link2, Sun, Bell } from "lucide-react";
+import { CalendarDays, ListChecks, GitBranch, Package as PackageIcon, ExternalLink, ArrowUpRight, Activity, Link2, Sun, Bell, Clock } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import type { ReactNode } from "react";
 import { listProfiles } from "@/features/profiles/queries";
@@ -14,13 +14,17 @@ import { listProjects } from "@/features/projects/queries";
 import { countPackages } from "@/features/packages/queries";
 import { recentNotifications, unreadNotificationCount } from "@/features/notifications/queries";
 import { notificationActor, notificationTitle, type NotificationView } from "@/features/notifications/service";
+import { todayCalendarEvents } from "@/features/calendar/queries";
+import type { CalendarEventDTO } from "@/features/calendar/types";
 import { DashboardCharts } from "@/features/dashboard/components/dashboard-charts";
 import type { TaskStatus } from "@/types";
 
 export default async function DashboardPage() {
   const now = new Date();
   const year = now.getFullYear();
-  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount] = await Promise.all([
+  const startToday = new Date(year, now.getMonth(), now.getDate());
+  const endToday = new Date(year, now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents] = await Promise.all([
     listProfiles(),
     getLeaveSummary(year),
     getTaskStatusCounts(),
@@ -30,18 +34,17 @@ export default async function DashboardPage() {
     listTasks(),
     recentNotifications(),
     unreadNotificationCount(),
+    todayCalendarEvents(startToday, endToday),
   ]);
 
   const openTasks = taskCounts.todo + taskCounts.in_progress;
   const activeProjects = projects.filter((p) => p.status === "active");
 
-  const startToday = new Date(year, now.getMonth(), now.getDate());
   const recentTasks = tasks
     .filter((t) => t.status !== "done")
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
     .slice(0, 5);
 
-  const endToday = new Date(year, now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const dueTodayOrOverdue = tasks
     .filter((t) => t.status !== "done" && t.dueDate !== null && t.dueDate <= endToday)
     .sort((a, b) => (a.dueDate as Date).getTime() - (b.dueDate as Date).getTime());
@@ -90,28 +93,43 @@ export default async function DashboardPage() {
                 <span className="ml-auto text-xs text-muted-foreground">until {format(l.endDate, "MMM d")}</span>
               </div>
             ))}
-            {dueTodayOrOverdue.length === 0 && onLeaveToday.length === 0 ? (
+
+            {todayEvents.length > 0 ? (
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Meetings</p>
+                {todayEvents.map((e) => (
+                  <MeetingRow key={e.id} event={e} />
+                ))}
+              </div>
+            ) : null}
+
+            {dueTodayOrOverdue.length > 0 ? (
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Tasks due</p>
+                {dueTodayOrOverdue.map((t) => {
+                  const overdue = (t.dueDate as Date) < startToday;
+                  return (
+                    <div key={t.id} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className={`size-2 shrink-0 rounded-full ${TASK_DOT_CLASS[t.status]}`} />
+                        <span className="truncate">{t.title}</span>
+                      </span>
+                      <span
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
+                          overdue ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary"
+                        }`}
+                      >
+                        {overdue ? `Overdue · ${format(t.dueDate as Date, "MMM d")}` : "Due today"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {todayEvents.length === 0 && dueTodayOrOverdue.length === 0 && onLeaveToday.length === 0 ? (
               <p className="py-2 text-sm text-muted-foreground">Nothing due today — you&rsquo;re all clear.</p>
-            ) : (
-              dueTodayOrOverdue.map((t) => {
-                const overdue = (t.dueDate as Date) < startToday;
-                return (
-                  <div key={t.id} className="flex items-center justify-between gap-2 text-sm">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className={`size-2 shrink-0 rounded-full ${TASK_DOT_CLASS[t.status]}`} />
-                      <span className="truncate">{t.title}</span>
-                    </span>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
-                        overdue ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary"
-                      }`}
-                    >
-                      {overdue ? `Overdue · ${format(t.dueDate as Date, "MMM d")}` : "Due today"}
-                    </span>
-                  </div>
-                );
-              })
-            )}
+            ) : null}
           </CardContent>
         </Card>
 
@@ -281,6 +299,21 @@ function RecentTaskRow({ task }: { task: TaskView }) {
       <span className="shrink-0 text-xs text-muted-foreground">
         {task.projectName ?? STATUS_LABELS[task.status]}
       </span>
+    </div>
+  );
+}
+
+function MeetingRow({ event }: { event: CalendarEventDTO }) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <Clock className="h-3.5 w-3.5 shrink-0 text-primary" />
+      <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
+        {event.allDay ? "All day" : format(new Date(event.start), "h:mm a")}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{event.title}</span>
+      {event.location ? (
+        <span className="shrink-0 truncate text-xs text-muted-foreground max-w-[40%]">{event.location}</span>
+      ) : null}
     </div>
   );
 }

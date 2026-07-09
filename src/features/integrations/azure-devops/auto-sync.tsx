@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { syncAzureDevOps } from "@/features/integrations/azure-devops/actions";
+import { syncCalendar } from "@/features/calendar/actions";
 
 const INTERVAL_MS = 2 * 60 * 1000; // 2 minutes — near-real-time detection of new
 // assignments/mentions (local-first: a webhook would need a public URL, so a short
@@ -38,15 +39,18 @@ export function AzureDevOpsAutoSync({ enabled }: { enabled: boolean }) {
       if (running.current || !claimSync()) return;
       running.current = true;
       try {
-        const result = await syncAzureDevOps();
-        if (cancelled || !result.ok) return;
-        if (result.imported > 0 || result.updated > 0 || result.pruned > 0 || result.notified > 0) {
+        // Sync ADO (tasks + notifications) and the calendar cache together.
+        const [ado, cal] = await Promise.all([syncAzureDevOps(), syncCalendar()]);
+        if (cancelled) return;
+        const adoChanged = ado.ok && (ado.imported > 0 || ado.updated > 0 || ado.pruned > 0 || ado.notified > 0);
+        const calChanged = cal.ok && cal.changed > 0;
+        if (adoChanged || calChanged) {
           router.refresh();
         }
-        // Tell the bell to re-poll immediately (counter + desktop push) instead of
-        // waiting for its next 60s tick — this is what removes the "refresh twice" lag.
-        if (result.notified > 0 && typeof window !== "undefined") {
-          window.dispatchEvent(new Event("optispace:notifications-updated"));
+        if (typeof window !== "undefined") {
+          // Nudge the bell (counter + desktop push) and the calendar view to re-read.
+          if (ado.ok && ado.notified > 0) window.dispatchEvent(new Event("optispace:notifications-updated"));
+          if (calChanged) window.dispatchEvent(new Event("optispace:calendar-updated"));
         }
       } finally {
         running.current = false;

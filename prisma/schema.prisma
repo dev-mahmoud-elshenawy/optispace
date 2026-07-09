@@ -147,6 +147,26 @@ model Notification {
   @@index([createdAt])
 }
 
+// ── Calendar cache (synced from the ICS feed) ────────────────
+// Expanded occurrences within a rolling window, refreshed by syncCalendar.
+// fingerprint lets sync update only rows whose content actually changed.
+model CalendarEvent {
+  id          String    @id @default(cuid())
+  dedupeKey   String    @unique // uid + occurrence start
+  title       String
+  start       DateTime
+  end         DateTime
+  location    String?
+  organizer   String?
+  attendees   String    @default("[]") // JSON array of display names
+  allDay      Boolean   @default(false)
+  fingerprint String // hash of content fields → skip unchanged rows
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([start])
+}
+
 // ── Packages ─────────────────────────────────────────────────
 model Package {
   id             String  @id @default(cuid())
