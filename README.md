@@ -4,8 +4,9 @@
 
 **A local-first workspace for a mobile team lead & open-source developer.**
 
-OptiSpace keeps your leave, tasks, projects, packages, and reference files in one fast,
-private app that runs entirely on your machine. One workspace. Everything in its place.
+OptiSpace unifies your tasks, projects, packages, leave, and reference files — and pulls in your
+**Azure DevOps work items**, **@mention notifications**, and **Outlook/Teams calendar** — in one
+fast, private app that runs entirely on your machine. One workspace. Everything in its place.
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/) [![Prisma](https://img.shields.io/badge/Prisma-SQLite-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io/) [![Tailwind](https://img.shields.io/badge/Tailwind-v4-38BDF8?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/) ![Local-first](https://img.shields.io/badge/Local--first-single%20user-1A6BD4) [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
@@ -17,21 +18,39 @@ private app that runs entirely on your machine. One workspace. Everything in its
 
 ---
 
+## 💡 Who it's for
+
+You're a developer or team lead whose day is scattered across Azure DevOps, Outlook, a task
+board, and a dozen browser tabs — and things slip: an `@mention` buried in email, a task tracked
+in three places, a project's `.env` and server logins living in random notes.
+
+**OptiSpace pulls it into one private app on your machine:**
+
+- Your ADO work items become tasks, and assignments/@mentions hit you with **desktop alerts** — the Outlook threads you overlook stop slipping through.
+- Every project carries its own files, credentialed links, and client feedback in **one hub** — no more hunting.
+- Today's meetings, due tasks, and unread mentions land on **one dashboard**.
+
+No cloud, no accounts, nothing leaving your laptop. Fast, focused, and entirely yours.
+
+---
+
 ## 🔥 Why OptiSpace?
 
 - **Local-First & Private** — runs entirely on your machine; no auth, no cloud, no tracking
 
-- **One Workspace** — leave, tasks, projects, packages, profiles, and files in a single app
+- **Azure DevOps, two-way** — work items assigned to you sync into Tasks; edit state, comments, and real `@`-mentions straight back to ADO
 
-- **Nothing Is Ever Lost** — soft delete everywhere; restore anything from the Archive
+- **Notifications you won't miss** — assignments & @mentions surfaced in-app with browser **desktop push** (the Outlook emails you overlook)
 
-- **Notion-Style Tasks** — Kanban board, list, and by-project views with drag & drop
+- **Calendar built in** — your Outlook/Teams meetings (published ICS) in a month/day view; today's agenda on the dashboard
 
-- **Per-Project Hub** — keep everything for a project in one place: files (`.env`, keystores), release/dashboard/server links with credentials, and client feedback
+- **Notion-Style Tasks** — Kanban / list / by-project views, drag & drop, subtasks, recurring tasks, sprint grouping
 
-- **Full Backup & Restore** — export your entire workspace (records + files) to one JSON
+- **Per-Project Hub** — files (`.env`, keystores), release/dashboard/server links with credentials, and client feedback — all per project
 
-- **Dark, Branded UI** — `#0D1117 → #00D9FF`, tuned typography, tasteful animations
+- **Nothing Is Ever Lost** — soft delete everywhere; restore anything from the Archive · full workspace **backup/restore** to one JSON
+
+- **Fast to navigate** — `⌘K` command palette jumps to any page or record; dark, branded UI
 
 ---
 
@@ -65,6 +84,17 @@ npx prisma migrate dev   # create local SQLite DB + run migrations
 npm run seed             # optional: sample data
 npm run dev              # → http://localhost:3000
 ```
+
+### 🔌 Optional integrations
+
+Copy `.env.example` → `.env` and fill in only what you want. Restart `npm run dev` after editing.
+
+| Integration | Env vars | What you get |
+|-------------|----------|--------------|
+| **Azure DevOps** | `AZURE_DEVOPS_ORG_URL`, `AZURE_DEVOPS_PAT` *(Work Items: Read)* | Your assigned work items in Tasks + assignment/@mention notifications. Use a **Read & Write** PAT to edit state/comments back. |
+| **Calendar** | `CALENDAR_ICS_URL` | Outlook/Teams agenda (Settings → Calendar → **Publish a calendar** → copy the ICS link). |
+
+Both are optional — leave the vars blank to hide the feature. No keys committed; `.env` is git-ignored.
 
 ---
 

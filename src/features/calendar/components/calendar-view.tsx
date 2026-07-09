@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  addDays,
   addMonths,
   eachDayOfInterval,
   endOfMonth,
@@ -83,6 +84,17 @@ export function CalendarView() {
     setSelectedDay(today);
   }
 
+  // Prev/next steps by day in day view, by month in month view.
+  function step(delta: number) {
+    if (view === "day") {
+      const next = addDays(selectedDay, delta);
+      setSelectedDay(next);
+      setCursor(next); // keep the month aligned so the cached window covers it
+    } else {
+      setCursor(addMonths(cursor, delta));
+    }
+  }
+
   function openDay(day: Date) {
     setSelectedDay(day);
     setView("day");
@@ -93,13 +105,13 @@ export function CalendarView() {
       {/* Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon-sm" onClick={() => setCursor((c) => addMonths(c, -1))} aria-label="Previous month">
+          <Button variant="outline" size="icon-sm" onClick={() => step(-1)} aria-label={view === "day" ? "Previous day" : "Previous month"}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <Button variant="outline" size="sm" onClick={goToday}>
             Today
           </Button>
-          <Button variant="outline" size="icon-sm" onClick={() => setCursor((c) => addMonths(c, 1))} aria-label="Next month">
+          <Button variant="outline" size="icon-sm" onClick={() => step(1)} aria-label={view === "day" ? "Next day" : "Next month"}>
             <ChevronRight className="h-4 w-4" />
           </Button>
           <h2 className="ml-1 font-heading text-lg font-semibold tracking-tight">
