@@ -157,22 +157,27 @@ export function NotificationBell() {
           <p className="px-2 py-4 text-center text-sm text-muted-foreground">No notifications yet.</p>
         ) : (
           feed.recent.map((row) => (
-            <DropdownMenuItem key={row.id} asChild className="cursor-pointer">
+            <DropdownMenuItem key={row.id} asChild className="cursor-pointer p-0">
               <a
                 href={row.url}
                 target="_blank"
                 rel="noreferrer"
                 onClick={() => handleOpenRow(row)}
-                className="flex flex-col items-start gap-0.5 py-2"
+                className={cn(
+                  "flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-2 text-left",
+                  !row.read && "bg-primary/5",
+                )}
               >
-                <span className="flex w-full items-center gap-1.5">
-                  <span className={cn("size-1.5 shrink-0 rounded-full", row.read ? "bg-transparent" : "bg-primary")} />
-                  <span className="truncate text-xs font-medium text-foreground">{notificationTitle(row)}</span>
-                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                <div className="flex w-full items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {!row.read ? <span className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}
+                    <span className="truncate text-xs font-semibold text-muted-foreground">{notificationTitle(row)}</span>
+                  </span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
                     {formatDistanceToNow(row.occurredAt ?? row.createdAt, { addSuffix: true })}
                   </span>
-                </span>
-                <span className="w-full truncate text-sm">{row.title}</span>
+                </div>
+                <span className="line-clamp-1 w-full text-sm font-medium text-foreground">{row.title}</span>
                 <span className="w-full truncate text-xs text-muted-foreground">{notificationActor(row)}</span>
               </a>
             </DropdownMenuItem>

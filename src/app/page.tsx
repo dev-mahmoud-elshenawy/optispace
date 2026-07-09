@@ -10,18 +10,17 @@ import { listProfiles } from "@/features/profiles/queries";
 import { getLeaveSummary, listLeaves } from "@/features/leave/queries";
 import { getTaskStatusCounts, listTasks } from "@/features/tasks/queries";
 import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
-import type { LeaveView } from "@/features/leave/service";
 import { listProjects } from "@/features/projects/queries";
 import { countPackages } from "@/features/packages/queries";
-import { recentNotifications } from "@/features/notifications/queries";
-import { notificationActor, type NotificationView } from "@/features/notifications/service";
+import { recentNotifications, unreadNotificationCount } from "@/features/notifications/queries";
+import { notificationActor, notificationTitle, type NotificationView } from "@/features/notifications/service";
 import { DashboardCharts } from "@/features/dashboard/components/dashboard-charts";
 import type { TaskStatus } from "@/types";
 
 export default async function DashboardPage() {
   const now = new Date();
   const year = now.getFullYear();
-  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications] = await Promise.all([
+  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount] = await Promise.all([
     listProfiles(),
     getLeaveSummary(year),
     getTaskStatusCounts(),
@@ -30,16 +29,13 @@ export default async function DashboardPage() {
     listLeaves(year),
     listTasks(),
     recentNotifications(),
+    unreadNotificationCount(),
   ]);
 
   const openTasks = taskCounts.todo + taskCounts.in_progress;
   const activeProjects = projects.filter((p) => p.status === "active");
 
   const startToday = new Date(year, now.getMonth(), now.getDate());
-  const upcomingLeave = leaves
-    .filter((l) => l.endDate >= startToday)
-    .sort((a, b) => a.startDate.getTime() - b.startDate.getTime())
-    .slice(0, 3);
   const recentTasks = tasks
     .filter((t) => t.status !== "done")
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
@@ -75,68 +71,77 @@ export default async function DashboardPage() {
         <StatCard href="/packages" icon={<PackageIcon className="h-5 w-5" />} label="Packages" value={`${packageCount}`} sub="published" delay={225} />
       </div>
 
-      <Card className={`mt-6 border-border/60 transition-colors hover:border-border ${enter}`} style={{ animationDelay: "100ms" }}>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <IconChip>
-              <Sun className="h-3.5 w-3.5" />
-            </IconChip>
-            Today
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {onLeaveToday.map((l) => (
-            <div key={l.id} className="flex items-center gap-2 text-sm">
-              <CalendarDays className="h-4 w-4 text-primary" />
-              <span>On leave today</span>
-              <span className="ml-auto text-xs text-muted-foreground">until {format(l.endDate, "MMM d")}</span>
-            </div>
-          ))}
-          {dueTodayOrOverdue.length === 0 && onLeaveToday.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nothing due today — you&rsquo;re all clear.</p>
-          ) : (
-            dueTodayOrOverdue.map((t) => {
-              const overdue = (t.dueDate as Date) < startToday;
-              return (
-                <div key={t.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className={`size-2 shrink-0 rounded-full ${TASK_DOT_CLASS[t.status]}`} />
-                    <span className="truncate">{t.title}</span>
-                  </span>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
-                      overdue ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary"
-                    }`}
-                  >
-                    {overdue ? `Overdue · ${format(t.dueDate as Date, "MMM d")}` : "Due today"}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </CardContent>
-      </Card>
-
-      <div className={`mt-6 grid gap-6 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "150ms" }}>
+      {/* Needs attention now — Today + Notifications side by side */}
+      <div className={`mt-6 grid gap-6 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "100ms" }}>
         <Card className="border-border/60 transition-colors hover:border-border">
-          <CardHeader className="flex-row items-center justify-between">
+          <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <IconChip>
-                <CalendarDays className="h-3.5 w-3.5" />
+                <Sun className="h-3.5 w-3.5" />
               </IconChip>
-              Upcoming leave
+              Today
             </CardTitle>
-            <ViewAllLink href="/leave" />
           </CardHeader>
-          <CardContent className="space-y-1">
-            {upcomingLeave.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No upcoming leave scheduled.</p>
+          <CardContent className="space-y-2">
+            {onLeaveToday.map((l) => (
+              <div key={l.id} className="flex items-center gap-2 text-sm">
+                <CalendarDays className="h-4 w-4 text-primary" />
+                <span>On leave today</span>
+                <span className="ml-auto text-xs text-muted-foreground">until {format(l.endDate, "MMM d")}</span>
+              </div>
+            ))}
+            {dueTodayOrOverdue.length === 0 && onLeaveToday.length === 0 ? (
+              <p className="py-2 text-sm text-muted-foreground">Nothing due today — you&rsquo;re all clear.</p>
             ) : (
-              upcomingLeave.map((l) => <UpcomingLeaveRow key={l.id} leave={l} />)
+              dueTodayOrOverdue.map((t) => {
+                const overdue = (t.dueDate as Date) < startToday;
+                return (
+                  <div key={t.id} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className={`size-2 shrink-0 rounded-full ${TASK_DOT_CLASS[t.status]}`} />
+                      <span className="truncate">{t.title}</span>
+                    </span>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
+                        overdue ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary"
+                      }`}
+                    >
+                      {overdue ? `Overdue · ${format(t.dueDate as Date, "MMM d")}` : "Due today"}
+                    </span>
+                  </div>
+                );
+              })
             )}
           </CardContent>
         </Card>
 
+        <Card className="border-border/60 transition-colors hover:border-border">
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <IconChip>
+                <Bell className="h-3.5 w-3.5" />
+              </IconChip>
+              Notifications
+              {unreadCount > 0 ? (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              ) : null}
+            </CardTitle>
+            <ViewAllLink href="/notifications" />
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {notifications.length === 0 ? (
+              <p className="py-2 text-sm text-muted-foreground">You&rsquo;re all caught up.</p>
+            ) : (
+              notifications.map((n) => <NotificationRow key={n.id} notification={n} />)
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Recent activity — tasks + status breakdown */}
+      <div className={`mt-6 grid gap-6 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "150ms" }}>
         <Card className="border-border/60 transition-colors hover:border-border">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -149,34 +154,13 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-1">
             {recentTasks.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No open tasks.</p>
+              <p className="py-2 text-sm text-muted-foreground">No open tasks.</p>
             ) : (
               recentTasks.map((t) => <RecentTaskRow key={t.id} task={t} />)
             )}
           </CardContent>
         </Card>
 
-        <Card className="border-border/60 transition-colors hover:border-border">
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <IconChip>
-                <Bell className="h-3.5 w-3.5" />
-              </IconChip>
-              Notifications
-            </CardTitle>
-            <ViewAllLink href="/notifications" />
-          </CardHeader>
-          <CardContent className="space-y-1">
-            {notifications.length === 0 ? (
-              <p className="text-sm text-muted-foreground">You&rsquo;re all caught up.</p>
-            ) : (
-              notifications.map((n) => <NotificationRow key={n.id} notification={n} />)
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className={`mt-6 grid gap-6 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "250ms" }}>
         <Card className="border-border/60 transition-colors hover:border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -188,31 +172,6 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             <TaskStatusBar todo={taskCounts.todo} inProgress={taskCounts.in_progress} done={taskCounts.done} />
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/60 transition-colors hover:border-border">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <IconChip>
-                <GitBranch className="h-3.5 w-3.5" />
-              </IconChip>
-              Active projects
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {activeProjects.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No active projects.</p>
-            ) : (
-              activeProjects.map((p) => (
-                <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="truncate">{p.name}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {p.milestonesDone}/{p.milestonesTotal} milestones
-                  </span>
-                </div>
-              ))
-            )}
           </CardContent>
         </Card>
       </div>
@@ -305,23 +264,6 @@ function StatCard({
   );
 }
 
-function UpcomingLeaveRow({ leave }: { leave: LeaveView }) {
-  const sameDay = leave.startDate.toDateString() === leave.endDate.toDateString();
-  const range = sameDay
-    ? format(leave.startDate, "EEE, MMM d")
-    : `${format(leave.startDate, "MMM d")} – ${format(leave.endDate, "MMM d")}`;
-  return (
-    <div className="flex items-center justify-between gap-2 text-sm">
-      <span className="flex items-center gap-2">
-        <CalendarDays className="h-4 w-4 text-primary" />
-        <span>{range}</span>
-      </span>
-      <span className="text-xs text-muted-foreground">
-        {leave.days} day{leave.days === 1 ? "" : "s"}
-      </span>
-    </div>
-  );
-}
 
 const TASK_DOT_CLASS: Record<TaskStatus, string> = {
   todo: "bg-muted-foreground/40",
@@ -349,15 +291,16 @@ function NotificationRow({ notification }: { notification: NotificationView }) {
       href={notification.url}
       target="_blank"
       rel="noreferrer"
-      className="flex items-center justify-between gap-2 text-sm hover:text-primary"
+      className="block rounded-md px-2 py-1.5 transition-colors hover:bg-accent/50"
     >
-      <span className="flex min-w-0 items-center gap-2">
-        <span className="size-2 shrink-0 rounded-full bg-primary" />
-        <span className="truncate">{notification.title}</span>
-      </span>
-      <span className="shrink-0 text-xs text-muted-foreground">
-        {notificationActor(notification)} · {formatDistanceToNow(notification.occurredAt ?? notification.createdAt, { addSuffix: true })}
-      </span>
+      <div className="flex items-center gap-2">
+        <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+        <span className="truncate text-sm">{notification.title}</span>
+      </div>
+      <div className="ml-3.5 truncate text-xs text-muted-foreground">
+        {notificationActor(notification)} · {notificationTitle(notification)} ·{" "}
+        {formatDistanceToNow(notification.occurredAt ?? notification.createdAt, { addSuffix: true })}
+      </div>
     </a>
   );
 }
