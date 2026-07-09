@@ -46,6 +46,7 @@ export interface WorkItemDTO {
   iterationPath: string | null;
   effort: number | null; // estimated effort / original estimate; null = unestimated
   changedDate: string | null; // ADO System.ChangedDate (ISO)
+  changedBy: string | null; // ADO System.ChangedBy display name (≈ who assigned it)
 }
 
 const API = "api-version=7.0";
@@ -115,6 +116,7 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
     "System.TeamProject",
     "System.IterationPath",
     "System.ChangedDate",
+    "System.ChangedBy",
     "Microsoft.VSTS.Scheduling.Effort",
     "Microsoft.VSTS.Scheduling.OriginalEstimate",
   ];
@@ -163,6 +165,7 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
     }
     const effortRaw = f["Microsoft.VSTS.Scheduling.Effort"] ?? f["Microsoft.VSTS.Scheduling.OriginalEstimate"];
     const effort = effortRaw != null && effortRaw !== "" ? Number(effortRaw) : NaN;
+    const changedBy = ((f as Record<string, unknown>)["System.ChangedBy"] as { displayName?: string } | undefined)?.displayName ?? null;
     items.push({
       externalId: String(wi.id),
       title: f["System.Title"] ?? `Work item ${wi.id}`,
@@ -173,6 +176,7 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
       iterationPath: f["System.IterationPath"] || null,
       effort: Number.isFinite(effort) ? effort : null,
       changedDate: f["System.ChangedDate"] ?? null,
+      changedBy,
     });
   }
   return { items, openIds, doneIds };
@@ -436,6 +440,109 @@ export async function searchIdentities(query: string): Promise<AdoIdentity[]> {
       displayName: i.displayName as string,
       mail: i.mail || i.signInAddress || "",
     }));
+}
+
+// Raw (unsanitized) comment fetch for @-mention detection — sanitizeHtml() strips
+// data-vss-mention, so mention detection must read the comment HTML before it's cleaned.
+export interface RawComment {
+  id: number;
+  textRaw: string;
+  createdDate: string | null;
+  author: string | null; // display name of who wrote the comment
+}
+
+export async function fetchRawComments(project: string, externalId: string): Promise<RawComment[]> {
+  const config = getAzureDevOpsConfig();
+  if (!config) return [];
+  const res = await fetch(
+    `${config.orgUrl}/${encodeURIComponent(project)}/_apis/wit/workItems/${encodeURIComponent(externalId)}/comments?api-version=7.1-preview.4`,
+    { headers: authHeaders(config.pat) },
+  );
+  if (!res.ok) return [];
+  const body = (await res.json()) as {
+    comments?: { id?: number; text?: string; createdDate?: string; createdBy?: { displayName?: string } }[];
+  };
+  return (body.comments ?? []).map((c) => ({
+    id: c.id ?? 0,
+    textRaw: c.text ?? "",
+    createdDate: c.createdDate ?? null,
+    author: c.createdBy?.displayName ?? null,
+  }));
+}
+
+// Resolve my identity (GUID + display name) from a work item assigned to me.
+// This is reliable — System.AssignedTo.id IS the identity GUID used in
+// data-vss-mention anchors — unlike the Identity Picker, which intermittently
+// returns zero results.
+export interface AdoMe {
+  id: string; // identity GUID, matches data-vss-mention
+  displayName: string; // for the System.History CONTAINS WORDS query
+}
+
+export async function resolveMe(): Promise<AdoMe | null> {
+  const config = getAzureDevOpsConfig();
+  if (!config) return null;
+  const headers = authHeaders(config.pat);
+  const wiqlRes = await fetch(`${config.orgUrl}/_apis/wit/wiql?${API}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      query: "SELECT [System.Id] FROM WorkItems WHERE [System.AssignedTo] = @Me ORDER BY [System.ChangedDate] DESC",
+    }),
+  });
+  if (!wiqlRes.ok) return null;
+  const id = ((await wiqlRes.json()) as { workItems?: { id: number }[] }).workItems?.[0]?.id;
+  if (id == null) return null;
+  const wiRes = await fetch(`${config.orgUrl}/_apis/wit/workitems?ids=${id}&fields=System.AssignedTo&${API}`, { headers });
+  if (!wiRes.ok) return null;
+  const assignedTo = ((await wiRes.json()) as { value?: { fields?: { "System.AssignedTo"?: { id?: string; displayName?: string } } }[] })
+    .value?.[0]?.fields?.["System.AssignedTo"];
+  if (!assignedTo?.id || !assignedTo.displayName) return null;
+  return { id: assignedTo.id, displayName: assignedTo.displayName };
+}
+
+export interface MentionCandidate {
+  externalId: string;
+  title: string;
+  url: string;
+  project: string;
+}
+
+// Work items whose discussion history mentions my display name within the lookback
+// window — across ANY assignee (this is what catches mentions on items assigned to
+// other people, which the assigned-items sync never sees). Caller confirms the real
+// data-vss-mention GUID in each item's comments to filter plain-name false positives.
+export async function fetchMentionCandidates(displayName: string, lookbackDays: number, cap = 50): Promise<MentionCandidate[]> {
+  const config = getAzureDevOpsConfig();
+  if (!config) return [];
+  const headers = authHeaders(config.pat);
+  const safeName = displayName.replace(/'/g, "''");
+  const query =
+    `SELECT [System.Id] FROM WorkItems WHERE [System.History] CONTAINS WORDS '${safeName}' ` +
+    `AND [System.ChangedDate] >= @today - ${lookbackDays} ORDER BY [System.ChangedDate] DESC`;
+  const wiqlRes = await fetch(`${config.orgUrl}/_apis/wit/wiql?${API}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ query }),
+  });
+  if (!wiqlRes.ok) return [];
+  const ids = (((await wiqlRes.json()) as { workItems?: { id: number }[] }).workItems ?? []).slice(0, cap).map((w) => w.id);
+  if (ids.length === 0) return [];
+  const detailRes = await fetch(
+    `${config.orgUrl}/_apis/wit/workitems?ids=${ids.join(",")}&fields=System.Title,System.TeamProject&${API}`,
+    { headers },
+  );
+  if (!detailRes.ok) return [];
+  const detail = (await detailRes.json()) as { value: { id: number; fields: Record<string, string> }[] };
+  return detail.value.map((wi) => {
+    const project = wi.fields["System.TeamProject"];
+    return {
+      externalId: String(wi.id),
+      title: wi.fields["System.Title"] ?? `Work item ${wi.id}`,
+      url: `${config.orgUrl}/${encodeURIComponent(project)}/_workitems/edit/${wi.id}`,
+      project,
+    };
+  });
 }
 
 // Fetch attachment bytes with the PAT (used by the media proxy route). The id is

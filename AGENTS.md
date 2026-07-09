@@ -83,6 +83,34 @@ Nav is data-driven: add a module → new folder + one entry in `src/lib/nav.ts`.
   tasks are excluded from this filter). A non-manual sort passes `sorted` to `TaskBoard` so it
   keeps the given order instead of re-sorting by `order`. The List tab keeps its own column sort
   (now incl. Effort + Changed columns). DevOps `effort`/`changedDate` come from sync.
+- **Notifications** (`features/notifications`): surfaces ADO **assignments** and **@mentions**
+  since Outlook email gets missed. Detection lives inside `syncAzureDevOps` (no second poller):
+  a work item newly hitting the `create` branch (new to your `@Me` set) = an `assigned` event.
+  **Mentions** are found across **any assignee** (not just your assigned items — the common case
+  is being @-mentioned on someone else's item): `resolveMe` gets your GUID + display name from a
+  `@Me` item's `System.AssignedTo` (reliable, unlike the flaky Identity Picker), then
+  `fetchMentionCandidates` runs a WIQL `[System.History] CONTAINS WORDS '{displayName}'` +
+  `ChangedDate >= @today - MENTION_LOOKBACK_DAYS` (14) query; each candidate's raw (unsanitized)
+  comments are confirmed to contain your `data-vss-mention` GUID (filters plain-name matches). Dedup is a unique
+  `Notification.dedupeKey` (`upsert` with an empty `update` = insert-or-ignore; SQLite has no
+  `createMany` `skipDuplicates`) — **not** a watermark table. Mention matching uses
+  `fetchRawComments`, never `sanitizeHtml`'d text (that strips `data-vss-mention`). The
+  Each notification stores `project` + `actor` (who did it): mentions → the comment author,
+  assignments → `System.ChangedBy` (≈ who assigned); the actor self-guards so your own name never
+  shows. Display everywhere = **project name** (title) + **work item title** + **actor line**
+  (`{actor} mentioned you` / `Assigned by {actor}`) via `notificationTitle`/`notificationActor`.
+  `occurredAt` stores when it happened in ADO (comment `createdDate` / work item `changedDate`) —
+  the UI shows that relative time, not `createdAt` (when detected). `message` holds the full comment
+  text (mentions), rendered under the row on `/notifications`.
+  `NotificationBell` (mounted in the sidebar) polls `pollNotificationFeed` every 60s and feeds the
+  `/notifications` page + a dashboard widget. The auto-poller dedupes rapid re-syncs
+  (StrictMode/reload/multi-tab) via a `localStorage` timestamp (`optispace:lastSyncAt`, 15s window). **Desktop push:** `pollNotificationFeed` does NOT
+  mark rows notified (that would silently consume a push before permission is granted); the bell
+  fires the Web Notifications API only when permission is `granted`, then calls
+  `markNotificationsNotified(ids)` for the rows that actually popped (only unread + `notifiedAt`
+  null rows are candidates). Detection runs inside the ADO **auto-poller** (`auto-sync.tsx`,
+  every 2 min while the app is open) — the local-first stand-in for a webhook (no public URL). Soft-delete like every module. "Real
+  time" here means *while the app/dev server is open* — no webhook, no tunnel, no daemon.
 - **Recurring tasks:** `Task.recurrence` (`none|daily|weekly|monthly`). When a task transitions
   to done (via `moveTask` drag or `updateTask`), a recurring task spawns its next occurrence as a
   fresh To Do with the due date advanced (`spawnNextOccurrence` in `tasks/actions.ts`).

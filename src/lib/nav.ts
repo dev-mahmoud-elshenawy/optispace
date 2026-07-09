@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, CalendarDays, Link2, ListChecks, GitBranch, Package, Archive, Settings } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Link2, ListChecks, GitBranch, Package, Archive, Settings, Bell } from "lucide-react";
 
 export interface NavItem {
   label: string;
@@ -13,6 +13,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Annual Leave", href: "/leave", icon: CalendarDays },
   { label: "Profiles", href: "/profiles", icon: Link2 },
   { label: "Tasks", href: "/tasks", icon: ListChecks },
+  { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Development", href: "/projects", icon: GitBranch },
   { label: "Packages", href: "/packages", icon: Package },
   { label: "Archive", href: "/archive", icon: Archive },

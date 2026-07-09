@@ -46,6 +46,7 @@ private app that runs entirely on your machine. One workspace. Everything in its
 | 🛠️ **Development** | Projects with milestone checklists, nested tasks, and a per-project hub: files, links (releases/dashboards/servers, with credentials), and client feedback (tied to a release, with optional attached document) |
 | 📦 **Packages** | Published npm / pub.dev packages with on-demand live stats, source/language/tag filters + update-available badge |
 | 🔄 **Azure DevOps sync** | Imports work items assigned to you into Tasks (configure `AZURE_DEVOPS_*` in `.env`); manual Sync now + auto-sync while the app is open |
+| 🔔 **Notifications** | Bell in the sidebar + a full list + dashboard widget for Azure DevOps assignments and @mentions, with desktop push notifications while the app is open |
 | ♻️ **Archive** | Everything deleted lands here — restore it or permanently purge |
 | ⚙️ **Settings** | One-click backup export / import of your whole workspace |
 

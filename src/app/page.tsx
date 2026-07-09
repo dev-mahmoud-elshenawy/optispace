@@ -3,7 +3,8 @@ import { format } from "date-fns";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, ListChecks, GitBranch, Package as PackageIcon, ExternalLink, ArrowUpRight, Activity, Link2, Sun } from "lucide-react";
+import { CalendarDays, ListChecks, GitBranch, Package as PackageIcon, ExternalLink, ArrowUpRight, Activity, Link2, Sun, Bell } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import type { ReactNode } from "react";
 import { listProfiles } from "@/features/profiles/queries";
 import { getLeaveSummary, listLeaves } from "@/features/leave/queries";
@@ -12,13 +13,15 @@ import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
 import type { LeaveView } from "@/features/leave/service";
 import { listProjects } from "@/features/projects/queries";
 import { countPackages } from "@/features/packages/queries";
+import { recentNotifications } from "@/features/notifications/queries";
+import { notificationActor, type NotificationView } from "@/features/notifications/service";
 import { DashboardCharts } from "@/features/dashboard/components/dashboard-charts";
 import type { TaskStatus } from "@/types";
 
 export default async function DashboardPage() {
   const now = new Date();
   const year = now.getFullYear();
-  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks] = await Promise.all([
+  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications] = await Promise.all([
     listProfiles(),
     getLeaveSummary(year),
     getTaskStatusCounts(),
@@ -26,6 +29,7 @@ export default async function DashboardPage() {
     countPackages(),
     listLeaves(year),
     listTasks(),
+    recentNotifications(),
   ]);
 
   const openTasks = taskCounts.todo + taskCounts.in_progress;
@@ -148,6 +152,25 @@ export default async function DashboardPage() {
               <p className="text-sm text-muted-foreground">No open tasks.</p>
             ) : (
               recentTasks.map((t) => <RecentTaskRow key={t.id} task={t} />)
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/60 transition-colors hover:border-border">
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <IconChip>
+                <Bell className="h-3.5 w-3.5" />
+              </IconChip>
+              Notifications
+            </CardTitle>
+            <ViewAllLink href="/notifications" />
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {notifications.length === 0 ? (
+              <p className="text-sm text-muted-foreground">You&rsquo;re all caught up.</p>
+            ) : (
+              notifications.map((n) => <NotificationRow key={n.id} notification={n} />)
             )}
           </CardContent>
         </Card>
@@ -317,6 +340,25 @@ function RecentTaskRow({ task }: { task: TaskView }) {
         {task.projectName ?? STATUS_LABELS[task.status]}
       </span>
     </div>
+  );
+}
+
+function NotificationRow({ notification }: { notification: NotificationView }) {
+  return (
+    <a
+      href={notification.url}
+      target="_blank"
+      rel="noreferrer"
+      className="flex items-center justify-between gap-2 text-sm hover:text-primary"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="size-2 shrink-0 rounded-full bg-primary" />
+        <span className="truncate">{notification.title}</span>
+      </span>
+      <span className="shrink-0 text-xs text-muted-foreground">
+        {notificationActor(notification)} · {formatDistanceToNow(notification.occurredAt ?? notification.createdAt, { addSuffix: true })}
+      </span>
+    </a>
   );
 }
 

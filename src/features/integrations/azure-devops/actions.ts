@@ -4,13 +4,18 @@ import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
 
+import { recordNotifications } from "@/features/notifications/actions";
+import type { NotificationEvent } from "@/features/notifications/service";
 import type { TaskStatus } from "@/types";
 
 import {
   fetchAssignedWorkItems,
+  fetchMentionCandidates,
+  fetchRawComments,
   fetchWorkItemDetail,
   getAzureDevOpsConfig,
   postComment,
+  resolveMe,
   searchIdentities,
   statusForState,
   updateWorkItem,
@@ -19,8 +24,20 @@ import {
 import type { AdoIdentity } from "./types";
 
 const SOURCE = "azure_devops";
+const MENTION_LOOKBACK_DAYS = 14; // only notify for comments newer than this — avoids a
+// first-run flood of ancient mentions once mention detection ships.
 
-export type SyncResult = { ok: true; imported: number; updated: number; pruned: number } | { ok: false; error: string };
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export type SyncResult =
+  | { ok: true; imported: number; updated: number; pruned: number; notified: number }
+  | { ok: false; error: string };
 
 // Import work items assigned to me into Tasks. Each ADO project maps to a Development
 // project; the task is linked via projectId. Sync owns title/description/status/
@@ -57,6 +74,11 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
     projectIds.set(name, id);
     return id;
   }
+
+  const events: NotificationEvent[] = [];
+  // Resolve me once (GUID + display name) — used to attribute assignments/mentions
+  // and to make sure my own name never shows as the actor.
+  const me = await resolveMe().catch(() => null);
 
   let imported = 0;
   let updated = 0;
@@ -102,7 +124,65 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
         },
       });
       imported += 1;
+      // New to my @Me set = newly assigned (or reassigned) to me. Existing items found
+      // above never re-fire, so this can't flood on a normal re-sync.
+      events.push({
+        type: "assigned",
+        externalId: item.externalId,
+        title: item.title,
+        url: item.url,
+        message: "Assigned to you",
+        project: item.project,
+        actor: item.changedBy && item.changedBy !== me?.displayName ? item.changedBy : null,
+        occurredAt: item.changedDate,
+        dedupeKey: `assigned:${item.externalId}`,
+      });
     }
+  }
+
+  // Mention detection. Candidates come from a history-search across ANY assignee
+  // (not just items assigned to me) so mentions on other people's work items are
+  // caught — that's the common case that Outlook emails you about. Bounded to the
+  // lookback window to avoid a first-run flood; each candidate's comments are then
+  // confirmed to contain my real data-vss-mention GUID (filters plain-name matches).
+  try {
+    if (me) {
+      const cutoff = Date.now() - MENTION_LOOKBACK_DAYS * 86_400_000;
+      const mentionTag = `data-vss-mention="version:2.0,${me.id}`.toLowerCase();
+      const candidates = await fetchMentionCandidates(me.displayName, MENTION_LOOKBACK_DAYS);
+      for (const candidate of candidates) {
+        try {
+          const comments = await fetchRawComments(candidate.project, candidate.externalId);
+          for (const comment of comments) {
+            if (!comment.createdDate) continue;
+            if (new Date(comment.createdDate).getTime() < cutoff) continue;
+            if (!comment.textRaw.toLowerCase().includes(mentionTag)) continue;
+            events.push({
+              type: "mentioned",
+              externalId: candidate.externalId,
+              title: candidate.title,
+              url: candidate.url,
+              message: stripHtml(comment.textRaw),
+              project: candidate.project,
+              // Who mentioned me — never attribute my own name.
+              actor: comment.author && comment.author !== me.displayName ? comment.author : null,
+              occurredAt: comment.createdDate,
+              dedupeKey: `mention:${candidate.externalId}:${comment.id}`,
+            });
+          }
+        } catch {
+          // A single item's comment fetch failing must not abort the sync.
+        }
+      }
+    }
+  } catch {
+    // Identity/candidate resolution failing → skip mentions this run, keep assignments.
+  }
+
+  let notified = 0;
+  if (events.length > 0) {
+    notified = await recordNotifications(events);
+    if (notified > 0) revalidatePath("/notifications");
   }
 
   // Prune: synced tasks no longer in the open/assigned set (completed, removed, or
@@ -132,9 +212,11 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
   if (imported > 0 || updated > 0 || pruned > 0) {
     revalidatePath("/tasks");
     revalidatePath("/projects");
-    revalidatePath("/");
   }
-  return { ok: true, imported, updated, pruned };
+  if (imported > 0 || updated > 0 || pruned > 0 || notified > 0) {
+    revalidatePath("/"); // dashboard widget
+  }
+  return { ok: true, imported, updated, pruned, notified };
 }
 
 export type DetailResult = { ok: true; detail: WorkItemDetail } | { ok: false; error: string };

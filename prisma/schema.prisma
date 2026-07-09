@@ -126,6 +126,27 @@ model Subtask {
   @@index([taskId])
 }
 
+// ── Notifications (Azure DevOps assignments & mentions) ──────
+model Notification {
+  id         String    @id @default(cuid())
+  type       String // "assigned" | "mentioned"
+  externalId String // ADO work item id
+  title      String // work item title (for display)
+  url        String // deep link to the ADO work item
+  message    String? // e.g. "Assigned to you" or a comment snippet
+  project    String? // ADO project name (shown as the notification title)
+  actor      String? // who mentioned / assigned me (display name)
+  occurredAt DateTime? // when the mention/assignment happened in ADO (vs createdAt = detected)
+  dedupeKey  String    @unique // "assigned:{externalId}" | "mention:{externalId}:{commentId}"
+  readAt     DateTime?
+  notifiedAt DateTime? // set once the browser desktop popup has fired
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+
+  @@index([readAt])
+  @@index([createdAt])
+}
+
 // ── Packages ─────────────────────────────────────────────────
 model Package {
   id             String  @id @default(cuid())

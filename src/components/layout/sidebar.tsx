@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { SearchIcon } from "lucide-react";
 import { NAV_ITEMS } from "@/lib/nav";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { NotificationBell } from "@/features/notifications/components/notification-bell";
 import { cn } from "@/lib/utils";
 
 export function Sidebar() {
@@ -19,7 +20,10 @@ export function Sidebar() {
           </span>
           <span className="text-gradient">OptiSpace</span>
         </Link>
-        <ThemeToggle />
+        <div className="flex items-center gap-1">
+          <NotificationBell />
+          <ThemeToggle />
+        </div>
       </div>
       <div className="px-3 pb-1">
         <button
