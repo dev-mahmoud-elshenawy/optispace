@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { format } from "date-fns";
-import { CalendarClock, CalendarDays, Clock } from "lucide-react";
+import { CalendarClock, CalendarDays, Clock, Video } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -117,7 +117,16 @@ function MeetingRow({ event }: { event: CalendarEventDTO }) {
         {event.allDay ? "All day" : format(new Date(event.start), "h:mm a")}
       </span>
       <span className="min-w-0 flex-1 truncate">{event.title}</span>
-      {event.location ? (
+      {event.meetingUrl ? (
+        <a
+          href={event.meetingUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+        >
+          <Video className="h-3 w-3" /> Join
+        </a>
+      ) : event.location ? (
         <span className="shrink-0 max-w-[40%] truncate text-xs text-muted-foreground">{event.location}</span>
       ) : null}
     </div>

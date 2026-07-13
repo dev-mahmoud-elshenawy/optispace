@@ -3,11 +3,12 @@ import { CalendarClock } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { isCalendarEnabled } from "@/features/calendar/service";
+import { calendarRange } from "@/features/calendar/queries";
 import { CalendarView } from "@/features/calendar/components/calendar-view";
 
 export const dynamic = "force-dynamic";
 
-export default function CalendarPage() {
+export default async function CalendarPage() {
   if (!isCalendarEnabled()) {
     return (
       <PageShell title="Calendar" description="Your Outlook / Teams agenda">
@@ -26,9 +27,18 @@ export default function CalendarPage() {
     );
   }
 
+  // Read the cached window server-side so the calendar renders with data immediately
+  // (no client round-trip / spinner on mount). Background sync updates it via the
+  // `optispace:calendar-updated` event only when the cache actually changed.
+  const now = new Date();
+  const initialEvents = await calendarRange(
+    new Date(now.getTime() - 31 * 86_400_000),
+    new Date(now.getTime() + 186 * 86_400_000),
+  );
+
   return (
     <PageShell title="Calendar" description="Your Outlook / Teams agenda">
-      <CalendarView />
+      <CalendarView initialEvents={initialEvents} />
     </PageShell>
   );
 }

@@ -13,7 +13,7 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Clock, MapPin, Loader2, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, MapPin, Loader2, Users, Video } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -35,16 +35,16 @@ function eventsForDay(events: CalendarEventDTO[], day: Date): CalendarEventDTO[]
   return events.filter((e) => new Date(e.start) <= endOfDay(day) && new Date(e.end) >= startOfDay(day));
 }
 
-export function CalendarView() {
+export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDTO[] }) {
   const [view, setView] = useState<View>("month");
   const [cursor, setCursor] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => new Date());
-  const [events, setEvents] = useState<CalendarEventDTO[]>([]);
+  const [events, setEvents] = useState<CalendarEventDTO[]>(initialEvents);
   const [loading, setLoading] = useState(false);
 
-  // Fetch the cached range ONCE (wide window, from the DB — instant). Month/day
-  // navigation then filters in-memory; no per-month refetch. Re-reads only when the
-  // background sync signals the cache changed.
+  // Data arrives server-rendered (initialEvents) — no fetch on mount, so the page
+  // renders instantly. Month/day navigation filters in-memory. Only re-read from the
+  // DB when the background sync signals the cache actually changed.
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -59,7 +59,6 @@ export function CalendarView() {
   }, []);
 
   useEffect(() => {
-    void load();
     const onUpdate = () => void load();
     window.addEventListener("optispace:calendar-updated", onUpdate);
     return () => window.removeEventListener("optispace:calendar-updated", onUpdate);
@@ -215,6 +214,16 @@ export function CalendarView() {
                         <span className="flex items-center gap-1">
                           <MapPin className="h-3 w-3" /> {e.location}
                         </span>
+                      ) : null}
+                      {e.meetingUrl ? (
+                        <a
+                          href={e.meetingUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 font-medium text-primary hover:underline"
+                        >
+                          <Video className="h-3 w-3" /> Join
+                        </a>
                       ) : null}
                     </div>
                     {e.attendees.length > 0 ? (

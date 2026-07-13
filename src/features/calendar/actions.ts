@@ -14,6 +14,7 @@ function fingerprint(e: {
   start: Date;
   end: Date;
   location: string | null;
+  meetingUrl: string | null;
   organizer: string | null;
   attendees: string[];
   allDay: boolean;
@@ -23,6 +24,7 @@ function fingerprint(e: {
     e.start.getTime(),
     e.end.getTime(),
     e.location ?? "",
+    e.meetingUrl ?? "",
     e.organizer ?? "",
     e.attendees.join(","),
     e.allDay ? "1" : "0",
@@ -66,6 +68,7 @@ export async function syncCalendar(): Promise<CalendarSyncResult> {
       start: e.start,
       end: e.end,
       location: e.location,
+      meetingUrl: e.meetingUrl,
       organizer: e.organizer,
       attendees: JSON.stringify(e.attendees),
       allDay: e.allDay,
@@ -101,6 +104,7 @@ function toDTO(row: {
   start: Date;
   end: Date;
   location: string | null;
+  meetingUrl: string | null;
   organizer: string | null;
   attendees: string;
   allDay: boolean;
@@ -117,6 +121,7 @@ function toDTO(row: {
     start: row.start.toISOString(),
     end: row.end.toISOString(),
     location: row.location,
+    meetingUrl: row.meetingUrl,
     allDay: row.allDay,
     organizer: row.organizer,
     attendees,

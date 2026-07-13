@@ -157,6 +157,7 @@ model CalendarEvent {
   start       DateTime
   end         DateTime
   location    String?
+  meetingUrl  String? // Teams/Zoom/Meet join link extracted from the ICS event
   organizer   String?
   attendees   String    @default("[]") // JSON array of display names
   allDay      Boolean   @default(false)

@@ -10,6 +10,7 @@ function toDTO(row: {
   start: Date;
   end: Date;
   location: string | null;
+  meetingUrl: string | null;
   organizer: string | null;
   attendees: string;
   allDay: boolean;
@@ -26,10 +27,21 @@ function toDTO(row: {
     start: row.start.toISOString(),
     end: row.end.toISOString(),
     location: row.location,
+    meetingUrl: row.meetingUrl,
     allDay: row.allDay,
     organizer: row.organizer,
     attendees,
   };
+}
+
+// Cached events for a range (server-side initial load for the calendar page, so it
+// renders with data instead of firing a client round-trip on mount).
+export async function calendarRange(from: Date, to: Date): Promise<CalendarEventDTO[]> {
+  const rows = await db.calendarEvent.findMany({
+    where: { deletedAt: null, start: { lte: to }, end: { gte: from } },
+    orderBy: { start: "asc" },
+  });
+  return rows.map(toDTO);
 }
 
 // Cached meetings intersecting today (for the dashboard Today card).

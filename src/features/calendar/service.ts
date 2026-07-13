@@ -10,6 +10,7 @@ export interface CalendarEvent {
   start: Date;
   end: Date;
   location: string | null;
+  meetingUrl: string | null; // Teams/Zoom/Meet join link, if any
   allDay: boolean;
   organizer: string | null;
   attendees: string[]; // display names (or emails) of invitees
@@ -29,6 +30,9 @@ type IcalEvent = {
   uid?: string;
   summary?: string;
   location?: string;
+  description?: string;
+  url?: string;
+  "X-MICROSOFT-SKYPETEAMSMEETINGURL"?: string;
   start: Date & { dateOnly?: boolean };
   end?: Date;
   datetype?: string; // "date" for all-day
@@ -38,6 +42,18 @@ type IcalEvent = {
   exdate?: Record<string, Date>;
   recurrences?: Record<string, { summary?: string; location?: string; start: Date; end?: Date }>;
 };
+
+// Pull a meeting join link out of an ICS event. Teams sets an explicit X- prop;
+// otherwise fall back to the URL property, then any known meeting URL in the
+// location/description text. Returns null when there's nothing joinable.
+const MEETING_URL_RE =
+  /https?:\/\/(?:[\w-]+\.)*(?:teams\.microsoft\.com\/l\/meetup-join|teams\.live\.com\/meet|zoom\.us\/j\/|meet\.google\.com\/|[\w-]+\.webex\.com)\S+/i;
+function extractMeetingUrl(ev: IcalEvent): string | null {
+  const explicit = ev["X-MICROSOFT-SKYPETEAMSMEETINGURL"]?.trim() || ev.url?.trim();
+  if (explicit && /^https?:\/\//i.test(explicit)) return explicit;
+  const haystack = `${ev.location ?? ""}\n${ev.description ?? ""}`;
+  return haystack.match(MEETING_URL_RE)?.[0]?.replace(/[)>\]"']+$/, "") ?? null;
+}
 
 function dateKey(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -77,6 +93,7 @@ export async function fetchEvents(from: Date, to: Date): Promise<CalendarEvent[]
     if (!ev || ev.type !== "VEVENT" || !ev.start) continue;
     const allDay = ev.datetype === "date" || ev.start.dateOnly === true;
     const durationMs = Math.max(0, (ev.end?.getTime() ?? ev.start.getTime()) - ev.start.getTime());
+    const meetingUrl = extractMeetingUrl(ev);
 
     if (ev.rrule) {
       let occurrences: Date[];
@@ -98,6 +115,7 @@ export async function fetchEvents(from: Date, to: Date): Promise<CalendarEvent[]
           start,
           end,
           location: (override?.location ?? ev.location ?? "").trim() || null,
+          meetingUrl,
           allDay,
           organizer: personName(ev.organizer),
           attendees: attendeeNames(ev.attendee),
@@ -113,6 +131,7 @@ export async function fetchEvents(from: Date, to: Date): Promise<CalendarEvent[]
         start,
         end,
         location: (ev.location ?? "").trim() || null,
+        meetingUrl,
         allDay,
         organizer: personName(ev.organizer),
         attendees: attendeeNames(ev.attendee),

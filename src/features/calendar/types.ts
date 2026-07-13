@@ -6,6 +6,7 @@ export interface CalendarEventDTO {
   start: string; // ISO
   end: string; // ISO
   location: string | null;
+  meetingUrl: string | null;
   allDay: boolean;
   organizer: string | null;
   attendees: string[];
