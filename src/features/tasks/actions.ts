@@ -1,10 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { addDays, addWeeks, addMonths } from "date-fns";
 
 import { db } from "@/lib/db";
-import { serializeTags, TASK_STATUSES, type TaskStatus } from "@/types";
+import { type TaskStatus } from "@/types";
 
 import { moveTaskSchema, subtaskTitleSchema, taskInputSchema, type TaskInput } from "./schema";
 
@@ -18,46 +17,6 @@ function toDueDate(value?: string): Date | null {
 
 function firstError(error: { issues: { message: string }[] }): string {
   return error.issues[0]?.message ?? "Invalid task data";
-}
-
-function nextDueDate(from: Date, recurrence: string): Date {
-  switch (recurrence) {
-    case "daily":
-      return addDays(from, 1);
-    case "weekly":
-      return addWeeks(from, 1);
-    case "monthly":
-      return addMonths(from, 1);
-    default:
-      return from;
-  }
-}
-
-// When a recurring task is completed, create its next occurrence as a fresh To Do.
-// Advances from the old due date if set, otherwise from today.
-async function spawnNextOccurrence(task: {
-  title: string;
-  description: string | null;
-  priority: string;
-  dueDate: Date | null;
-  tags: string;
-  recurrence: string;
-  projectId: string | null;
-}): Promise<void> {
-  if (task.recurrence === "none") return;
-  await db.task.create({
-    data: {
-      title: task.title,
-      description: task.description,
-      status: TASK_STATUSES[0], // "todo"
-      priority: task.priority,
-      dueDate: nextDueDate(task.dueDate ?? new Date(), task.recurrence),
-      tags: task.tags,
-      recurrence: task.recurrence,
-      order: 0,
-      projectId: task.projectId,
-    },
-  });
 }
 
 export async function createTask(input: TaskInput): Promise<ActionResult> {
@@ -78,8 +37,6 @@ export async function createTask(input: TaskInput): Promise<ActionResult> {
       status: data.status,
       priority: data.priority,
       dueDate: toDueDate(data.dueDate),
-      tags: serializeTags(data.tags),
-      recurrence: data.recurrence,
       order: (last?.order ?? -1) + 1,
       projectId: data.projectId || null,
     },
@@ -95,8 +52,6 @@ export async function updateTask(id: string, input: TaskInput): Promise<ActionRe
   if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
   const data = parsed.data;
 
-  const prior = await db.task.findUnique({ where: { id }, select: { status: true } });
-
   await db.task.update({
     where: { id },
     data: {
@@ -105,23 +60,9 @@ export async function updateTask(id: string, input: TaskInput): Promise<ActionRe
       status: data.status,
       priority: data.priority,
       dueDate: toDueDate(data.dueDate),
-      tags: serializeTags(data.tags),
-      recurrence: data.recurrence,
       projectId: data.projectId || null,
     },
   });
-
-  if (prior && prior.status !== TASK_STATUSES[2] && data.status === TASK_STATUSES[2] && data.recurrence !== "none") {
-    await spawnNextOccurrence({
-      title: data.title,
-      description: data.description || null,
-      priority: data.priority,
-      dueDate: toDueDate(data.dueDate),
-      tags: serializeTags(data.tags),
-      recurrence: data.recurrence,
-      projectId: data.projectId || null,
-    });
-  }
 
   revalidatePath("/tasks");
   revalidatePath("/");
@@ -142,18 +83,12 @@ export async function moveTask(id: string, status: TaskStatus, orderedIds: strin
   const parsed = moveTaskSchema.safeParse({ id, status, orderedIds });
   if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
 
-  const prior = await db.task.findUnique({ where: { id: parsed.data.id } });
-
   await db.$transaction([
     db.task.update({ where: { id: parsed.data.id }, data: { status: parsed.data.status } }),
     ...parsed.data.orderedIds.map((taskId, index) =>
       db.task.update({ where: { id: taskId }, data: { order: index } }),
     ),
   ]);
-
-  if (prior && prior.status !== TASK_STATUSES[2] && parsed.data.status === TASK_STATUSES[2] && prior.recurrence !== "none") {
-    await spawnNextOccurrence(prior);
-  }
 
   revalidatePath("/tasks");
   revalidatePath("/");

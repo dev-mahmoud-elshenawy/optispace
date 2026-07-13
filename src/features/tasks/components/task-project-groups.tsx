@@ -5,17 +5,11 @@ import { ChevronRight, Trash2Icon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { taskDaySpan, type TaskView } from "@/features/tasks/service";
-import type { TaskStatus } from "@/types";
+import { STATUS_DOT_CLASS, taskDaySpan, type TaskView } from "@/features/tasks/service";
 
 import { PriorityFlag } from "./priority-flag";
 import { TaskBoard } from "./task-board";
 
-const STATUS_DOT: Record<TaskStatus, string> = {
-  todo: "bg-muted-foreground/40",
-  in_progress: "bg-primary",
-  done: "bg-chart-2",
-};
 
 interface ProjectGroup {
   key: string;
@@ -51,7 +45,7 @@ export function TaskMiniRow({
   const showActions = onEdit || onDelete;
   return (
     <div className="group/row flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted/50">
-      <span className={cn("size-2 shrink-0 rounded-full", STATUS_DOT[task.status])} />
+      <span className={cn("size-2 shrink-0 rounded-full", STATUS_DOT_CLASS[task.status])} />
       {onEdit ? (
         <button type="button" onClick={onEdit} className="min-w-0 flex-1 truncate text-left hover:text-primary hover:underline">
           {task.title}

@@ -60,7 +60,14 @@ export function NotificationBell() {
     let cancelled = false;
 
     async function poll() {
-      const result = await pollNotificationFeed();
+      let result: NotificationFeed;
+      try {
+        result = await pollNotificationFeed();
+      } catch {
+        // ponytail: silent background poll — a transient "Failed to fetch" (dev
+        // server restart / HMR race / offline) shouldn't crash the app; retry next tick.
+        return;
+      }
       if (cancelled) return;
 
       // Fire desktop popups only when permission is granted, then mark exactly
@@ -69,7 +76,7 @@ export function NotificationBell() {
       if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
         const fired = result.toPush.filter((row) => pushDesktopNotification(row)).map((row) => row.id);
         if (fired.length > 0) {
-          await markNotificationsNotified(fired);
+          await markNotificationsNotified(fired).catch(() => {});
         }
       }
 
@@ -120,7 +127,7 @@ export function NotificationBell() {
           <Bell className="h-4 w-4" />
           {feed.unread > 0 ? (
             <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
-              {feed.unread > 9 ? "9+" : feed.unread}
+              {feed.unread > 99 ? "99+" : feed.unread}
             </span>
           ) : null}
         </button>

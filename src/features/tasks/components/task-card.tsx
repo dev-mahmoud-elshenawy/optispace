@@ -3,12 +3,12 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { format } from "date-fns";
-import { GitBranch, ListChecks, Repeat, Trash2Icon } from "lucide-react";
+import { GitBranch, ListChecks, Trash2Icon } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { type TaskView } from "@/features/tasks/service";
+import { adoPriorityMeta, workItemTypeColor } from "@/features/integrations/azure-devops/types";
 import { PriorityFlag } from "./priority-flag";
 
 interface TaskCardProps {
@@ -61,7 +61,23 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <PriorityFlag priority={task.priority} />
+        {task.workItemType ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            <span
+              className="size-2.5 shrink-0 rounded-[3px]"
+              style={{ backgroundColor: workItemTypeColor(task.workItemType) }}
+            />
+            {task.workItemType}
+          </span>
+        ) : null}
+        {task.source === "azure_devops" && task.adoPriority != null ? (
+          (() => {
+            const meta = adoPriorityMeta(task.adoPriority);
+            return <PriorityFlag priority={meta.level} label={meta.label} />;
+          })()
+        ) : (
+          <PriorityFlag priority={task.priority} />
+        )}
         {task.dueDate ? (
           <span
             className={
@@ -73,12 +89,6 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
             {format(task.dueDate, "MMM d, yyyy")}
           </span>
         ) : null}
-        {task.recurrence !== "none" ? (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground capitalize">
-            <Repeat className="size-3.5" />
-            {task.recurrence}
-          </span>
-        ) : null}
         {task.subtasks.length > 0 ? (
           <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
             <ListChecks className="size-3.5" />
@@ -87,15 +97,6 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
         ) : null}
       </div>
 
-      {task.tags.length > 0 ? (
-        <div className="flex flex-wrap gap-1">
-          {task.tags.map((tag) => (
-            <Badge key={tag} variant="outline">
-              {tag}
-            </Badge>
-          ))}
-        </div>
-      ) : null}
 
     </div>
   );

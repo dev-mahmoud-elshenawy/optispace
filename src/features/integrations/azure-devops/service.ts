@@ -1,8 +1,18 @@
 import "server-only";
 
+import * as azdev from "azure-devops-node-api";
+import type { ICoreApi } from "azure-devops-node-api/CoreApi";
+import type { IWorkItemTrackingApi } from "azure-devops-node-api/WorkItemTrackingApi";
+import {
+  TreeStructureGroup,
+  WorkItemExpand,
+  type WorkItem,
+  type WorkItemClassificationNode,
+} from "azure-devops-node-api/interfaces/WorkItemTrackingInterfaces";
+import { Operation, type JsonPatchDocument } from "azure-devops-node-api/interfaces/common/VSSInterfaces";
 import DOMPurify from "isomorphic-dompurify";
 
-import type { TaskStatus } from "@/types";
+import type { TaskPriority, TaskStatus } from "@/types";
 
 import type { AdoIdentity } from "./types";
 
@@ -35,6 +45,46 @@ export function isAzureDevOpsEnabled(): boolean {
   return getAzureDevOpsConfig() !== null;
 }
 
+// ── SDK connection (azure-devops-node-api) ───────────────────────────────────
+// Memoized WebApi + area clients, keyed by org+PAT so a config change rebuilds them.
+// getXxxApi() does a one-time resource-location handshake the SDK caches internally.
+let conn: { key: string; wit: Promise<IWorkItemTrackingApi>; core: Promise<ICoreApi> } | null = null;
+
+function apis(): { wit: Promise<IWorkItemTrackingApi>; core: Promise<ICoreApi> } | null {
+  const config = getAzureDevOpsConfig();
+  if (!config) return null;
+  const key = `${config.orgUrl}::${config.pat}`;
+  if (!conn || conn.key !== key) {
+    const webApi = new azdev.WebApi(config.orgUrl, azdev.getPersonalAccessTokenHandler(config.pat));
+    conn = { key, wit: webApi.getWorkItemTrackingApi(), core: webApi.getCoreApi() };
+  }
+  return conn;
+}
+
+// The two calls the SDK does NOT cover cleanly still use fetch (documented at each):
+// the Identity Picker (searchIdentities) and raw attachment bytes+content-type.
+function authHeaders(pat: string): HeadersInit {
+  return {
+    Authorization: "Basic " + Buffer.from(":" + pat).toString("base64"),
+    "Content-Type": "application/json",
+  };
+}
+
+// Build the ADO web URL for a work item (SDK returns API urls, not the edit page).
+function itemUrl(orgUrl: string, project: string, id: number | string): string {
+  return `${orgUrl}/${encodeURIComponent(project)}/_workitems/edit/${id}`;
+}
+
+function fieldStr(fields: { [key: string]: unknown } | undefined, key: string): string {
+  const v = fields?.[key];
+  return v == null ? "" : String(v);
+}
+
+function toIso(d: Date | string | null | undefined): string | null {
+  if (!d) return null;
+  return typeof d === "string" ? d : new Date(d).toISOString();
+}
+
 // ── Fetch (read-only) ────────────────────────────────────────────────────────
 export interface WorkItemDTO {
   externalId: string;
@@ -43,14 +93,45 @@ export interface WorkItemDTO {
   status: TaskStatus;
   url: string;
   project: string;
+  workItemType: string; // ADO System.WorkItemType (Bug/Task/User Story/…)
+  priority: TaskPriority; // 3-level enum for filter/sort (collapsed from ADO 1–4)
+  adoPriority: number | null; // raw ADO priority (1–4) for the card flag; null = unset
   iterationPath: string | null;
   effort: number | null; // estimated effort / original estimate; null = unestimated
   changedDate: string | null; // ADO System.ChangedDate (ISO)
   changedBy: string | null; // ADO System.ChangedBy display name (≈ who assigned it)
 }
 
-const API = "api-version=7.0";
-const MAX_ITEMS = 200; // cap per sync so a huge backlog can't flood the board
+const CHUNK_SIZE = 200; // ADO caps work-item detail fetches at 200 ids/request
+const MAX_CHUNKS = 25; // safety bound: at most CHUNK_SIZE*MAX_CHUNKS (5000) items per sync
+
+const DETAIL_FIELD_KEYS = [
+  "System.Title",
+  "System.Description",
+  "System.State",
+  "System.WorkItemType",
+  "System.TeamProject",
+  "System.IterationPath",
+  "System.ChangedDate",
+  "System.ChangedBy",
+  "Microsoft.VSTS.Common.Priority",
+  "Microsoft.VSTS.Scheduling.Effort",
+  "Microsoft.VSTS.Scheduling.OriginalEstimate",
+];
+
+// ADO priority is numeric (1 = highest … 4 = lowest). Collapse to the local 3-level
+// enum: 1/2 → high, 3 → medium, 4 → low. Missing/unknown → medium.
+function mapPriority(raw: unknown): TaskPriority {
+  switch (String(raw ?? "").trim()) {
+    case "1":
+    case "2":
+      return "high";
+    case "4":
+      return "low";
+    default:
+      return "medium";
+  }
+}
 
 // Azure DevOps state category → OptiSpace status. Categories are stable across
 // custom state names (New/Active/"Ready For Testing"/… all resolve by category).
@@ -76,13 +157,6 @@ function nameHeuristic(state: string): TaskStatus {
   return "todo";
 }
 
-function authHeaders(pat: string): HeadersInit {
-  return {
-    Authorization: "Basic " + Buffer.from(":" + pat).toString("base64"),
-    "Content-Type": "application/json",
-  };
-}
-
 export interface AssignedWorkItems {
   items: WorkItemDTO[]; // open items to import (capped)
   openIds: string[]; // every not-Removed assigned id (uncapped) — for pruning
@@ -90,41 +164,30 @@ export interface AssignedWorkItems {
 }
 
 export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise<AssignedWorkItems> {
-  const { orgUrl, pat, projects, includeDone } = config;
-  const headers = authHeaders(pat);
+  const c = apis();
+  if (!c) return { items: [], openIds: [], doneIds: [] };
+  const wit = await c.wit;
 
   const projectFilter =
-    projects.length > 0
-      ? ` AND [System.TeamProject] IN (${projects.map((p) => `'${p.replace(/'/g, "''")}'`).join(", ")})`
+    config.projects.length > 0
+      ? ` AND [System.TeamProject] IN (${config.projects.map((p) => `'${p.replace(/'/g, "''")}'`).join(", ")})`
       : "";
   const query = `SELECT [System.Id] FROM WorkItems WHERE [System.AssignedTo] = @Me AND [System.State] <> 'Removed'${projectFilter} ORDER BY [System.ChangedDate] DESC`;
 
-  const wiqlRes = await fetch(`${orgUrl}/_apis/wit/wiql?${API}`, { method: "POST", headers, body: JSON.stringify({ query }) });
-  if (!wiqlRes.ok) {
-    throw new Error(`Azure DevOps WIQL failed (${wiqlRes.status}). Check the PAT scopes and org URL.`);
-  }
-  const wiql = (await wiqlRes.json()) as { workItems?: { id: number }[] };
-  const openIds = (wiql.workItems ?? []).map((w) => String(w.id));
-  const ids = openIds.slice(0, MAX_ITEMS).map((id) => Number(id));
-  if (ids.length === 0) return { items: [], openIds, doneIds: [] };
+  const result = await wit.queryByWiql({ query });
+  const openIds = (result.workItems ?? []).map((w) => String(w.id));
+  if (openIds.length === 0) return { items: [], openIds, doneIds: [] };
 
-  const fields = [
-    "System.Title",
-    "System.Description",
-    "System.State",
-    "System.WorkItemType",
-    "System.TeamProject",
-    "System.IterationPath",
-    "System.ChangedDate",
-    "System.ChangedBy",
-    "Microsoft.VSTS.Scheduling.Effort",
-    "Microsoft.VSTS.Scheduling.OriginalEstimate",
-  ];
-  const detailRes = await fetch(`${orgUrl}/_apis/wit/workitems?ids=${ids.join(",")}&fields=${fields.join(",")}&${API}`, { headers });
-  if (!detailRes.ok) {
-    throw new Error(`Azure DevOps work item fetch failed (${detailRes.status}).`);
+  // Fetch details for ALL assigned ids in chunks (ADO caps 200 ids/request). A single
+  // 200-item cap starved older open items whenever the assignee had many non-Removed
+  // (incl. closed) items — they fell past the cap and never re-synced. See BATCH_PROCESSING.
+  const numericIds = openIds.slice(0, CHUNK_SIZE * MAX_CHUNKS).map((id) => Number(id));
+  const detail: WorkItem[] = [];
+  for (let i = 0; i < numericIds.length; i += CHUNK_SIZE) {
+    const chunk = numericIds.slice(i, i + CHUNK_SIZE);
+    const batch = await wit.getWorkItems(chunk, DETAIL_FIELD_KEYS);
+    detail.push(...batch);
   }
-  const detail = (await detailRes.json()) as { value: { id: number; fields: Record<string, string> }[] };
 
   // Resolve state → category per (project, type), cached.
   const stateMaps = new Map<string, Record<string, string>>();
@@ -134,14 +197,8 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
     if (cached) return cached;
     let map: Record<string, string> = {};
     try {
-      const res = await fetch(
-        `${orgUrl}/${encodeURIComponent(project)}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/states?${API}`,
-        { headers },
-      );
-      if (res.ok) {
-        const body = (await res.json()) as { value: { name: string; category: string }[] };
-        map = Object.fromEntries(body.value.map((s) => [s.name, s.category]));
-      }
+      const states = await wit.getWorkItemTypeStates(project, type);
+      map = Object.fromEntries(states.map((s) => [s.name ?? "", s.category ?? ""]));
     } catch {
       map = {};
     }
@@ -151,31 +208,35 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
 
   const items: WorkItemDTO[] = [];
   const doneIds: string[] = [];
-  for (const wi of detail.value) {
-    const f = wi.fields;
-    const project = f["System.TeamProject"];
-    const type = f["System.WorkItemType"];
-    const state = f["System.State"];
+  for (const wi of detail) {
+    const f = wi.fields ?? {};
+    const project = fieldStr(f, "System.TeamProject");
+    const type = fieldStr(f, "System.WorkItemType");
+    const state = fieldStr(f, "System.State");
     const category = (await statesFor(project, type))[state];
     const status = category ? categoryToStatus(category) : nameHeuristic(state);
     if (status === null) continue; // Removed/unknown category
     if (status === "done") {
       doneIds.push(String(wi.id));
-      if (!includeDone) continue;
+      if (!config.includeDone) continue;
     }
     const effortRaw = f["Microsoft.VSTS.Scheduling.Effort"] ?? f["Microsoft.VSTS.Scheduling.OriginalEstimate"];
     const effort = effortRaw != null && effortRaw !== "" ? Number(effortRaw) : NaN;
-    const changedBy = ((f as Record<string, unknown>)["System.ChangedBy"] as { displayName?: string } | undefined)?.displayName ?? null;
+    const priorityRaw = f["Microsoft.VSTS.Common.Priority"];
+    const changedBy = (f["System.ChangedBy"] as { displayName?: string } | undefined)?.displayName ?? null;
     items.push({
       externalId: String(wi.id),
-      title: f["System.Title"] ?? `Work item ${wi.id}`,
-      description: f["System.Description"] ?? null,
+      title: fieldStr(f, "System.Title") || `Work item ${wi.id}`,
+      description: (f["System.Description"] as string | undefined) ?? null,
       status,
-      url: `${orgUrl}/${encodeURIComponent(project)}/_workitems/edit/${wi.id}`,
+      url: itemUrl(config.orgUrl, project, wi.id ?? 0),
       project,
-      iterationPath: f["System.IterationPath"] || null,
+      workItemType: type,
+      priority: mapPriority(priorityRaw),
+      adoPriority: priorityRaw ? Number(priorityRaw) : null,
+      iterationPath: fieldStr(f, "System.IterationPath") || null,
       effort: Number.isFinite(effort) ? effort : null,
-      changedDate: f["System.ChangedDate"] ?? null,
+      changedDate: fieldStr(f, "System.ChangedDate") || null,
       changedBy,
     });
   }
@@ -193,6 +254,14 @@ export interface WorkItemAttachment {
   id: string;
   name: string;
   isImage: boolean;
+}
+
+export interface WorkItemRef {
+  id: string;
+  title: string;
+  type: string; // ADO work item type (Bug/Task/User Story/…) for the colored swatch
+  state: string;
+  url: string;
 }
 
 export interface WorkItemDetail {
@@ -214,17 +283,16 @@ export interface WorkItemDetail {
   iterationPath: string;
   assignedTo: string; // email/UPN
   iterations: string[]; // sprint options for this project
-  details: { label: string; value: string }[]; // remaining read-only extras (area, story points, tags)
+  details: { label: string; value: string }[]; // remaining read-only extras (story points, tags)
   url: string;
   comments: WorkItemComment[];
   attachments: WorkItemAttachment[];
+  parent: WorkItemRef | null; // ADO hierarchy parent (Hierarchy-Reverse), if any
+  children: WorkItemRef[]; // ADO hierarchy children (Hierarchy-Forward)
 }
 
-// Notable work-item fields to surface in the popup (only shown when populated).
-// Read-only extras shown below the editable form (the editable fields — assignee,
-// iteration, priority, effort, estimates — are handled as inputs, not here).
+// Notable read-only work-item fields to surface below the editable form.
 const DETAIL_FIELDS: { key: string; label: string; format: (v: unknown) => string }[] = [
-  { key: "System.AreaPath", label: "Area", format: String },
   { key: "Microsoft.VSTS.Scheduling.StoryPoints", label: "Story points", format: String },
   { key: "System.Tags", label: "Tags", format: String },
 ];
@@ -240,85 +308,94 @@ function sanitizeHtml(html: string): string {
 
 export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemDetail | null> {
   const config = getAzureDevOpsConfig();
-  if (!config) return null;
-  const { orgUrl, pat } = config;
-  const headers = authHeaders(pat);
+  const c = apis();
+  if (!config || !c) return null;
+  const wit = await c.wit;
 
-  const wiRes = await fetch(`${orgUrl}/_apis/wit/workitems/${encodeURIComponent(externalId)}?$expand=all&${API}`, { headers });
-  if (!wiRes.ok) throw new Error(`Failed to load work item ${externalId} (${wiRes.status}).`);
-  const wi = (await wiRes.json()) as {
-    rev: number;
-    fields: Record<string, unknown>;
-    relations?: { rel: string; url: string; attributes?: { name?: string } }[];
-  };
-  const str = (k: string): string => {
-    const v = wi.fields[k];
-    return v == null ? "" : String(v);
-  };
-  const project = str("System.TeamProject");
-  const type = str("System.WorkItemType");
-  const description = (wi.fields["System.Description"] as string | undefined) ?? null;
+  const wi = await wit.getWorkItem(Number(externalId), undefined, undefined, WorkItemExpand.All);
+  const f = wi.fields ?? {};
+  const project = fieldStr(f, "System.TeamProject");
+  const type = fieldStr(f, "System.WorkItemType");
+  const description = (f["System.Description"] as string | undefined) ?? null;
   const allowedStates = (await fetchStates(project, type)).map((s) => s.name);
 
   const details = DETAIL_FIELDS.flatMap(({ key, label, format }) => {
-    const v = wi.fields[key];
+    const v = f[key];
     if (v === undefined || v === null || v === "") return [];
     return [{ label, value: format(v) }];
   });
 
-  const attachments: WorkItemAttachment[] = (wi.relations ?? [])
+  const relations = wi.relations ?? [];
+  const attachments: WorkItemAttachment[] = relations
     .filter((r) => r.rel === "AttachedFile")
     .map((r) => {
-      const id = r.url.split("/").pop() ?? "";
-      const name = r.attributes?.name ?? id;
+      const id = (r.url ?? "").split("/").pop() ?? "";
+      const name = (r.attributes?.name as string | undefined) ?? id;
       return { id, name, isImage: /\.(png|jpe?g|gif|webp|bmp)$/i.test(name) };
     });
 
   let comments: WorkItemComment[] = [];
   try {
-    const cRes = await fetch(
-      `${orgUrl}/${encodeURIComponent(project)}/_apis/wit/workItems/${encodeURIComponent(externalId)}/comments?api-version=7.1-preview.4`,
-      { headers },
-    );
-    if (cRes.ok) {
-      const c = (await cRes.json()) as {
-        comments?: { text?: string; createdBy?: { displayName?: string }; createdDate?: string }[];
-      };
-      comments = (c.comments ?? []).map((x) => ({
-        author: x.createdBy?.displayName ?? "Unknown",
-        text: sanitizeHtml(x.text ?? ""),
-        date: x.createdDate ?? "",
-      }));
-    }
+    const list = await wit.getComments(project, Number(externalId));
+    comments = (list.comments ?? []).map((x) => ({
+      author: x.createdBy?.displayName ?? "Unknown",
+      text: sanitizeHtml(x.text ?? ""),
+      date: toIso(x.createdDate) ?? "",
+    }));
   } catch {
     comments = [];
   }
 
   const iterations = await fetchIterations(project);
-  const assignedTo = (wi.fields["System.AssignedTo"] as { uniqueName?: string } | undefined)?.uniqueName ?? "";
+  const assignedTo = (f["System.AssignedTo"] as { uniqueName?: string } | undefined)?.uniqueName ?? "";
+
+  // Hierarchy links: Reverse = parent, Forward = children. Resolve their titles/types
+  // in one batch fetch so the popup can show the work-item tree.
+  const relIdOf = (url: string | undefined) => (url ?? "").split("/").pop() ?? "";
+  const parentUrl = relations.find((r) => r.rel === "System.LinkTypes.Hierarchy-Reverse")?.url ?? null;
+  const childIds = relations.filter((r) => r.rel === "System.LinkTypes.Hierarchy-Forward").map((r) => relIdOf(r.url));
+  const relIds = [...(parentUrl ? [relIdOf(parentUrl)] : []), ...childIds];
+  const refById = new Map<string, WorkItemRef>();
+  if (relIds.length > 0) {
+    const refItems = await wit.getWorkItems(relIds.map(Number), ["System.Title", "System.WorkItemType", "System.State"]);
+    for (const w of refItems) {
+      const wf = w.fields ?? {};
+      refById.set(String(w.id), {
+        id: String(w.id),
+        title: fieldStr(wf, "System.Title") || `Work item ${w.id}`,
+        type: fieldStr(wf, "System.WorkItemType"),
+        state: fieldStr(wf, "System.State"),
+        url: itemUrl(config.orgUrl, project, w.id ?? 0),
+      });
+    }
+  }
+  const parent = parentUrl ? refById.get(relIdOf(parentUrl)) ?? null : null;
+  const children = childIds.map((id) => refById.get(id)).filter((r): r is WorkItemRef => Boolean(r));
 
   return {
     externalId: String(externalId),
-    title: str("System.Title"),
-    rev: wi.rev,
+    title: fieldStr(f, "System.Title"),
+    rev: wi.rev ?? 0,
     project,
     descriptionHtml: description ? sanitizeHtml(description) : null,
     descriptionRaw: description ?? "",
-    state: str("System.State"),
+    state: fieldStr(f, "System.State"),
     type,
     allowedStates,
-    priority: str("Microsoft.VSTS.Common.Priority"),
-    effort: str("Microsoft.VSTS.Scheduling.Effort"),
-    originalEstimate: str("Microsoft.VSTS.Scheduling.OriginalEstimate"),
-    remainingWork: str("Microsoft.VSTS.Scheduling.RemainingWork"),
-    completedWork: str("Microsoft.VSTS.Scheduling.CompletedWork"),
-    iterationPath: str("System.IterationPath"),
+    priority: fieldStr(f, "Microsoft.VSTS.Common.Priority"),
+    effort: fieldStr(f, "Microsoft.VSTS.Scheduling.Effort"),
+    originalEstimate: fieldStr(f, "Microsoft.VSTS.Scheduling.OriginalEstimate"),
+    remainingWork: fieldStr(f, "Microsoft.VSTS.Scheduling.RemainingWork"),
+    completedWork: fieldStr(f, "Microsoft.VSTS.Scheduling.CompletedWork"),
+    iterationPath: fieldStr(f, "System.IterationPath"),
     assignedTo,
     iterations,
     details,
-    url: `${orgUrl}/${encodeURIComponent(project)}/_workitems/edit/${externalId}`,
+    url: itemUrl(config.orgUrl, project, externalId),
     comments,
     attachments,
+    parent,
+    children,
   };
 }
 
@@ -329,15 +406,14 @@ export interface StateOption {
 }
 
 export async function fetchStates(project: string, type: string): Promise<StateOption[]> {
-  const config = getAzureDevOpsConfig();
-  if (!config) return [];
-  const res = await fetch(
-    `${config.orgUrl}/${encodeURIComponent(project)}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/states?${API}`,
-    { headers: authHeaders(config.pat) },
-  );
-  if (!res.ok) return [];
-  const body = (await res.json()) as { value: { name: string; category: string }[] };
-  return body.value.map((s) => ({ name: s.name, category: s.category }));
+  const c = apis();
+  if (!c) return [];
+  try {
+    const states = await (await c.wit).getWorkItemTypeStates(project, type);
+    return states.map((s) => ({ name: s.name ?? "", category: s.category ?? "" }));
+  } catch {
+    return [];
+  }
 }
 
 // Maps an ADO state name back to our TaskStatus (for reflecting a write locally).
@@ -348,68 +424,116 @@ export async function statusForState(project: string, type: string, state: strin
 
 // PATCH arbitrary fields (ADO field key → value) with optimistic concurrency
 // (rev test → 412 if changed upstream). Empty-string values clear the field.
-export async function updateWorkItem(
-  externalId: string,
-  rev: number,
-  fields: Record<string, unknown>,
-): Promise<void> {
-  const config = getAzureDevOpsConfig();
-  if (!config) throw new Error("Azure DevOps is not configured.");
-  const ops: { op: string; path: string; value: unknown }[] = [
-    { op: "test", path: "/rev", value: rev },
-    ...Object.entries(fields).map(([key, value]) => ({ op: "add", path: `/fields/${key}`, value })),
+export async function updateWorkItem(externalId: string, rev: number, fields: Record<string, unknown>): Promise<void> {
+  const c = apis();
+  if (!c) throw new Error("Azure DevOps is not configured.");
+  const document: JsonPatchDocument = [
+    { op: Operation.Test, path: "/rev", value: rev },
+    ...Object.entries(fields).map(([key, value]) => ({ op: Operation.Add, path: `/fields/${key}`, value })),
   ];
+  try {
+    await (await c.wit).updateWorkItem({}, document, Number(externalId));
+  } catch (e) {
+    if ((e as { statusCode?: number }).statusCode === 412) {
+      throw new Error("This work item changed in Azure DevOps — reopen it and try again.");
+    }
+    throw new Error(`Azure DevOps update failed: ${e instanceof Error ? e.message : "unknown error"}.`);
+  }
+}
 
-  const res = await fetch(`${config.orgUrl}/_apis/wit/workitems/${encodeURIComponent(externalId)}?${API}`, {
-    method: "PATCH",
-    headers: { ...authHeaders(config.pat), "Content-Type": "application/json-patch+json" },
-    body: JSON.stringify(ops),
-  });
-  if (res.status === 412) throw new Error("This work item changed in Azure DevOps — reopen it and try again.");
-  if (!res.ok) throw new Error(`Azure DevOps update failed (${res.status}).`);
+// Every project the PAT can access — independent of the @Me WIQL, so the create
+// picker offers all projects, not just ones where I already have assigned work.
+export async function fetchAzureDevOpsProjects(): Promise<string[]> {
+  const c = apis();
+  if (!c) return [];
+  const projects = await (await c.core).getProjects();
+  return projects
+    .map((p) => p.name ?? "")
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+// Work item type names for a project (Bug/Task/User Story/…), excluding disabled ones.
+export async function fetchWorkItemTypes(project: string): Promise<string[]> {
+  const c = apis();
+  if (!c) return [];
+  const types = await (await c.wit).getWorkItemTypes(project);
+  return types.filter((t) => !t.isDisabled).map((t) => t.name ?? "").filter(Boolean);
+}
+
+// Create a work item assigned to me and return it as a WorkItemDTO so the caller can
+// mirror it into a local Task immediately. Needs a Work Items Read & Write PAT.
+export async function createWorkItem(input: {
+  project: string;
+  type: string;
+  title: string;
+  description: string;
+  priority?: string; // ADO numeric 1–4
+  iterationPath?: string;
+  assignee?: string; // email/UPN; defaults to me
+}): Promise<WorkItemDTO> {
+  const config = getAzureDevOpsConfig();
+  const c = apis();
+  if (!config || !c) throw new Error("Azure DevOps is not configured.");
+  const assignee = input.assignee?.trim() || config.email || (await resolveMe())?.uniqueName || null;
+  const ops: { op: Operation; path: string; value: unknown }[] = [
+    { op: Operation.Add, path: "/fields/System.Title", value: input.title },
+  ];
+  if (input.description.trim()) ops.push({ op: Operation.Add, path: "/fields/System.Description", value: input.description });
+  if (assignee) ops.push({ op: Operation.Add, path: "/fields/System.AssignedTo", value: assignee });
+  if (input.priority?.trim()) ops.push({ op: Operation.Add, path: "/fields/Microsoft.VSTS.Common.Priority", value: Number(input.priority) });
+  if (input.iterationPath?.trim()) ops.push({ op: Operation.Add, path: "/fields/System.IterationPath", value: input.iterationPath });
+
+  const wi = await (await c.wit).createWorkItem({}, ops as unknown as JsonPatchDocument, input.project, input.type);
+  const f = wi.fields ?? {};
+  const state = fieldStr(f, "System.State");
+  const priorityRaw = f["Microsoft.VSTS.Common.Priority"];
+  return {
+    externalId: String(wi.id),
+    title: fieldStr(f, "System.Title") || input.title,
+    description: (f["System.Description"] as string | undefined) ?? null,
+    status: (await statusForState(input.project, input.type, state)) ?? "todo",
+    url: itemUrl(config.orgUrl, input.project, wi.id ?? 0),
+    project: input.project,
+    workItemType: input.type,
+    priority: mapPriority(priorityRaw),
+    adoPriority: priorityRaw ? Number(priorityRaw) : null,
+    iterationPath: fieldStr(f, "System.IterationPath") || null,
+    effort: null,
+    changedDate: fieldStr(f, "System.ChangedDate") || null,
+    changedBy: null,
+  };
 }
 
 // Iteration paths available in a project (for the sprint dropdown).
 export async function fetchIterations(project: string): Promise<string[]> {
-  const config = getAzureDevOpsConfig();
-  if (!config) return [];
-  const res = await fetch(
-    `${config.orgUrl}/${encodeURIComponent(project)}/_apis/wit/classificationnodes/iterations?$depth=5&${API}`,
-    { headers: authHeaders(config.pat) },
-  );
-  if (!res.ok) return [];
-  const root = (await res.json()) as IterationNode;
+  const c = apis();
+  if (!c) return [];
+  let root: WorkItemClassificationNode;
+  try {
+    root = await (await c.wit).getClassificationNode(project, TreeStructureGroup.Iterations, undefined, 5);
+  } catch {
+    return [];
+  }
   const paths: string[] = [];
-  const walk = (node: IterationNode, prefix: string) => {
-    const path = prefix ? `${prefix}\\${node.name}` : node.name;
+  const walk = (node: WorkItemClassificationNode, prefix: string) => {
+    const name = node.name ?? "";
+    const path = prefix ? `${prefix}\\${name}` : name;
     if (!node.hasChildren || (node.children?.length ?? 0) === 0) paths.push(path);
-    node.children?.forEach((c) => walk(c, path));
+    node.children?.forEach((child) => walk(child, path));
   };
   walk(root, "");
   return paths;
 }
 
-interface IterationNode {
-  name: string;
-  hasChildren?: boolean;
-  children?: IterationNode[];
-}
-
 export async function postComment(project: string, externalId: string, text: string): Promise<void> {
-  const config = getAzureDevOpsConfig();
-  if (!config) throw new Error("Azure DevOps is not configured.");
-  const res = await fetch(
-    `${config.orgUrl}/${encodeURIComponent(project)}/_apis/wit/workItems/${encodeURIComponent(externalId)}/comments?api-version=7.1-preview.4`,
-    {
-      method: "POST",
-      headers: { ...authHeaders(config.pat), "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    },
-  );
-  if (!res.ok) throw new Error(`Adding the comment failed (${res.status}).`);
+  const c = apis();
+  if (!c) throw new Error("Azure DevOps is not configured.");
+  await (await c.wit).addComment({ text }, project, Number(externalId));
 }
 
 // Search ADO users for @-mention suggestions via the Identity Picker API.
+// KEPT ON FETCH: azure-devops-node-api does not wrap the IdentityPicker service.
 // Returns [] on any failure — a suggestion box degrades quietly, no throw.
 export async function searchIdentities(query: string): Promise<AdoIdentity[]> {
   const config = getAzureDevOpsConfig();
@@ -452,22 +576,19 @@ export interface RawComment {
 }
 
 export async function fetchRawComments(project: string, externalId: string): Promise<RawComment[]> {
-  const config = getAzureDevOpsConfig();
-  if (!config) return [];
-  const res = await fetch(
-    `${config.orgUrl}/${encodeURIComponent(project)}/_apis/wit/workItems/${encodeURIComponent(externalId)}/comments?api-version=7.1-preview.4`,
-    { headers: authHeaders(config.pat) },
-  );
-  if (!res.ok) return [];
-  const body = (await res.json()) as {
-    comments?: { id?: number; text?: string; createdDate?: string; createdBy?: { displayName?: string } }[];
-  };
-  return (body.comments ?? []).map((c) => ({
-    id: c.id ?? 0,
-    textRaw: c.text ?? "",
-    createdDate: c.createdDate ?? null,
-    author: c.createdBy?.displayName ?? null,
-  }));
+  const c = apis();
+  if (!c) return [];
+  try {
+    const list = await (await c.wit).getComments(project, Number(externalId));
+    return (list.comments ?? []).map((x) => ({
+      id: x.id ?? 0,
+      textRaw: x.text ?? "",
+      createdDate: toIso(x.createdDate),
+      author: x.createdBy?.displayName ?? null,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 // Resolve my identity (GUID + display name) from a work item assigned to me.
@@ -477,28 +598,22 @@ export async function fetchRawComments(project: string, externalId: string): Pro
 export interface AdoMe {
   id: string; // identity GUID, matches data-vss-mention
   displayName: string; // for the System.History CONTAINS WORDS query
+  uniqueName: string | null; // email/UPN — for assigning newly-created work items to me
 }
 
 export async function resolveMe(): Promise<AdoMe | null> {
-  const config = getAzureDevOpsConfig();
-  if (!config) return null;
-  const headers = authHeaders(config.pat);
-  const wiqlRes = await fetch(`${config.orgUrl}/_apis/wit/wiql?${API}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      query: "SELECT [System.Id] FROM WorkItems WHERE [System.AssignedTo] = @Me ORDER BY [System.ChangedDate] DESC",
-    }),
+  const c = apis();
+  if (!c) return null;
+  const wit = await c.wit;
+  const result = await wit.queryByWiql({
+    query: "SELECT [System.Id] FROM WorkItems WHERE [System.AssignedTo] = @Me ORDER BY [System.ChangedDate] DESC",
   });
-  if (!wiqlRes.ok) return null;
-  const id = ((await wiqlRes.json()) as { workItems?: { id: number }[] }).workItems?.[0]?.id;
+  const id = result.workItems?.[0]?.id;
   if (id == null) return null;
-  const wiRes = await fetch(`${config.orgUrl}/_apis/wit/workitems?ids=${id}&fields=System.AssignedTo&${API}`, { headers });
-  if (!wiRes.ok) return null;
-  const assignedTo = ((await wiRes.json()) as { value?: { fields?: { "System.AssignedTo"?: { id?: string; displayName?: string } } }[] })
-    .value?.[0]?.fields?.["System.AssignedTo"];
+  const wi = await wit.getWorkItem(id, ["System.AssignedTo"]);
+  const assignedTo = wi.fields?.["System.AssignedTo"] as { id?: string; displayName?: string; uniqueName?: string } | undefined;
   if (!assignedTo?.id || !assignedTo.displayName) return null;
-  return { id: assignedTo.id, displayName: assignedTo.displayName };
+  return { id: assignedTo.id, displayName: assignedTo.displayName, uniqueName: assignedTo.uniqueName ?? null };
 }
 
 export interface MentionCandidate {
@@ -514,32 +629,24 @@ export interface MentionCandidate {
 // data-vss-mention GUID in each item's comments to filter plain-name false positives.
 export async function fetchMentionCandidates(displayName: string, lookbackDays: number, cap = 50): Promise<MentionCandidate[]> {
   const config = getAzureDevOpsConfig();
-  if (!config) return [];
-  const headers = authHeaders(config.pat);
+  const c = apis();
+  if (!config || !c) return [];
+  const wit = await c.wit;
   const safeName = displayName.replace(/'/g, "''");
   const query =
     `SELECT [System.Id] FROM WorkItems WHERE [System.History] CONTAINS WORDS '${safeName}' ` +
     `AND [System.ChangedDate] >= @today - ${lookbackDays} ORDER BY [System.ChangedDate] DESC`;
-  const wiqlRes = await fetch(`${config.orgUrl}/_apis/wit/wiql?${API}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ query }),
-  });
-  if (!wiqlRes.ok) return [];
-  const ids = (((await wiqlRes.json()) as { workItems?: { id: number }[] }).workItems ?? []).slice(0, cap).map((w) => w.id);
+  const result = await wit.queryByWiql({ query });
+  const ids = (result.workItems ?? []).slice(0, cap).map((w) => w.id as number);
   if (ids.length === 0) return [];
-  const detailRes = await fetch(
-    `${config.orgUrl}/_apis/wit/workitems?ids=${ids.join(",")}&fields=System.Title,System.TeamProject&${API}`,
-    { headers },
-  );
-  if (!detailRes.ok) return [];
-  const detail = (await detailRes.json()) as { value: { id: number; fields: Record<string, string> }[] };
-  return detail.value.map((wi) => {
-    const project = wi.fields["System.TeamProject"];
+  const items = await wit.getWorkItems(ids, ["System.Title", "System.TeamProject"]);
+  return items.map((wi) => {
+    const f = wi.fields ?? {};
+    const project = fieldStr(f, "System.TeamProject");
     return {
       externalId: String(wi.id),
-      title: wi.fields["System.Title"] ?? `Work item ${wi.id}`,
-      url: `${config.orgUrl}/${encodeURIComponent(project)}/_workitems/edit/${wi.id}`,
+      title: fieldStr(f, "System.Title") || `Work item ${wi.id}`,
+      url: itemUrl(config.orgUrl, project, wi.id ?? 0),
       project,
     };
   });
@@ -547,12 +654,13 @@ export async function fetchMentionCandidates(displayName: string, lookbackDays: 
 
 // Fetch attachment bytes with the PAT (used by the media proxy route). The id is
 // an ADO attachment GUID; the URL is rebuilt from the configured org (no arbitrary
-// URLs → no SSRF).
+// URLs → no SSRF). KEPT ON FETCH: we need the raw Content-Type header, which the
+// SDK's stream-based getAttachmentContent does not surface.
 export async function fetchAttachment(id: string, name: string): Promise<{ bytes: ArrayBuffer; contentType: string } | null> {
   const config = getAzureDevOpsConfig();
   if (!config) return null;
   const res = await fetch(
-    `${config.orgUrl}/_apis/wit/attachments/${encodeURIComponent(id)}?fileName=${encodeURIComponent(name)}&${API}`,
+    `${config.orgUrl}/_apis/wit/attachments/${encodeURIComponent(id)}?fileName=${encodeURIComponent(name)}&api-version=7.0`,
     { headers: authHeaders(config.pat) },
   );
   if (!res.ok) return null;

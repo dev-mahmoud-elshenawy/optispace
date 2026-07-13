@@ -1,11 +1,19 @@
 import type { Task } from "@prisma/client";
 
-import { parseTags, type TaskPriority, type TaskRecurrence, type TaskStatus } from "@/types";
+import { type TaskPriority, type TaskStatus } from "@/types";
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "To Do",
   in_progress: "In Progress",
   done: "Done",
+};
+
+// Single source of truth for status dot/accent color — used by the board, list,
+// dashboard, and day preview so every task (DevOps or local) styles status the same.
+export const STATUS_DOT_CLASS: Record<TaskStatus, string> = {
+  todo: "bg-muted-foreground/40",
+  in_progress: "bg-primary",
+  done: "bg-chart-2",
 };
 
 export const PRIORITY_FLAG_CLASS: Record<TaskPriority, string> = {
@@ -37,14 +45,14 @@ export interface TaskView {
   status: TaskStatus;
   priority: TaskPriority;
   dueDate: Date | null;
-  tags: string[];
   order: number;
   projectId: string | null;
   projectName: string | null;
-  recurrence: TaskRecurrence;
   source: string | null;
   externalId: string | null;
   externalUrl: string | null;
+  workItemType: string | null;
+  adoPriority: number | null;
   iterationPath: string | null;
   effort: number | null;
   changedDate: Date | null;
@@ -66,14 +74,14 @@ export function toTaskView(row: TaskRow): TaskView {
     status: row.status as TaskStatus,
     priority: row.priority as TaskPriority,
     dueDate: row.dueDate,
-    tags: parseTags(row.tags),
     order: row.order,
     projectId: row.projectId,
     projectName: row.project?.name ?? null,
-    recurrence: row.recurrence as TaskRecurrence,
     source: row.source,
     externalId: row.externalId,
     externalUrl: row.externalUrl,
+    workItemType: row.workItemType,
+    adoPriority: row.adoPriority,
     iterationPath: row.iterationPath,
     effort: row.effort,
     changedDate: row.changedDate,

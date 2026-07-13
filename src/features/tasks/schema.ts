@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { TASK_PRIORITIES, TASK_RECURRENCES, TASK_STATUSES } from "@/types";
+import { TASK_PRIORITIES, TASK_STATUSES } from "@/types";
 
 export const taskInputSchema = z.object({
   title: z.string().trim().min(1, "Title is required"),
@@ -8,8 +8,6 @@ export const taskInputSchema = z.object({
   status: z.enum(TASK_STATUSES),
   priority: z.enum(TASK_PRIORITIES),
   dueDate: z.string().trim().optional(),
-  tags: z.array(z.string()).default([]),
-  recurrence: z.enum(TASK_RECURRENCES).default("none"),
   projectId: z.string().trim().optional(),
 });
 

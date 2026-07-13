@@ -90,11 +90,11 @@ model Task {
   status      String    @default("todo") // todo | in_progress | done
   priority    String    @default("medium") // low | medium | high
   dueDate     DateTime?
-  tags        String    @default("[]") // JSON array of strings
-  recurrence  String    @default("none") // none | daily | weekly | monthly
   source        String? // external origin, e.g. "azure_devops" (null = created in-app)
   externalId    String? // id in the source system, unique per source
   externalUrl   String? // link back to the source item
+  workItemType  String? // ADO System.WorkItemType, e.g. "Bug"/"Task"/"User Story" (source-owned)
+  adoPriority   Int? // raw ADO Microsoft.VSTS.Common.Priority (1–4) for the card flag (source-owned)
   iterationPath String? // ADO sprint path, e.g. "Canitude\Iteration 2" (source-owned)
   effort        Float? // ADO estimated effort / original estimate (source-owned; null = unestimated)
   changedDate   DateTime? // ADO System.ChangedDate — last change in the source (source-owned)
@@ -168,6 +168,19 @@ model CalendarEvent {
 }
 
 // ── Packages ─────────────────────────────────────────────────
+// Cache of Azure DevOps projects the PAT can access, so the "create in DevOps" picker
+// is instant. Refreshed on each sync (syncAzureDevOpsProjects); soft-deleted when a
+// project leaves the accessible set.
+model AdoProject {
+  id        String    @id @default(cuid())
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([name])
+}
+
 model Package {
   id             String  @id @default(cuid())
   name           String

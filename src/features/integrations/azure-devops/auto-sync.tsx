@@ -52,6 +52,11 @@ export function AzureDevOpsAutoSync({ enabled }: { enabled: boolean }) {
           if (ado.ok && ado.notified > 0) window.dispatchEvent(new Event("optispace:notifications-updated"));
           if (calChanged) window.dispatchEvent(new Event("optispace:calendar-updated"));
         }
+      } catch (e) {
+        // Silent to the UI (no toast/overlay), but log so a real failure — e.g. a
+        // stale Prisma client after a migration ("Unknown argument …") — is visible
+        // in devtools instead of vanishing. Transient "Failed to fetch" lands here too.
+        console.error("[optispace] auto-sync failed", e);
       } finally {
         running.current = false;
       }

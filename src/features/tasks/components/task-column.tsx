@@ -8,7 +8,7 @@ import { PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { createTask } from "@/features/tasks/actions";
-import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
+import { STATUS_DOT_CLASS, STATUS_LABELS, type TaskView } from "@/features/tasks/service";
 import { cn } from "@/lib/utils";
 import type { TaskStatus } from "@/types";
 
@@ -18,11 +18,6 @@ export function columnDroppableId(status: TaskStatus): string {
   return `column-${status}`;
 }
 
-const STATUS_DOT: Record<TaskStatus, string> = {
-  todo: "bg-muted-foreground/40",
-  in_progress: "bg-primary",
-  done: "bg-chart-2",
-};
 
 interface TaskColumnProps {
   status: TaskStatus;
@@ -45,7 +40,7 @@ export function TaskColumn({ status, tasks, onEdit, onDelete }: TaskColumnProps)
       return;
     }
     startTransition(async () => {
-      const result = await createTask({ title: trimmed, status, priority: "medium", tags: [], recurrence: "none" });
+      const result = await createTask({ title: trimmed, status, priority: "medium" });
       if (result.ok) {
         setTitle(""); // keep the input open for rapid entry, Notion-style
         router.refresh();
@@ -59,7 +54,7 @@ export function TaskColumn({ status, tasks, onEdit, onDelete }: TaskColumnProps)
     <div className="flex min-w-0 flex-1 flex-col gap-3 rounded-lg bg-muted/30 p-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className={cn("size-2.5 rounded-full", STATUS_DOT[status])} />
+          <span className={cn("size-2.5 rounded-full", STATUS_DOT_CLASS[status])} />
           <h2 className="text-sm font-semibold text-foreground">{STATUS_LABELS[status]}</h2>
         </div>
         <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{tasks.length}</span>

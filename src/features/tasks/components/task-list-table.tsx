@@ -3,7 +3,6 @@
 import { format } from "date-fns";
 import { ArrowDownIcon, ArrowUpIcon, Trash2Icon } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -52,7 +51,6 @@ export function TaskListTable({
           <SortableHead label="Due date" active={sortKey === "dueDate"} desc={sortDesc} onClick={() => onSort("dueDate")} />
           <SortableHead label="Effort" active={sortKey === "effort"} desc={sortDesc} onClick={() => onSort("effort")} />
           <SortableHead label="Changed" active={sortKey === "changedDate"} desc={sortDesc} onClick={() => onSort("changedDate")} />
-          <TableHead>Tags</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
@@ -80,15 +78,6 @@ export function TaskListTable({
             <TableCell>{task.dueDate ? format(task.dueDate, "MMM d, yyyy") : "—"}</TableCell>
             <TableCell className="tabular-nums">{task.effort ?? "—"}</TableCell>
             <TableCell>{task.changedDate ? format(task.changedDate, "MMM d, yyyy") : "—"}</TableCell>
-            <TableCell>
-              <div className="flex flex-wrap gap-1">
-                {task.tags.map((tag) => (
-                  <Badge key={tag} variant="outline">
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
-            </TableCell>
             <TableCell className="text-right">
               {task.source !== "azure_devops" ? (
                 <Button variant="ghost" size="icon-xs" onClick={() => onDelete(task)}>

@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { PRIORITY_FLAG_CLASS } from "@/features/tasks/service";
 import type { TaskPriority } from "@/types";
 
-export function PriorityFlag({ priority }: { priority: TaskPriority }) {
+export function PriorityFlag({ priority, label }: { priority: TaskPriority; label?: string }) {
   return (
     <span
       className={cn(
@@ -13,7 +13,7 @@ export function PriorityFlag({ priority }: { priority: TaskPriority }) {
       )}
     >
       <Flag className="h-3 w-3 fill-current" />
-      {priority}
+      {label ?? priority}
     </span>
   );
 }

@@ -9,10 +9,14 @@ import type { NotificationEvent } from "@/features/notifications/service";
 import type { TaskStatus } from "@/types";
 
 import {
+  createWorkItem,
   fetchAssignedWorkItems,
+  fetchAzureDevOpsProjects,
+  fetchIterations,
   fetchMentionCandidates,
   fetchRawComments,
   fetchWorkItemDetail,
+  fetchWorkItemTypes,
   getAzureDevOpsConfig,
   postComment,
   resolveMe,
@@ -48,6 +52,10 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
   if (!config) {
     return { ok: false, error: "Azure DevOps is not configured. Set AZURE_DEVOPS_ORG_URL and AZURE_DEVOPS_PAT in .env." };
   }
+
+  // Refresh the cached project list (best-effort — a failure here must not abort the
+  // task sync). Keeps the "create in DevOps" picker current.
+  await syncAzureDevOpsProjects().catch(() => 0);
 
   let fetched;
   try {
@@ -95,12 +103,14 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
           title: item.title,
           description: item.description,
           status: item.status,
+          priority: item.priority,
+          adoPriority: item.adoPriority,
           externalUrl: item.url,
+          workItemType: item.workItemType,
           iterationPath: item.iterationPath,
           effort: item.effort,
           changedDate: item.changedDate ? new Date(item.changedDate) : null,
           projectId,
-          tags: "[]",
         },
       });
       updated += 1;
@@ -110,13 +120,13 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
           title: item.title,
           description: item.description,
           status: item.status,
-          priority: "medium",
-          tags: "[]",
-          recurrence: "none",
+          priority: item.priority,
+          adoPriority: item.adoPriority,
           order: 0,
           source: SOURCE,
           externalId: item.externalId,
           externalUrl: item.url,
+          workItemType: item.workItemType,
           iterationPath: item.iterationPath,
           effort: item.effort,
           changedDate: item.changedDate ? new Date(item.changedDate) : null,
@@ -124,19 +134,24 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
         },
       });
       imported += 1;
-      // New to my @Me set = newly assigned (or reassigned) to me. Existing items found
-      // above never re-fire, so this can't flood on a normal re-sync.
-      events.push({
-        type: "assigned",
-        externalId: item.externalId,
-        title: item.title,
-        url: item.url,
-        message: "Assigned to you",
-        project: item.project,
-        actor: item.changedBy && item.changedBy !== me?.displayName ? item.changedBy : null,
-        occurredAt: item.changedDate,
-        dedupeKey: `assigned:${item.externalId}`,
-      });
+      // New to my @Me set = newly assigned (or reassigned) to me — BUT only notify if
+      // the item changed recently. First-time syncing an old backlog (batching now
+      // reaches items past the former 200-item cap) would otherwise flood the feed with
+      // years-old "assignments". Still import the task; just skip the notification.
+      const changedMs = item.changedDate ? new Date(item.changedDate).getTime() : 0;
+      if (changedMs >= Date.now() - MENTION_LOOKBACK_DAYS * 86_400_000) {
+        events.push({
+          type: "assigned",
+          externalId: item.externalId,
+          title: item.title,
+          url: item.url,
+          message: "Assigned to you",
+          project: item.project,
+          actor: item.changedBy && item.changedBy !== me?.displayName ? item.changedBy : null,
+          occurredAt: item.changedDate,
+          dedupeKey: `assigned:${item.externalId}`,
+        });
+      }
     }
   }
 
@@ -229,6 +244,110 @@ export async function getAzureDevOpsTaskDetail(externalId: string): Promise<Deta
     return { ok: true, detail };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Failed to load work item details." };
+  }
+}
+
+// ── Create in Azure DevOps ─────────────────────────────────────────────────
+// Refresh the cached project list from ADO — add new, restore returning, soft-delete
+// ones that left the accessible set. Called on each sync and on a cold cache.
+export async function syncAzureDevOpsProjects(): Promise<number> {
+  const names = await fetchAzureDevOpsProjects();
+  if (names.length === 0) return 0;
+  for (const name of names) {
+    const existing = await db.adoProject.findFirst({ where: { name }, select: { id: true, deletedAt: true } });
+    if (existing) {
+      if (existing.deletedAt) await db.adoProject.update({ where: { id: existing.id }, data: { deletedAt: null } });
+    } else {
+      await db.adoProject.create({ data: { name } });
+    }
+  }
+  await db.adoProject.updateMany({ where: { deletedAt: null, name: { notIn: names } }, data: { deletedAt: new Date() } });
+  return names.length;
+}
+
+// Populate the "new DevOps task" dialog. Projects come from the DB cache (instant);
+// a cold cache triggers a one-time sync. Types/iterations are fetched live per project.
+export async function getAzureDevOpsProjects(): Promise<string[]> {
+  const read = async () =>
+    (await db.adoProject.findMany({ where: { deletedAt: null }, orderBy: { name: "asc" }, select: { name: true } })).map((p) => p.name);
+  const cached = await read();
+  if (cached.length > 0) return cached;
+  await syncAzureDevOpsProjects();
+  return read();
+}
+
+export async function getAzureDevOpsWorkItemTypes(project: string): Promise<string[]> {
+  if (!project) return [];
+  return fetchWorkItemTypes(project);
+}
+
+export async function getAzureDevOpsIterations(project: string): Promise<string[]> {
+  if (!project) return [];
+  return fetchIterations(project);
+}
+
+export type CreateWorkItemInput = {
+  project: string;
+  type: string;
+  title: string;
+  description?: string;
+  priority?: string;
+  iterationPath?: string;
+  assignee?: string;
+};
+
+// Create a work item in ADO (assigned to me) and mirror it into a local Task so it
+// shows on the board immediately — same shape the sync would produce.
+export async function createAzureDevOpsTask(input: CreateWorkItemInput): Promise<WriteResult> {
+  if (!input.project || !input.type || !input.title.trim()) {
+    return { ok: false, error: "Project, type and title are required." };
+  }
+  try {
+    const item = await createWorkItem({
+      project: input.project,
+      type: input.type,
+      title: input.title.trim(),
+      description: input.description ?? "",
+      priority: input.priority,
+      iterationPath: input.iterationPath,
+      assignee: input.assignee,
+    });
+
+    // Resolve (or create) the local Development project mirroring the ADO project.
+    const existingProject = await db.project.findFirst({ where: { name: item.project, deletedAt: null }, select: { id: true } });
+    const projectId =
+      existingProject?.id ??
+      (
+        await db.project.create({
+          data: { name: item.project, platform: "web", status: "active", notes: "Synced from Azure DevOps." },
+          select: { id: true },
+        })
+      ).id;
+
+    await db.task.create({
+      data: {
+        title: item.title,
+        description: item.description,
+        status: item.status,
+        priority: item.priority,
+        adoPriority: item.adoPriority,
+        order: 0,
+        source: SOURCE,
+        externalId: item.externalId,
+        externalUrl: item.url,
+        workItemType: item.workItemType,
+        iterationPath: item.iterationPath,
+        effort: item.effort,
+        changedDate: item.changedDate ? new Date(item.changedDate) : null,
+        projectId,
+      },
+    });
+
+    revalidatePath("/tasks");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to create the work item." };
   }
 }
 

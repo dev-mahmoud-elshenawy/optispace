@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
 import { moveTasksToProject } from "@/features/tasks/actions";
@@ -28,7 +27,6 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListPr
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<TaskStatus | typeof ALL>(ALL);
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | typeof ALL>(ALL);
-  const [tagSearch, setTagSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [sortDesc, setSortDesc] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -36,11 +34,9 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListPr
   const [isMoving, startMove] = useTransition();
 
   const rows = useMemo(() => {
-    const search = tagSearch.trim().toLowerCase();
     const filtered = tasks.filter((task) => {
       if (statusFilter !== ALL && task.status !== statusFilter) return false;
       if (priorityFilter !== ALL && task.priority !== priorityFilter) return false;
-      if (search && !task.tags.some((tag) => tag.toLowerCase().includes(search))) return false;
       return true;
     });
 
@@ -53,7 +49,7 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListPr
       else diff = a.createdAt.getTime() - b.createdAt.getTime();
       return sortDesc ? -diff : diff;
     });
-  }, [tasks, statusFilter, priorityFilter, tagSearch, sortKey, sortDesc]);
+  }, [tasks, statusFilter, priorityFilter, sortKey, sortDesc]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDesc((prev) => !prev);
@@ -125,12 +121,6 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListPr
           </SelectContent>
         </Select>
 
-        <Input
-          value={tagSearch}
-          onChange={(e) => setTagSearch(e.target.value)}
-          placeholder="Search by tag…"
-          className="w-48"
-        />
       </div>
 
       {selected.size > 0 ? (

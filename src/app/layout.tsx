@@ -36,11 +36,11 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           }}
         />
       </head>
-      <body suppressHydrationWarning className="min-h-full bg-background text-foreground">
+      <body suppressHydrationWarning className="h-dvh overflow-hidden bg-background text-foreground">
         <ThemeProvider>
-          <div className="flex h-dvh">
+          <div className="flex h-full">
             <Sidebar />
-            <main className="flex-1 overflow-y-auto">{children}</main>
+            <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
           </div>
           <CommandPalette items={searchIndex} />
           <AzureDevOpsAutoSync enabled={isAzureDevOpsEnabled() || isCalendarEnabled()} />

@@ -10,8 +10,6 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TASK_PRIORITIES = ["low", "medium", "high"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 
-export const TASK_RECURRENCES = ["none", "daily", "weekly", "monthly"] as const;
-export type TaskRecurrence = (typeof TASK_RECURRENCES)[number];
 
 export const PROJECT_PLATFORMS = ["flutter", "react_native", "web", "backend"] as const;
 export type ProjectPlatform = (typeof PROJECT_PLATFORMS)[number];

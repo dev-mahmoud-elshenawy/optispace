@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ExternalLink, FileText, Loader2, Paperclip, Save, Send } from "lucide-react";
+import { ExternalLink, FileText, GitBranch, Loader2, Paperclip, Save, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,6 +17,7 @@ import {
   type WorkItemPatch,
 } from "@/features/integrations/azure-devops/actions";
 import type { WorkItemDetail } from "@/features/integrations/azure-devops/service";
+import { workItemStateColor, workItemTypeColor } from "@/features/integrations/azure-devops/types";
 import { MentionInput } from "@/features/integrations/azure-devops/mention-input";
 
 interface AzureDevOpsTaskDetailProps {
@@ -76,6 +77,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
   const [form, setForm] = useState<Form | null>(null);
   const [comment, setComment] = useState("");
   const [commentKey, setCommentKey] = useState(0); // bump to remount/clear the comment editor after posting
+  const [currentId, setCurrentId] = useState(externalId); // in-modal navigation target — linked items load here
 
   function handleOpenChange(next: boolean) {
     onOpenChange(next);
@@ -89,7 +91,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
   async function load() {
     setLoading(true);
     setError(null);
-    const result = await getAzureDevOpsTaskDetail(externalId);
+    const result = await getAzureDevOpsTaskDetail(currentId);
     if (result.ok) {
       setDetail(result.detail);
       setForm(toForm(result.detail));
@@ -100,12 +102,16 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
   }
 
   useEffect(() => {
+    if (open) setCurrentId(externalId); // reset to the opened item on (re)open
+  }, [open, externalId]);
+
+  useEffect(() => {
     if (!open) return;
     setDetail(null);
     setForm(null);
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, externalId]);
+  }, [open, currentId]);
 
   function set<K extends keyof Form>(key: K, value: Form[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -133,7 +139,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
       if (form[key] !== base[key]) patch[fieldMap[key]] = form[key];
     }
     setSaving(true);
-    const result = await updateAzureDevOpsWorkItem(externalId, detail.rev, patch, {
+    const result = await updateAzureDevOpsWorkItem(currentId, detail.rev, patch, {
       project: detail.project,
       type: detail.type,
     });
@@ -152,7 +158,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     const text = comment.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
     if (!detail || text.length === 0) return;
     setSaving(true);
-    const result = await addAzureDevOpsComment(externalId, detail.project, comment);
+    const result = await addAzureDevOpsComment(currentId, detail.project, comment);
     setSaving(false);
     if (result.ok) {
       toast.success("Comment added to Azure DevOps.");
@@ -169,7 +175,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
       <DialogContent className={`max-h-[90vh] overflow-y-auto ${statusOnly ? "sm:max-w-md" : "sm:max-w-4xl"}`}>
         <DialogHeader>
           <DialogTitle className="pr-6">
-            {statusOnly ? `Change status · #${externalId}` : `Work item #${externalId}`}
+            {statusOnly ? `Change status · #${currentId}` : `Work item #${currentId}`}
           </DialogTitle>
         </DialogHeader>
 
@@ -205,7 +211,19 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
           ) : (
           <div className="space-y-4 text-sm">
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{detail.type}</span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                <span className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: workItemTypeColor(detail.type) }} />
+                {detail.type}
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">
+                <GitBranch className="size-3 shrink-0" />
+                {detail.project}
+              </span>
+              {detail.details.map((d) => (
+                <span key={d.label} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                  <span className="font-medium text-foreground/70">{d.label}:</span> {d.value}
+                </span>
+              ))}
               <a
                 href={detail.url}
                 target="_blank"
@@ -302,17 +320,6 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
               <Save /> Save to Azure DevOps
             </Button>
 
-            {detail.details.length > 0 ? (
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-border p-3">
-                {detail.details.map((d) => (
-                  <div key={d.label} className="flex flex-col">
-                    <dt className="text-xs text-muted-foreground">{d.label}</dt>
-                    <dd className="truncate">{d.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            ) : null}
-
             {detail.attachments.length > 0 ? (
               <section>
                 <h4 className="mb-2 flex items-center gap-1.5 font-medium">
@@ -339,6 +346,38 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
                       </a>
                     );
                   })}
+                </div>
+              </section>
+            ) : null}
+
+            {detail.parent || detail.children.length > 0 ? (
+              <section>
+                <h4 className="mb-2 flex items-center gap-1.5 font-medium">
+                  <GitBranch className="size-4" /> Linked items
+                </h4>
+                <div className="space-y-2">
+                  {[...(detail.parent ? [detail.parent] : []), ...detail.children].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setCurrentId(item.id)}
+                      className="flex w-full items-center gap-2 rounded-lg border border-border px-3 py-2 text-left hover:bg-accent/60"
+                    >
+                      <span
+                        className="size-2.5 shrink-0 rounded-[3px]"
+                        style={{ backgroundColor: workItemTypeColor(item.type) }}
+                      />
+                      <span className="shrink-0 text-xs text-muted-foreground">#{item.id}</span>
+                      <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                      <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                        <span
+                          className="size-1.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: workItemStateColor(item.state) }}
+                        />
+                        {item.state}
+                      </span>
+                    </button>
+                  ))}
                 </div>
               </section>
             ) : null}

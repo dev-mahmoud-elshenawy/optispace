@@ -40,10 +40,10 @@ async function main() {
 
   await db.task.createMany({
     data: [
-      { title: "Write OptiSpace README", description: "macOS setup steps", status: "in_progress", priority: "high", dueDate: new Date(`${new Date().getFullYear()}-07-10`), tags: JSON.stringify(["docs"]), order: 0, projectId: null },
-      { title: "Refresh package stats", description: "Run refresh on all packages", status: "todo", priority: "medium", tags: JSON.stringify(["packages"]), order: 0, projectId: null },
-      { title: "Review Kanban drag-and-drop", status: "todo", priority: "low", tags: JSON.stringify(["ui", "review"]), order: 1, projectId: null },
-      { title: "Publish OptiKit docs", status: "done", priority: "medium", tags: JSON.stringify(["docs"]), order: 0, projectId: null },
+      { title: "Write OptiSpace README", description: "macOS setup steps", status: "in_progress", priority: "high", dueDate: new Date(`${new Date().getFullYear()}-07-10`), order: 0, projectId: null },
+      { title: "Refresh package stats", description: "Run refresh on all packages", status: "todo", priority: "medium", order: 0, projectId: null },
+      { title: "Review Kanban drag-and-drop", status: "todo", priority: "low", order: 1, projectId: null },
+      { title: "Publish OptiKit docs", status: "done", priority: "medium", order: 0, projectId: null },
     ],
   });
 

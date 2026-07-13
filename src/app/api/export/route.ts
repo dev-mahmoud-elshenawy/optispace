@@ -6,7 +6,7 @@ const LOADERS: Record<string, () => Promise<Record<string, unknown>[]>> = {
   tasks: () =>
     db.task.findMany({
       where: { deletedAt: null },
-      select: { id: true, title: true, description: true, status: true, priority: true, dueDate: true, tags: true, recurrence: true, order: true, projectId: true, createdAt: true },
+      select: { id: true, title: true, description: true, status: true, priority: true, dueDate: true, order: true, projectId: true, createdAt: true },
       orderBy: { createdAt: "desc" },
     }),
   packages: () =>

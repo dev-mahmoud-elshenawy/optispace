@@ -3,19 +3,19 @@ import { format } from "date-fns";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, ListChecks, GitBranch, Package as PackageIcon, ExternalLink, ArrowUpRight, Activity, Link2, Sun, Bell, Clock } from "lucide-react";
+import { CalendarDays, ListChecks, GitBranch, Package as PackageIcon, ExternalLink, ArrowUpRight, Activity, Link2, Bell } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import type { ReactNode } from "react";
 import { listProfiles } from "@/features/profiles/queries";
 import { getLeaveSummary, listLeaves } from "@/features/leave/queries";
 import { getTaskStatusCounts, listTasks } from "@/features/tasks/queries";
-import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
+import { STATUS_DOT_CLASS, STATUS_LABELS, type TaskView } from "@/features/tasks/service";
 import { listProjects } from "@/features/projects/queries";
 import { countPackages } from "@/features/packages/queries";
 import { recentNotifications, unreadNotificationCount } from "@/features/notifications/queries";
 import { notificationActor, notificationTitle, type NotificationView } from "@/features/notifications/service";
 import { todayCalendarEvents } from "@/features/calendar/queries";
-import type { CalendarEventDTO } from "@/features/calendar/types";
+import { DayPreviewCard } from "@/components/dashboard/day-preview-card";
 import { DashboardCharts } from "@/features/dashboard/components/dashboard-charts";
 import type { TaskStatus } from "@/types";
 
@@ -24,7 +24,9 @@ export default async function DashboardPage() {
   const year = now.getFullYear();
   const startToday = new Date(year, now.getMonth(), now.getDate());
   const endToday = new Date(year, now.getMonth(), now.getDate(), 23, 59, 59, 999);
-  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents] = await Promise.all([
+  const startTomorrow = new Date(year, now.getMonth(), now.getDate() + 1);
+  const endTomorrow = new Date(year, now.getMonth(), now.getDate() + 1, 23, 59, 59, 999);
+  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents, tomorrowEvents] = await Promise.all([
     listProfiles(),
     getLeaveSummary(year),
     getTaskStatusCounts(),
@@ -35,6 +37,7 @@ export default async function DashboardPage() {
     recentNotifications(),
     unreadNotificationCount(),
     todayCalendarEvents(startToday, endToday),
+    todayCalendarEvents(startTomorrow, endTomorrow),
   ]);
 
   const openTasks = taskCounts.todo + taskCounts.in_progress;
@@ -49,6 +52,31 @@ export default async function DashboardPage() {
     .filter((t) => t.status !== "done" && t.dueDate !== null && t.dueDate <= endToday)
     .sort((a, b) => (a.dueDate as Date).getTime() - (b.dueDate as Date).getTime());
   const onLeaveToday = leaves.filter((l) => l.startDate <= endToday && l.endDate >= startToday);
+
+  const dueTomorrow = tasks
+    .filter((t) => t.status !== "done" && t.dueDate !== null && t.dueDate >= startTomorrow && t.dueDate <= endTomorrow)
+    .sort((a, b) => (a.dueDate as Date).getTime() - (b.dueDate as Date).getTime());
+  const onLeaveTomorrow = leaves.filter((l) => l.startDate <= endTomorrow && l.endDate >= startTomorrow);
+
+  const todayData = {
+    events: todayEvents,
+    tasks: dueTodayOrOverdue.map((t) => {
+      const overdue = (t.dueDate as Date) < startToday;
+      return {
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        overdue,
+        badge: overdue ? `Overdue · ${format(t.dueDate as Date, "MMM d")}` : "Due today",
+      };
+    }),
+    onLeave: onLeaveToday.map((l) => ({ id: l.id, until: l.endDate.toISOString() })),
+  };
+  const tomorrowData = {
+    events: tomorrowEvents,
+    tasks: dueTomorrow.map((t) => ({ id: t.id, title: t.title, status: t.status, overdue: false, badge: "Due tomorrow" })),
+    onLeave: onLeaveTomorrow.map((l) => ({ id: l.id, until: l.endDate.toISOString() })),
+  };
 
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const leaveByMonth = MONTHS.map((month, i) => ({
@@ -74,64 +102,9 @@ export default async function DashboardPage() {
         <StatCard href="/packages" icon={<PackageIcon className="h-5 w-5" />} label="Packages" value={`${packageCount}`} sub="published" delay={225} />
       </div>
 
-      {/* Needs attention now — Today + Notifications side by side */}
+      {/* Needs attention now — Today/Tomorrow (toggle) + Notifications side by side */}
       <div className={`mt-6 grid gap-6 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "100ms" }}>
-        <Card className="border-border/60 transition-colors hover:border-border">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <IconChip>
-                <Sun className="h-3.5 w-3.5" />
-              </IconChip>
-              Today
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {onLeaveToday.map((l) => (
-              <div key={l.id} className="flex items-center gap-2 text-sm">
-                <CalendarDays className="h-4 w-4 text-primary" />
-                <span>On leave today</span>
-                <span className="ml-auto text-xs text-muted-foreground">until {format(l.endDate, "MMM d")}</span>
-              </div>
-            ))}
-
-            {todayEvents.length > 0 ? (
-              <div className="space-y-1">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Meetings</p>
-                {todayEvents.map((e) => (
-                  <MeetingRow key={e.id} event={e} />
-                ))}
-              </div>
-            ) : null}
-
-            {dueTodayOrOverdue.length > 0 ? (
-              <div className="space-y-1">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Tasks due</p>
-                {dueTodayOrOverdue.map((t) => {
-                  const overdue = (t.dueDate as Date) < startToday;
-                  return (
-                    <div key={t.id} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className={`size-2 shrink-0 rounded-full ${TASK_DOT_CLASS[t.status]}`} />
-                        <span className="truncate">{t.title}</span>
-                      </span>
-                      <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
-                          overdue ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary"
-                        }`}
-                      >
-                        {overdue ? `Overdue · ${format(t.dueDate as Date, "MMM d")}` : "Due today"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            {todayEvents.length === 0 && dueTodayOrOverdue.length === 0 && onLeaveToday.length === 0 ? (
-              <p className="py-2 text-sm text-muted-foreground">Nothing due today — you&rsquo;re all clear.</p>
-            ) : null}
-          </CardContent>
-        </Card>
+        <DayPreviewCard today={todayData} tomorrow={tomorrowData} />
 
         <Card className="border-border/60 transition-colors hover:border-border">
           <CardHeader className="flex-row items-center justify-between">
@@ -283,37 +256,17 @@ function StatCard({
 }
 
 
-const TASK_DOT_CLASS: Record<TaskStatus, string> = {
-  todo: "bg-muted-foreground/40",
-  in_progress: "bg-primary",
-  done: "bg-chart-2",
-};
 
 function RecentTaskRow({ task }: { task: TaskView }) {
   return (
     <div className="flex items-center justify-between gap-2 text-sm">
       <span className="flex min-w-0 items-center gap-2">
-        <span className={`size-2 shrink-0 rounded-full ${TASK_DOT_CLASS[task.status]}`} />
+        <span className={`size-2 shrink-0 rounded-full ${STATUS_DOT_CLASS[task.status]}`} />
         <span className="truncate">{task.title}</span>
       </span>
       <span className="shrink-0 text-xs text-muted-foreground">
         {task.projectName ?? STATUS_LABELS[task.status]}
       </span>
-    </div>
-  );
-}
-
-function MeetingRow({ event }: { event: CalendarEventDTO }) {
-  return (
-    <div className="flex items-center gap-2 text-sm">
-      <Clock className="h-3.5 w-3.5 shrink-0 text-primary" />
-      <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
-        {event.allDay ? "All day" : format(new Date(event.start), "h:mm a")}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{event.title}</span>
-      {event.location ? (
-        <span className="shrink-0 truncate text-xs text-muted-foreground max-w-[40%]">{event.location}</span>
-      ) : null}
     </div>
   );
 }
@@ -334,6 +287,11 @@ function NotificationRow({ notification }: { notification: NotificationView }) {
         {notificationActor(notification)} · {notificationTitle(notification)} ·{" "}
         {formatDistanceToNow(notification.occurredAt ?? notification.createdAt, { addSuffix: true })}
       </div>
+      {notification.type === "mentioned" && notification.message ? (
+        <p className="ml-3.5 mt-1 truncate rounded-md bg-muted/50 px-2 py-1 text-xs text-foreground/80">
+          {notification.message}
+        </p>
+      ) : null}
     </a>
   );
 }

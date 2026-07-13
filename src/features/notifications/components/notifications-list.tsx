@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, isToday, isYesterday } from "date-fns";
 import { Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -11,9 +11,13 @@ import {
   dismissNotification,
   markAllNotificationsRead,
   markNotificationRead,
+  pollNotificationFeed,
 } from "@/features/notifications/actions";
 import { notificationActor, notificationTitle, type NotificationView } from "@/features/notifications/service";
+import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
 import { cn } from "@/lib/utils";
+
+const PAGE_SIZE = 20; // rows shown per page; "Load more" reveals another PAGE_SIZE
 
 interface NotificationsListProps {
   notifications: NotificationView[];
@@ -22,7 +26,31 @@ interface NotificationsListProps {
 export function NotificationsList({ notifications }: NotificationsListProps) {
   const router = useRouter();
   const [rows, setRows] = useState(notifications);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [visible, setVisible] = useState(PAGE_SIZE);
   const unreadCount = rows.filter((r) => !r.read).length;
+  const shown = rows.slice(0, visible);
+
+  // Live-prepend new notifications while this page is open — the poller fires
+  // "optispace:notifications-updated" when fresh rows land; pull the recent feed
+  // and prepend any we haven't seen. No page refresh (initial state is frozen).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    async function pull() {
+      try {
+        const feed = await pollNotificationFeed();
+        setRows((prev) => {
+          const seen = new Set(prev.map((r) => r.id));
+          const incoming = feed.recent.filter((r) => !seen.has(r.id));
+          return incoming.length > 0 ? [...incoming, ...prev] : prev;
+        });
+      } catch {
+        // transient poll failure — next event retries
+      }
+    }
+    window.addEventListener("optispace:notifications-updated", pull);
+    return () => window.removeEventListener("optispace:notifications-updated", pull);
+  }, []);
 
   // Tell the sidebar bell to re-poll so its counter reflects reads/dismisses made here.
   function notifyBell() {
@@ -30,7 +58,7 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
   }
 
   async function handleOpen(row: NotificationView) {
-    window.open(row.url, "_blank", "noreferrer");
+    setDetailId(row.externalId); // open the in-app ADO editor (live fetch by work item id)
     if (!row.read) {
       const result = await markNotificationRead(row.id);
       if (result.ok) {
@@ -74,7 +102,59 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
     );
   }
 
+  // Bucket by the displayed date (occurredAt falls back to createdAt). Rows are
+  // already newest-first, so each bucket keeps that order.
+  const buckets: { label: string; rows: NotificationView[] }[] = [
+    { label: "Today", rows: [] },
+    { label: "Yesterday", rows: [] },
+    { label: "Older", rows: [] },
+  ];
+  for (const row of shown) {
+    const when = row.occurredAt ?? row.createdAt;
+    const bucket = isToday(when) ? buckets[0] : isYesterday(when) ? buckets[1] : buckets[2];
+    bucket.rows.push(row);
+  }
+
+  function renderRow(row: NotificationView) {
+    return (
+      <div
+        key={row.id}
+        className={cn(
+          "group flex items-start gap-3 rounded-lg border border-border/60 px-3 py-2.5 transition-colors hover:bg-accent/40",
+          !row.read && "bg-primary/5",
+        )}
+      >
+        <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", row.read ? "bg-transparent" : "bg-primary")} />
+        <button type="button" onClick={() => handleOpen(row)} className="min-w-0 flex-1 text-left">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-xs font-medium text-foreground">{notificationTitle(row)}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {formatDistanceToNow(row.occurredAt ?? row.createdAt, { addSuffix: true })}
+            </span>
+          </div>
+          <p className="truncate text-sm font-medium text-foreground">{row.title}</p>
+          <p className="text-xs text-muted-foreground">{notificationActor(row)}</p>
+          {row.type === "mentioned" && row.message ? (
+            <p className="mt-1 whitespace-pre-wrap rounded-md bg-muted/50 px-2 py-1 text-xs text-foreground/80">
+              {row.message}
+            </p>
+          ) : null}
+        </button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+          onClick={() => handleDismiss(row.id)}
+        >
+          <Trash2Icon />
+          <span className="sr-only">Dismiss</span>
+        </Button>
+      </div>
+    );
+  }
+
   return (
+    <>
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
@@ -87,43 +167,30 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
         ) : null}
       </div>
 
-      <div className="space-y-1">
-        {rows.map((row) => (
-          <div
-            key={row.id}
-            className={cn(
-              "group flex items-start gap-3 rounded-lg border border-border/60 px-3 py-2.5 transition-colors hover:bg-accent/40",
-              !row.read && "bg-primary/5",
-            )}
-          >
-            <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", row.read ? "bg-transparent" : "bg-primary")} />
-            <button type="button" onClick={() => handleOpen(row)} className="min-w-0 flex-1 text-left">
-              <div className="flex items-center gap-2">
-                <span className="truncate text-xs font-medium text-foreground">{notificationTitle(row)}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatDistanceToNow(row.occurredAt ?? row.createdAt, { addSuffix: true })}
-                </span>
-              </div>
-              <p className="truncate text-sm font-medium text-foreground">{row.title}</p>
-              <p className="text-xs text-muted-foreground">{notificationActor(row)}</p>
-              {row.type === "mentioned" && row.message ? (
-                <p className="mt-1 whitespace-pre-wrap rounded-md bg-muted/50 px-2 py-1 text-xs text-foreground/80">
-                  {row.message}
-                </p>
-              ) : null}
-            </button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-              onClick={() => handleDismiss(row.id)}
-            >
-              <Trash2Icon />
-              <span className="sr-only">Dismiss</span>
-            </Button>
+      {buckets
+        .filter((b) => b.rows.length > 0)
+        .map((b) => (
+          <div key={b.label} className="space-y-1">
+            <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{b.label}</p>
+            {b.rows.map(renderRow)}
           </div>
         ))}
-      </div>
+
+      {rows.length > visible ? (
+        <div className="flex justify-center pt-2">
+          <Button variant="outline" size="sm" onClick={() => setVisible((v) => v + PAGE_SIZE)}>
+            Load more ({rows.length - visible})
+          </Button>
+        </div>
+      ) : null}
     </div>
+    <AzureDevOpsTaskDetail
+      externalId={detailId ?? ""}
+      open={detailId !== null}
+      onOpenChange={(o) => {
+        if (!o) setDetailId(null);
+      }}
+    />
+    </>
   );
 }

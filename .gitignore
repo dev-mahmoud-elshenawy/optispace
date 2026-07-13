@@ -50,3 +50,7 @@ prisma/*.db-journal
 
 # Lockfile (ignored per project preference)
 package-lock.json
+
+# AI agent docs (kept local, not tracked)
+AGENTS.md
+CLAUDE.md
