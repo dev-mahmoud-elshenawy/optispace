@@ -19,10 +19,13 @@ function firstError(error: { issues: { message: string }[] }): string {
   return error.issues[0]?.message ?? "Invalid task data";
 }
 
-export async function createTask(input: TaskInput): Promise<ActionResult> {
+export async function createTask(input: TaskInput, subtaskTitles: string[] = []): Promise<ActionResult> {
   const parsed = taskInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
   const data = parsed.data;
+
+  // Keep only non-empty subtask titles, in the order the user entered them.
+  const titles = subtaskTitles.map((t) => t.trim()).filter((t) => t.length > 0);
 
   const last = await db.task.findFirst({
     where: { status: data.status, deletedAt: null },
@@ -30,16 +33,26 @@ export async function createTask(input: TaskInput): Promise<ActionResult> {
     select: { order: true },
   });
 
-  await db.task.create({
-    data: {
-      title: data.title,
-      description: data.description || null,
-      status: data.status,
-      priority: data.priority,
-      dueDate: toDueDate(data.dueDate),
-      order: (last?.order ?? -1) + 1,
-      projectId: data.projectId || null,
-    },
+  // Task + its subtasks are created atomically so a partial failure can't leave a
+  // task with half its checklist.
+  await db.$transaction(async (tx) => {
+    const created = await tx.task.create({
+      data: {
+        title: data.title,
+        description: data.description || null,
+        status: data.status,
+        priority: data.priority,
+        dueDate: toDueDate(data.dueDate),
+        order: (last?.order ?? -1) + 1,
+        projectId: data.projectId || null,
+      },
+      select: { id: true },
+    });
+    if (titles.length > 0) {
+      await tx.subtask.createMany({
+        data: titles.map((title, i) => ({ taskId: created.id, title, order: i })),
+      });
+    }
   });
 
   revalidatePath("/tasks");
@@ -120,14 +133,18 @@ export async function addSubtask(taskId: string, title: string): Promise<AddSubt
 }
 
 export async function toggleSubtask(id: string, done: boolean): Promise<ActionResult> {
-  await db.subtask.update({ where: { id }, data: { done } });
+  // updateMany (not update) so a missing/already-deleted row returns a clean error
+  // instead of throwing Prisma's P2025 out of the server action.
+  const { count } = await db.subtask.updateMany({ where: { id, deletedAt: null }, data: { done } });
+  if (count === 0) return { ok: false, error: "Subtask not found." };
   revalidatePath("/tasks");
   revalidatePath("/");
   return { ok: true };
 }
 
 export async function deleteSubtask(id: string): Promise<ActionResult> {
-  await db.subtask.update({ where: { id }, data: { deletedAt: new Date() } });
+  const { count } = await db.subtask.updateMany({ where: { id, deletedAt: null }, data: { deletedAt: new Date() } });
+  if (count === 0) return { ok: false, error: "Subtask not found." };
   revalidatePath("/tasks");
   revalidatePath("/");
   return { ok: true };

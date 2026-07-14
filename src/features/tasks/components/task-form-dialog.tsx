@@ -22,6 +22,7 @@ import type { TaskView } from "@/features/tasks/service";
 
 import { NO_PROJECT, TaskFormFields, type TaskFormValues } from "./task-form-fields";
 import { SubtaskChecklist } from "./subtask-checklist";
+import { SubtaskDraftList } from "./subtask-draft-list";
 
 interface TaskFormDialogProps {
   task: TaskView | null;
@@ -50,6 +51,8 @@ type Mode = "normal" | "devops";
 export function TaskFormDialog({ task, projectOptions, onOpenChange, onSaved }: TaskFormDialogProps) {
   const [isPending, startTransition] = useTransition();
   const [values, setValues] = useState<TaskFormValues>(() => initialValues(task));
+  // Subtasks buffered while creating a new task (persisted with it on save).
+  const [pendingSubtasks, setPendingSubtasks] = useState<string[]>([]);
 
   // DevOps create mode (only offered when creating, not editing).
   const [mode, setMode] = useState<Mode>("normal");
@@ -170,7 +173,7 @@ export function TaskFormDialog({ task, projectOptions, onOpenChange, onSaved }: 
     };
 
     startTransition(async () => {
-      const result = task ? await updateTask(task.id, input) : await createTask(input);
+      const result = task ? await updateTask(task.id, input) : await createTask(input, pendingSubtasks);
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -360,11 +363,13 @@ export function TaskFormDialog({ task, projectOptions, onOpenChange, onSaved }: 
             <>
               <TaskFormFields values={values} onChange={handleChange} projectOptions={projectOptions} />
 
-              {task ? (
-                <div className="border-t pt-4">
+              <div className="border-t pt-4">
+                {task ? (
                   <SubtaskChecklist taskId={task.id} subtasks={task.subtasks} />
-                </div>
-              ) : null}
+                ) : (
+                  <SubtaskDraftList titles={pendingSubtasks} onChange={setPendingSubtasks} />
+                )}
+              </div>
             </>
           )}
 

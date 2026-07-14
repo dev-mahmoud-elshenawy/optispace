@@ -14,7 +14,7 @@ export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export const PROJECT_PLATFORMS = ["flutter", "react_native", "web", "backend"] as const;
 export type ProjectPlatform = (typeof PROJECT_PLATFORMS)[number];
 
-export const PROJECT_STATUSES = ["planning", "active", "paused", "completed"] as const;
+export const PROJECT_STATUSES = ["planning", "active", "paused", "completed", "production"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
 export const PACKAGE_REGISTRIES = ["npm", "pubdev"] as const;

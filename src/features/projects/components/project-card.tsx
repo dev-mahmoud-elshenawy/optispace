@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -11,8 +11,10 @@ import { TaskSprintSubGroups } from "@/features/tasks/components/task-sprint-sub
 import { TaskFormDialog } from "@/features/tasks/components/task-form-dialog";
 import { DeleteTaskDialog } from "@/features/tasks/components/delete-task-dialog";
 import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
+import { cn } from "@/lib/utils";
 import {
   PROJECT_PLATFORM_LABELS,
+  PROJECT_STATUS_BADGE_CLASS,
   PROJECT_STATUS_LABELS,
   type ProjectFeedbackItem,
   type ProjectFileMeta,
@@ -34,15 +36,11 @@ interface ProjectCardProps {
   projectOptions: { id: string; name: string }[];
 }
 
-const STATUS_BADGE_VARIANT: Record<ProjectView["status"], "default" | "secondary" | "outline"> = {
-  planning: "outline",
-  active: "default",
-  paused: "secondary",
-  completed: "secondary",
-};
-
-export function ProjectCard({ project, tasks, files, links, feedback, projectOptions }: ProjectCardProps) {
+export function ProjectCard({ project: initialProject, tasks, files, links, feedback, projectOptions }: ProjectCardProps) {
   const router = useRouter();
+  // Local copy so an edit updates this card instantly (status is cache-only, no sync).
+  const [project, setProject] = useState(initialProject);
+  useEffect(() => setProject(initialProject), [initialProject]);
   const [formOpen, setFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskView | null>(null);
   const [deletingTask, setDeletingTask] = useState<TaskView | null>(null);
@@ -50,14 +48,34 @@ export function ProjectCard({ project, tasks, files, links, feedback, projectOpt
 
   // Synced (DevOps) tasks open the DevOps editor; local tasks use the form dialog —
   // same routing as the Tasks page, so editing behaves identically everywhere.
-  function openEdit(task: TaskView) {
+  // Stable identity so the memoized task section below doesn't re-render on a status edit.
+  const openEdit = useCallback((task: TaskView) => {
     if (task.source === "azure_devops" && task.externalId) {
       setDetailId(task.externalId);
       return;
     }
     setEditingTask(task);
     setFormOpen(true);
-  }
+  }, []);
+
+  // Memoize the (potentially large) task list so an optimistic status/badge change
+  // re-renders only the header, not every task row. Task-heavy projects were janky
+  // to edit because the whole TaskSprintSubGroups tree re-rendered on each save.
+  const tasksSection = useMemo(
+    () =>
+      tasks.length > 0 ? (
+        <div className="space-y-1.5 border-t border-border/60 pt-3">
+          <div className="flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
+            <span>Tasks</span>
+            <span className="tabular-nums">
+              {tasks.length} task{tasks.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <TaskSprintSubGroups tasks={tasks} projectName={project.name} onEdit={openEdit} onDelete={setDeletingTask} />
+        </div>
+      ) : null,
+    [tasks, project.name, openEdit],
+  );
 
   return (
     <Card>
@@ -66,7 +84,7 @@ export function ProjectCard({ project, tasks, files, links, feedback, projectOpt
           <div className="flex flex-wrap items-center gap-1.5">
             <h3 className="font-medium">{project.name}</h3>
             <Badge variant="outline">{PROJECT_PLATFORM_LABELS[project.platform]}</Badge>
-            <Badge variant={STATUS_BADGE_VARIANT[project.status]}>
+            <Badge variant="outline" className={cn(PROJECT_STATUS_BADGE_CLASS[project.status])}>
               {PROJECT_STATUS_LABELS[project.status]}
             </Badge>
           </div>
@@ -86,6 +104,7 @@ export function ProjectCard({ project, tasks, files, links, feedback, projectOpt
           <ProjectFormDialog
             mode="edit"
             project={project}
+            onSaved={(vals) => setProject((p) => ({ ...p, ...vals }))}
             trigger={
               <Button variant="ghost" size="icon-sm">
                 <Pencil />
@@ -109,17 +128,7 @@ export function ProjectCard({ project, tasks, files, links, feedback, projectOpt
         </div>
         {project.notes ? <p className="text-sm text-muted-foreground">{project.notes}</p> : null}
         <MilestoneChecklist projectId={project.id} milestones={project.milestones} />
-        {tasks.length > 0 ? (
-          <div className="space-y-1.5 border-t border-border/60 pt-3">
-            <div className="flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
-              <span>Tasks</span>
-              <span className="tabular-nums">
-                {tasks.length} task{tasks.length === 1 ? "" : "s"}
-              </span>
-            </div>
-            <TaskSprintSubGroups tasks={tasks} projectName={project.name} onEdit={openEdit} onDelete={setDeletingTask} />
-          </div>
-        ) : null}
+        {tasksSection}
         <details className="group border-t border-border/60 pt-3">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
             <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />

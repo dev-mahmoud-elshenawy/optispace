@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,15 +19,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { PROJECT_PLATFORMS, PROJECT_STATUSES, type ProjectPlatform, type ProjectStatus } from "@/types";
 import { createProject, updateProject } from "../actions";
+import type { ProjectInput } from "../schema";
 import { PROJECT_PLATFORM_LABELS, PROJECT_STATUS_LABELS, type ProjectView } from "../service";
 
 interface ProjectFormDialogProps {
   mode: "create" | "edit";
   project?: ProjectView;
   trigger: ReactNode;
+  // Edit mode: lets the parent card update its own copy instantly (no full-page refresh).
+  onSaved?: (values: ProjectInput) => void;
 }
 
-export function ProjectFormDialog({ mode, project, trigger }: ProjectFormDialogProps) {
+export function ProjectFormDialog({ mode, project, trigger, onSaved }: ProjectFormDialogProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [name, setName] = useState(project?.name ?? "");
@@ -66,6 +71,10 @@ export function ProjectFormDialog({ mode, project, trigger }: ProjectFormDialogP
     toast.success(mode === "create" ? "Project created" : "Project updated");
     setOpen(false);
     if (mode === "create") resetForm();
+    // Edit: the parent card updates its own copy instantly (no full-page re-render).
+    // Create: no card exists yet, so refresh the list to show the new one.
+    if (onSaved) onSaved(input);
+    else router.refresh();
   }
 
   return (

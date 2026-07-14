@@ -21,7 +21,7 @@ export function AzureDevOpsPanel({ enabled }: { enabled: boolean }) {
         toast.success(`Azure DevOps: ${result.imported} imported, ${result.updated} updated, ${result.pruned} removed.`);
         router.refresh();
       } else {
-        toast.error(result.error);
+        toast.error(result.error || "Azure DevOps sync failed. Check your connection and try again.");
       }
     });
   }

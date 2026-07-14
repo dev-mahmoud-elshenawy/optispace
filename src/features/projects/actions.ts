@@ -23,7 +23,9 @@ export async function createProject(input: ProjectInput): Promise<ActionResult> 
   } catch {
     return { ok: false, error: GENERIC_ERROR };
   }
-  revalidateProjects();
+  // No in-action revalidate: that would bundle a full /projects re-render (all tasks +
+  // every card) into this response and block the dialog. The form router.refresh()es
+  // after closing, so the update lands in the background.
   return { ok: true };
 }
 
@@ -37,7 +39,8 @@ export async function updateProject(id: string, input: ProjectInput): Promise<Ac
   } catch {
     return { ok: false, error: GENERIC_ERROR };
   }
-  revalidateProjects();
+  // See createProject: the form router.refresh()es, so we skip the blocking in-action
+  // revalidate here too.
   return { ok: true };
 }
 

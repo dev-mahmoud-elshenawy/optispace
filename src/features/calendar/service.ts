@@ -82,7 +82,13 @@ export async function fetchEvents(from: Date, to: Date): Promise<CalendarEvent[]
 
   let data: Record<string, IcalEvent>;
   try {
-    data = (await nodeIcal.async.fromURL(url)) as unknown as Record<string, IcalEvent>;
+    // Fetch the feed ourselves with `no-store` so Next doesn't try to cache the (large)
+    // ICS body — that cache-set fails noisily ("Failed to set fetch cache … terminated")
+    // when Outlook resets the connection mid-stream. Time out instead of hanging on a
+    // stalled connection; any failure returns [] so sync degrades quietly.
+    const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) return [];
+    data = nodeIcal.sync.parseICS(await res.text()) as unknown as Record<string, IcalEvent>;
   } catch {
     return [];
   }

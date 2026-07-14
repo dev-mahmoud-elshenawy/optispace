@@ -76,6 +76,17 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
   active: "Active",
   paused: "Paused",
   completed: "Completed",
+  production: "Production",
+};
+
+// Status-matched badge colors (subtle tint, readable in light + dark).
+// production = shipped & live, still open for hotfix/support — distinct violet vs completed green.
+export const PROJECT_STATUS_BADGE_CLASS: Record<ProjectStatus, string> = {
+  planning: "border-transparent bg-slate-500/15 text-slate-700 dark:text-slate-300",
+  active: "border-transparent bg-blue-500/15 text-blue-700 dark:text-blue-300",
+  paused: "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  completed: "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+  production: "border-transparent bg-violet-500/15 text-violet-700 dark:text-violet-300",
 };
 
 export function toMilestoneView(row: Milestone): MilestoneView {
