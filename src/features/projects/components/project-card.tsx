@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { Bookmark, ChevronRight, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -12,6 +13,7 @@ import { TaskFormDialog } from "@/features/tasks/components/task-form-dialog";
 import { DeleteTaskDialog } from "@/features/tasks/components/delete-task-dialog";
 import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
 import { cn } from "@/lib/utils";
+import { toggleProjectPin } from "../actions";
 import {
   PROJECT_PLATFORM_LABELS,
   PROJECT_STATUS_BADGE_CLASS,
@@ -58,24 +60,47 @@ export function ProjectCard({ project: initialProject, tasks, files, links, feed
     setFormOpen(true);
   }, []);
 
-  // Memoize the (potentially large) task list so an optimistic status/badge change
-  // re-renders only the header, not every task row. Task-heavy projects were janky
-  // to edit because the whole TaskSprintSubGroups tree re-rendered on each save.
-  const tasksSection = useMemo(
-    () =>
-      tasks.length > 0 ? (
-        <div className="space-y-1.5 border-t border-border/60 pt-3">
-          <div className="flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
-            <span>Tasks</span>
-            <span className="tabular-nums">
-              {tasks.length} task{tasks.length === 1 ? "" : "s"}
-            </span>
+  // Optimistic pin toggle (cache-only, no sync) — flip locally, roll back on failure.
+  function togglePin() {
+    const next = !project.pinned;
+    setProject((p) => ({ ...p, pinned: next }));
+    void toggleProjectPin(project.id, next).then((r) => {
+      if (!r.ok) {
+        setProject((p) => ({ ...p, pinned: !next }));
+        toast.error(r.error);
+      } else {
+        // Re-sort the list on the next render (page orders pinned first).
+        router.refresh();
+      }
+    });
+  }
+
+  // Collapsed by default and lazy-mounted: the heavy TaskSprintSubGroups tree renders
+  // only when the user expands this card. With ~589 tasks across all projects, mounting
+  // every tree up front is what made the page slow — this defers that cost per card.
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const tasksSection =
+    tasks.length > 0 ? (
+      <details
+        className="group border-t border-border/60 pt-3"
+        onToggle={(e) => setTasksOpen((e.currentTarget as HTMLDetailsElement).open)}
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-1.5 px-2 text-xs font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
+          <span className="flex items-center gap-1.5">
+            <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+            Tasks
+          </span>
+          <span className="tabular-nums">
+            {tasks.length} task{tasks.length === 1 ? "" : "s"}
+          </span>
+        </summary>
+        {tasksOpen ? (
+          <div className="mt-2 space-y-1.5">
+            <TaskSprintSubGroups tasks={tasks} projectName={project.name} onEdit={openEdit} onDelete={setDeletingTask} />
           </div>
-          <TaskSprintSubGroups tasks={tasks} projectName={project.name} onEdit={openEdit} onDelete={setDeletingTask} />
-        </div>
-      ) : null,
-    [tasks, project.name, openEdit],
-  );
+        ) : null}
+      </details>
+    ) : null;
 
   return (
     <Card>
@@ -101,6 +126,15 @@ export function ProjectCard({ project: initialProject, tasks, files, links, feed
           ) : null}
         </div>
         <div className="flex shrink-0 gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={togglePin}
+            aria-label={project.pinned ? "Remove bookmark" : "Bookmark project"}
+            title={project.pinned ? "Bookmarked — shows first" : "Bookmark to show first"}
+          >
+            <Bookmark className={cn(project.pinned && "fill-amber-400 text-amber-500")} />
+          </Button>
           <ProjectFormDialog
             mode="edit"
             project={project}

@@ -44,6 +44,16 @@ export async function updateProject(id: string, input: ProjectInput): Promise<Ac
   return { ok: true };
 }
 
+export async function toggleProjectPin(id: string, pinned: boolean): Promise<ActionResult> {
+  try {
+    await db.project.update({ where: { id }, data: { pinned } });
+  } catch {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  // Optimistic in the card; no in-action revalidate (see createProject rationale).
+  return { ok: true };
+}
+
 export async function deleteProject(id: string): Promise<ActionResult> {
   const now = new Date();
   try {

@@ -58,6 +58,7 @@ export interface ProjectView {
   platform: ProjectPlatform;
   status: ProjectStatus;
   progressPct: number;
+  pinned: boolean;
   notes: string | null;
   milestones: MilestoneView[];
   milestonesDone: number;
@@ -102,6 +103,7 @@ export function toProjectView(row: Project & { milestones: Milestone[] }): Proje
     platform: row.platform as ProjectPlatform,
     status: row.status as ProjectStatus,
     progressPct: row.progressPct,
+    pinned: row.pinned,
     notes: row.notes,
     milestones,
     milestonesDone: milestones.filter((m) => m.done).length,

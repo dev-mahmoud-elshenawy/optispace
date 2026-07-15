@@ -53,8 +53,9 @@ model Project {
   name        String
   repoUrl     String?
   platform    String // flutter | react_native | web | backend
-  status      String // planning | active | paused | completed
+  status      String // planning | active | paused | completed | production
   progressPct Int      @default(0)
+  pinned      Boolean  @default(false) // bookmarked → sorts to the top of Development
   notes       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
