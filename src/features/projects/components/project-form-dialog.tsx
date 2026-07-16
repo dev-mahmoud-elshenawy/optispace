@@ -38,7 +38,6 @@ export function ProjectFormDialog({ mode, project, trigger, onSaved }: ProjectFo
   const [repoUrl, setRepoUrl] = useState(project?.repoUrl ?? "");
   const [platform, setPlatform] = useState<ProjectPlatform>(project?.platform ?? "web");
   const [status, setStatus] = useState<ProjectStatus>(project?.status ?? "planning");
-  const [progressPct, setProgressPct] = useState(String(project?.progressPct ?? 0));
   const [notes, setNotes] = useState(project?.notes ?? "");
 
   function resetForm(): void {
@@ -46,7 +45,6 @@ export function ProjectFormDialog({ mode, project, trigger, onSaved }: ProjectFo
     setRepoUrl(project?.repoUrl ?? "");
     setPlatform(project?.platform ?? "web");
     setStatus(project?.status ?? "planning");
-    setProgressPct(String(project?.progressPct ?? 0));
     setNotes(project?.notes ?? "");
   }
 
@@ -58,7 +56,6 @@ export function ProjectFormDialog({ mode, project, trigger, onSaved }: ProjectFo
       repoUrl: repoUrl.trim() ? repoUrl.trim() : null,
       platform,
       status,
-      progressPct: Number(progressPct),
       notes: notes.trim() ? notes.trim() : null,
     };
     const result =
@@ -89,7 +86,7 @@ export function ProjectFormDialog({ mode, project, trigger, onSaved }: ProjectFo
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{mode === "create" ? "Add Project" : "Edit Project"}</DialogTitle>
-          <DialogDescription>Track a project&apos;s platform, status, and progress.</DialogDescription>
+          <DialogDescription>Track a project&apos;s platform, status, and notes.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="space-y-1.5">
@@ -141,17 +138,6 @@ export function ProjectFormDialog({ mode, project, trigger, onSaved }: ProjectFo
                 </SelectContent>
               </Select>
             </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="project-progress">Progress (%)</Label>
-            <Input
-              id="project-progress"
-              type="number"
-              min={0}
-              max={100}
-              value={progressPct}
-              onChange={(event) => setProgressPct(event.target.value)}
-            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="project-notes">Notes</Label>

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { type TaskView } from "@/features/tasks/service";
 import { TaskSprintSubGroups } from "@/features/tasks/components/task-sprint-subgroups";
 import { TaskFormDialog } from "@/features/tasks/components/task-form-dialog";
@@ -15,6 +16,7 @@ import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task
 import { cn } from "@/lib/utils";
 import { toggleProjectPin } from "../actions";
 import {
+  computeProgressPct,
   PROJECT_PLATFORM_LABELS,
   PROJECT_STATUS_BADGE_CLASS,
   PROJECT_STATUS_LABELS,
@@ -102,6 +104,21 @@ export function ProjectCard({ project: initialProject, tasks, files, links, feed
       </details>
     ) : null;
 
+  // Progress is derived, never manually entered: milestones win when the project
+  // has any (they're the deliberate roadmap), tasks are the fallback so a project
+  // with no milestones yet still shows something meaningful.
+  const tasksDone = tasks.filter((t) => t.status === "done").length;
+  const progressPct =
+    project.milestonesTotal > 0
+      ? computeProgressPct(project.milestonesDone, project.milestonesTotal)
+      : computeProgressPct(tasksDone, tasks.length);
+  const progressLabel =
+    project.milestonesTotal > 0
+      ? `${project.milestonesDone}/${project.milestonesTotal} milestones done`
+      : tasks.length > 0
+        ? `${tasksDone}/${tasks.length} tasks done`
+        : null;
+
   return (
     <Card>
       <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
@@ -157,9 +174,15 @@ export function ProjectCard({ project: initialProject, tasks, files, links, feed
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="text-xs text-muted-foreground">
-          {project.milestonesDone}/{project.milestonesTotal} milestones done
-        </div>
+        {progressLabel ? (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{progressLabel}</span>
+              <span className="tabular-nums">{progressPct}%</span>
+            </div>
+            <Progress value={progressPct} />
+          </div>
+        ) : null}
         {project.notes ? <p className="text-sm text-muted-foreground">{project.notes}</p> : null}
         <MilestoneChecklist projectId={project.id} milestones={project.milestones} />
         {tasksSection}

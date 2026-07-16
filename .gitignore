@@ -45,6 +45,9 @@ next-env.d.ts
 prisma/*.db
 prisma/*.db-journal
 
+# Scheduled local backups (unencrypted DB dumps — never commit)
+/backups/
+
 # Tooling
 .omc/
 
@@ -54,3 +57,7 @@ package-lock.json
 # AI agent docs (kept local, not tracked)
 AGENTS.md
 CLAUDE.md
+
+# Agent-specific local config
+.agents/
+skills-lock.json

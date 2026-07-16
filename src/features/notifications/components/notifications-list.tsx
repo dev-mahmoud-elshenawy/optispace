@@ -58,7 +58,20 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
   }
 
   async function handleOpen(row: NotificationView) {
-    setDetailId(row.externalId); // open the in-app ADO editor (live fetch by work item id)
+    // due_soon/overdue rows aren't ADO work items — externalId is the local task's
+    // id, so route there instead of opening the ADO detail modal with a bogus id.
+    if (row.type === "due_soon" || row.type === "overdue") {
+      router.push(row.url);
+    } else if (row.type === "pr_review_requested" || row.type === "pr_status_changed") {
+      // PRs live on GitHub — externalId is "repo#number", not an ADO id — open externally.
+      window.open(row.url, "_blank", "noreferrer");
+    } else if (row.type === "meeting_soon") {
+      // Calendar reminder — url is the meeting join link (open it) or "/calendar".
+      if (/^https?:\/\//.test(row.url)) window.open(row.url, "_blank", "noreferrer");
+      else router.push(row.url);
+    } else {
+      setDetailId(row.externalId); // open the in-app ADO editor (live fetch by work item id)
+    }
     if (!row.read) {
       const result = await markNotificationRead(row.id);
       if (result.ok) {
@@ -71,12 +84,16 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
   }
 
   async function handleMarkAllRead() {
+    // Optimistic: clear unread instantly (count + blue dots), roll back only on error.
+    // Awaiting the server first made the UI look frozen after the click.
+    const previous = rows;
+    setRows((prev) => prev.map((r) => ({ ...r, read: true })));
+    notifyBell();
     const result = await markAllNotificationsRead();
     if (result.ok) {
-      setRows((prev) => prev.map((r) => ({ ...r, read: true })));
-      notifyBell();
       router.refresh();
     } else {
+      setRows(previous);
       toast.error(result.error);
     }
   }
@@ -134,7 +151,7 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
           </div>
           <p className="truncate text-sm font-medium text-foreground">{row.title}</p>
           <p className="text-xs text-muted-foreground">{notificationActor(row)}</p>
-          {row.type === "mentioned" && row.message ? (
+          {(row.type === "mentioned" || row.type === "status_changed") && row.message ? (
             <p className="mt-1 whitespace-pre-wrap rounded-md bg-muted/50 px-2 py-1 text-xs text-foreground/80">
               {row.message}
             </p>

@@ -14,7 +14,17 @@ import {
   CommandList,
 } from "@/components/ui/command";
 
-const GROUP_ORDER: SearchItemType[] = ["Task", "Project", "Package", "Profile"];
+const GROUP_ORDER: SearchItemType[] = [
+  "Task",
+  "Project",
+  "Package",
+  "Profile",
+  "Milestone",
+  "Leave",
+  "Notification",
+  "Link",
+  "File",
+];
 
 export function CommandPalette({ items = [] }: { items?: SearchItem[] }) {
   const router = useRouter();

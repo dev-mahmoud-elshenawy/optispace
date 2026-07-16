@@ -54,7 +54,6 @@ model Project {
   repoUrl     String?
   platform    String // flutter | react_native | web | backend
   status      String // planning | active | paused | completed | production
-  progressPct Int      @default(0)
   pinned      Boolean  @default(false) // bookmarked → sorts to the top of Development
   notes       String?
   createdAt   DateTime  @default(now())
@@ -74,6 +73,7 @@ model Milestone {
   projectId String
   title     String
   done      Boolean  @default(false)
+  dueDate   DateTime?
   order     Int      @default(0)
   createdAt DateTime  @default(now())
   deletedAt DateTime?
@@ -169,6 +169,31 @@ model CalendarEvent {
   @@index([start])
 }
 
+// ── GitHub pull requests (synced cache) ──────────────────────
+// PRs you authored or were asked to review, refreshed by syncGithubPullRequests.
+// Soft-deleted when they leave the open @me result set (merged/closed/reassigned).
+model GithubPullRequest {
+  id              String    @id @default(cuid())
+  repo            String // "owner/repo"
+  number          Int
+  title           String
+  url             String
+  state           String // open | merged | closed
+  draft           Boolean   @default(false)
+  author          String
+  reviewDecision  String? // APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED
+  checksStatus    String? // SUCCESS | FAILURE | PENDING | ERROR | EXPECTED
+  headBranch      String
+  baseBranch      String
+  updatedAtRemote DateTime // GitHub updatedAt — for status_changed diffing
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  @@unique([repo, number])
+  @@index([state])
+}
+
 // ── Packages ─────────────────────────────────────────────────
 // Cache of Azure DevOps projects the PAT can access, so the "create in DevOps" picker
 // is instant. Refreshed on each sync (syncAzureDevOpsProjects); soft-deleted when a
@@ -196,11 +221,14 @@ model Package {
   status         String  @default("active") // active | maintenance | deprecated
   projectId      String?
 
-  // cached registry stats — populated only by the manual "Refresh stats" action
+  // cached registry stats — populated by the manual "Refresh stats" action and the
+  // daily background poller (packages not synced in >24h)
   latestVersion   String?
   weeklyDownloads Int?
   likes           Int?
   pubPoints       Int?
+  vulnerable      Boolean   @default(false) // any known OSV.dev advisory for currentVersion
+  advisoryUrl     String?
   lastSyncedAt    DateTime?
 
   createdAt DateTime  @default(now())

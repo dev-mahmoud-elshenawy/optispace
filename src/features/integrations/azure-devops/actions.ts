@@ -6,11 +6,13 @@ import { db } from "@/lib/db";
 
 import { recordNotifications } from "@/features/notifications/actions";
 import type { NotificationEvent } from "@/features/notifications/service";
+import { STATUS_LABELS } from "@/features/tasks/service";
 import type { TaskStatus } from "@/types";
 
 import {
   createWorkItem,
   fetchAssignedWorkItems,
+  fetchAssignmentInfo,
   fetchAzureDevOpsProjects,
   fetchIterations,
   fetchMentionCandidates,
@@ -61,7 +63,22 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
   try {
     fetched = await fetchAssignedWorkItems(config);
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Azure DevOps sync failed." };
+    // Surface the REAL cause instead of swallowing it — a bare "sync failed" hid
+    // whether this is a network timeout, a 401 (expired/invalid PAT), or a 404
+    // (wrong org URL). Log the full error to the terminal and return a message
+    // that names the likely fix.
+    console.error("[optispace] Azure DevOps sync failed", error);
+    const raw = error instanceof Error ? error.message : String(error ?? "");
+    const status = (error as { statusCode?: number })?.statusCode;
+    let hint = raw;
+    if (status === 401 || status === 203 || /unauthor|401|invalid.*(token|pat)|TF400813/i.test(raw)) {
+      hint = "Azure DevOps rejected the PAT (likely expired or wrong scope). Regenerate AZURE_DEVOPS_PAT and restart.";
+    } else if (/ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED|network|fetch failed/i.test(raw)) {
+      hint = "Couldn't reach Azure DevOps (network). Check your connection / VPN and try again.";
+    } else if (!hint) {
+      hint = "Azure DevOps sync failed.";
+    }
+    return { ok: false, error: hint };
   }
   const { items, openIds, doneIds } = fetched;
 
@@ -94,9 +111,21 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
     const projectId = await resolveProjectId(item.project);
     const existing = await db.task.findUnique({
       where: { source_externalId: { source: SOURCE, externalId: item.externalId } },
-      select: { id: true },
+      select: { id: true, deletedAt: true, status: true, changedDate: true },
     });
-    if (existing) {
+    // A previously pruned (soft-deleted) task that's back in the @Me set is a
+    // reassignment, not a routine update — restore it and notify like a new import.
+    // Without this, `existing` still matches by (source, externalId), the code fell
+    // into the update branch, deletedAt was never cleared, and no notification fired.
+    const reassigned = existing?.deletedAt != null;
+    const changedMs = item.changedDate ? new Date(item.changedDate).getTime() : 0;
+    const lookbackCutoff = Date.now() - MENTION_LOOKBACK_DAYS * 86_400_000;
+    const storedChangedMs = existing?.changedDate ? new Date(existing.changedDate).getTime() : 0;
+    if (existing && !reassigned) {
+      // Only a bucket-crossing change (todo/in_progress/done) is visible to the user
+      // on the board, so that's the only kind worth a notification — two different
+      // ADO states that both map to the same bucket wouldn't look like anything changed.
+      const statusChanged = existing.status !== item.status;
       await db.task.update({
         where: { id: existing.id },
         data: {
@@ -114,32 +143,62 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
         },
       });
       updated += 1;
+      if (statusChanged) {
+        if (changedMs >= lookbackCutoff) {
+          events.push({
+            type: "status_changed",
+            externalId: item.externalId,
+            title: item.title,
+            url: item.url,
+            message: `Moved to ${STATUS_LABELS[item.status]}`,
+            project: item.project,
+            actor: item.changedBy && item.changedBy !== me?.displayName ? item.changedBy : null,
+            occurredAt: item.changedDate,
+            dedupeKey: `status:${item.externalId}:${changedMs}`,
+          });
+        }
+      }
     } else {
-      await db.task.create({
-        data: {
-          title: item.title,
-          description: item.description,
-          status: item.status,
-          priority: item.priority,
-          adoPriority: item.adoPriority,
-          order: 0,
-          source: SOURCE,
-          externalId: item.externalId,
-          externalUrl: item.url,
-          workItemType: item.workItemType,
-          iterationPath: item.iterationPath,
-          effort: item.effort,
-          changedDate: item.changedDate ? new Date(item.changedDate) : null,
-          projectId,
-        },
-      });
+      const taskData = {
+        title: item.title,
+        description: item.description,
+        status: item.status,
+        priority: item.priority,
+        adoPriority: item.adoPriority,
+        externalUrl: item.url,
+        workItemType: item.workItemType,
+        iterationPath: item.iterationPath,
+        effort: item.effort,
+        changedDate: item.changedDate ? new Date(item.changedDate) : null,
+        projectId,
+      };
+      if (reassigned && existing) {
+        await db.task.update({ where: { id: existing.id }, data: { ...taskData, deletedAt: null } });
+      } else {
+        await db.task.create({
+          data: { ...taskData, order: 0, source: SOURCE, externalId: item.externalId },
+        });
+      }
       imported += 1;
-      // New to my @Me set = newly assigned (or reassigned) to me — BUT only notify if
-      // the item changed recently. First-time syncing an old backlog (batching now
-      // reaches items past the former 200-item cap) would otherwise flood the feed with
-      // years-old "assignments". Still import the task; just skip the notification.
-      const changedMs = item.changedDate ? new Date(item.changedDate).getTime() : 0;
-      if (changedMs >= Date.now() - MENTION_LOOKBACK_DAYS * 86_400_000) {
+    }
+
+    // Assignment detection — NOT tied to the create branch. An item is worth an
+    // assignment check when it's new-to-local (first import or a restored reassign)
+    // OR it's an existing task whose changedDate advanced since we last stored it
+    // (something changed in ADO). "New to my synced set" does NOT mean "newly
+    // assigned to me" — a reopen or a field edit also bumps changedDate — so verify
+    // against ADO's update history (fetchAssignmentInfo): only notify if
+    // System.AssignedTo actually changed TO me recently, using the REAL assigner
+    // from that revision (not `changedBy`, any last editor). The `changedMs` /
+    // `storedChangedMs` gate keeps the extra getUpdates call off unchanged backlog
+    // items, so steady-state syncs stay cheap. Deduped by the real assignment time,
+    // so re-syncing a still-changing item never re-notifies the same assignment.
+    const isNewToLocal = !existing || reassigned;
+    const changedSinceStored = changedMs > storedChangedMs;
+    if (me && changedMs >= lookbackCutoff && (isNewToLocal || changedSinceStored)) {
+      const info = await fetchAssignmentInfo(item.externalId, me).catch(() => null);
+      const assignedMs = info ? new Date(info.assignedAt).getTime() : 0;
+      if (info && assignedMs >= lookbackCutoff) {
         events.push({
           type: "assigned",
           externalId: item.externalId,
@@ -147,9 +206,11 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
           url: item.url,
           message: "Assigned to you",
           project: item.project,
-          actor: item.changedBy && item.changedBy !== me?.displayName ? item.changedBy : null,
-          occurredAt: item.changedDate,
-          dedupeKey: `assigned:${item.externalId}`,
+          actor: info.assignedBy,
+          occurredAt: info.assignedAt,
+          // Keyed by the real assignment time, so a genuine reassign-away-then-back
+          // cycle isn't deduped against the original assignment.
+          dedupeKey: `assigned:${item.externalId}:${assignedMs}`,
         });
       }
     }
@@ -208,7 +269,7 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
   // rows without erroring. Treat it as inconclusive and skip pruning rather than
   // risk soft-deleting every synced task on a fluke empty response.
   let pruned = 0;
-  if (config.projects.length === 0 && openIds.length > 0) {
+  if (config.allProjects && openIds.length > 0) {
     const openSet = new Set(openIds);
     const doneSet = new Set(doneIds);
     const synced = await db.task.findMany({
@@ -240,7 +301,7 @@ export type DetailResult = { ok: true; detail: WorkItemDetail } | { ok: false; e
 export async function getAzureDevOpsTaskDetail(externalId: string): Promise<DetailResult> {
   try {
     const detail = await fetchWorkItemDetail(externalId);
-    if (!detail) return { ok: false, error: "Azure DevOps is not configured." };
+    if (!detail) return { ok: false, error: "Azure DevOps is not configured, or this work item could not be found." };
     return { ok: true, detail };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Failed to load work item details." };

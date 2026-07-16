@@ -90,6 +90,16 @@ export async function addMilestone(projectId: string, title: string): Promise<Ac
   return { ok: true };
 }
 
+export async function setMilestoneDueDate(id: string, dueDate: string | null): Promise<ActionResult> {
+  try {
+    await db.milestone.update({ where: { id }, data: { dueDate: dueDate ? new Date(dueDate) : null } });
+  } catch {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  revalidateProjects();
+  return { ok: true };
+}
+
 export async function toggleMilestone(id: string, done: boolean): Promise<ActionResult> {
   try {
     await db.milestone.update({ where: { id }, data: { done } });

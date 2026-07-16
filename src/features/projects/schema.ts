@@ -6,11 +6,6 @@ export const projectSchema = z.object({
   repoUrl: z.string().nullable(),
   platform: z.enum(PROJECT_PLATFORMS),
   status: z.enum(PROJECT_STATUSES),
-  progressPct: z
-    .number()
-    .int("Progress must be a whole number")
-    .min(0, "Progress must be at least 0")
-    .max(100, "Progress must be at most 100"),
   notes: z.string().nullable(),
 });
 

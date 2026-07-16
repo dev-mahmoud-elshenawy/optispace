@@ -30,7 +30,7 @@ const LOADERS: Record<string, () => Promise<Record<string, unknown>[]>> = {
   projects: () =>
     db.project.findMany({
       where: { deletedAt: null },
-      select: { id: true, name: true, repoUrl: true, platform: true, status: true, progressPct: true, notes: true, createdAt: true },
+      select: { id: true, name: true, repoUrl: true, platform: true, status: true, notes: true, createdAt: true },
       orderBy: { createdAt: "desc" },
     }),
 };

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
 
-import { toNotificationView, type NotificationEvent, type NotificationView } from "./service";
+import { byDisplayTime, toNotificationView, type NotificationEvent, type NotificationView } from "./service";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -81,7 +81,7 @@ export async function pollNotificationFeed(): Promise<NotificationFeed> {
   // user grants permission doesn't silently consume the push.
   return {
     unread,
-    recent: recentRows.map(toNotificationView),
+    recent: recentRows.map(toNotificationView).sort(byDisplayTime),
     toPush: pushRows.map(toNotificationView),
   };
 }

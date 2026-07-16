@@ -67,3 +67,33 @@ async function fetchPubDevStats(name: string): Promise<RegistryStats> {
 export async function fetchRegistryStats(input: FetchRegistryStatsInput): Promise<RegistryStats> {
   return input.registry === "npm" ? fetchNpmStats(input.name) : fetchPubDevStats(input.name);
 }
+
+export interface VulnerabilityCheck {
+  vulnerable: boolean;
+  advisoryUrl: string | null;
+}
+
+const OSV_ECOSYSTEM: Record<PackageRegistry, string> = { npm: "npm", pubdev: "Pub" };
+
+// OSV.dev — free, no API key, covers both npm and Pub (Dart/Flutter) ecosystems.
+// Only meaningful once a version is known; a package with no currentVersion can't
+// be checked against a specific advisory range.
+export async function checkVulnerabilities(input: FetchRegistryStatsInput, version: string | null): Promise<VulnerabilityCheck> {
+  if (!version) return { vulnerable: false, advisoryUrl: null };
+  try {
+    const res = await fetch("https://api.osv.dev/v1/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ package: { name: input.name, ecosystem: OSV_ECOSYSTEM[input.registry] }, version }),
+      cache: "no-store",
+    });
+    if (!res.ok) return { vulnerable: false, advisoryUrl: null };
+    const data = asRecord(await res.json());
+    const vulns = Array.isArray(data?.vulns) ? (data.vulns as { id?: string }[]) : [];
+    if (vulns.length === 0) return { vulnerable: false, advisoryUrl: null };
+    const id = vulns[0]?.id;
+    return { vulnerable: true, advisoryUrl: id ? `https://osv.dev/vulnerability/${id}` : "https://osv.dev" };
+  } catch {
+    return { vulnerable: false, advisoryUrl: null };
+  }
+}

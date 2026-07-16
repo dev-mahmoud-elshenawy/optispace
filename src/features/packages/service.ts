@@ -17,6 +17,8 @@ export interface PackageView {
   weeklyDownloads: number | null;
   likes: number | null;
   pubPoints: number | null;
+  vulnerable: boolean;
+  advisoryUrl: string | null;
   lastSyncedAt: Date | null;
   displayVersion: string;
   hasUpdate: boolean;
@@ -39,6 +41,8 @@ export function toPackageView(row: Package): PackageView {
     weeklyDownloads: row.weeklyDownloads,
     likes: row.likes,
     pubPoints: row.pubPoints,
+    vulnerable: row.vulnerable,
+    advisoryUrl: row.advisoryUrl,
     lastSyncedAt: row.lastSyncedAt,
     displayVersion: row.latestVersion ?? row.currentVersion ?? "—",
     hasUpdate: Boolean(row.latestVersion && row.currentVersion && row.latestVersion !== row.currentVersion),

@@ -8,6 +8,7 @@ import {
   WorkItemExpand,
   type WorkItem,
   type WorkItemClassificationNode,
+  type WorkItemUpdate,
 } from "azure-devops-node-api/interfaces/WorkItemTrackingInterfaces";
 import { Operation, type JsonPatchDocument } from "azure-devops-node-api/interfaces/common/VSSInterfaces";
 import DOMPurify from "isomorphic-dompurify";
@@ -21,7 +22,8 @@ export interface AzureDevOpsConfig {
   orgUrl: string;
   pat: string;
   email: string | null;
-  projects: string[]; // empty = all accessible projects
+  allProjects: boolean; // AZURE_DEVOPS_PROJECTS="all" → every accessible project
+  projects: string[]; // explicit project names (ignored when allProjects)
   includeDone: boolean;
 }
 
@@ -29,14 +31,18 @@ export function getAzureDevOpsConfig(): AzureDevOpsConfig | null {
   const orgUrl = process.env.AZURE_DEVOPS_ORG_URL?.trim();
   const pat = process.env.AZURE_DEVOPS_PAT?.trim();
   if (!orgUrl || !pat) return null;
+  // Explicit opt-in: AZURE_DEVOPS_PROJECTS="all" syncs every project, a comma-separated
+  // list syncs those, and blank syncs nothing (no implicit "blank = all" magic).
+  const rawProjects = (process.env.AZURE_DEVOPS_PROJECTS ?? "").trim();
   return {
     orgUrl: orgUrl.replace(/\/+$/, ""),
     pat,
     email: process.env.AZURE_DEVOPS_EMAIL?.trim() || null,
-    projects: (process.env.AZURE_DEVOPS_PROJECTS ?? "")
+    allProjects: rawProjects.toLowerCase() === "all",
+    projects: rawProjects
       .split(",")
       .map((s) => s.trim())
-      .filter(Boolean),
+      .filter((s) => s && s.toLowerCase() !== "all"),
     includeDone: (process.env.AZURE_DEVOPS_INCLUDE_DONE ?? "").toLowerCase() === "true",
   };
 }
@@ -166,12 +172,13 @@ export interface AssignedWorkItems {
 export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise<AssignedWorkItems> {
   const c = apis();
   if (!c) return { items: [], openIds: [], doneIds: [] };
+  // Blank config (not "all", no explicit projects) syncs nothing — explicit opt-in.
+  if (!config.allProjects && config.projects.length === 0) return { items: [], openIds: [], doneIds: [] };
   const wit = await c.wit;
 
-  const projectFilter =
-    config.projects.length > 0
-      ? ` AND [System.TeamProject] IN (${config.projects.map((p) => `'${p.replace(/'/g, "''")}'`).join(", ")})`
-      : "";
+  const projectFilter = config.allProjects
+    ? ""
+    : ` AND [System.TeamProject] IN (${config.projects.map((p) => `'${p.replace(/'/g, "''")}'`).join(", ")})`;
   const query = `SELECT [System.Id] FROM WorkItems WHERE [System.AssignedTo] = @Me AND [System.State] <> 'Removed'${projectFilter} ORDER BY [System.ChangedDate] DESC`;
 
   const result = await wit.queryByWiql({ query });
@@ -241,6 +248,47 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
     });
   }
   return { items, openIds, doneIds };
+}
+
+// Verify a real, recent assignment from the work item's update history — the ONLY
+// reliable source. `changedDate`/`changedBy` reflect ANY edit (status, labels, a
+// comment), so treating "new to my synced set" as "newly assigned to me" and
+// `changedBy` as the assigner produced false "Assigned by X" notifications when
+// someone merely changed status or reopened an old item. Instead: find the most
+// recent update that actually set System.AssignedTo to me, and report who did it +
+// when. Returns null if I was never assigned via an update we can see.
+export async function fetchAssignmentInfo(
+  externalId: string,
+  me: { id: string; displayName: string },
+): Promise<{ assignedBy: string | null; assignedAt: string } | null> {
+  const c = apis();
+  if (!c) return null;
+  const wit = await c.wit;
+  let updates: WorkItemUpdate[];
+  try {
+    updates = await wit.getUpdates(Number(externalId));
+  } catch {
+    return null;
+  }
+
+  // No identity match on the update value — the WIQL that produced this item already
+  // guarantees it's currently AssignedTo=@Me, so the most recent update that set a
+  // non-empty System.AssignedTo IS when it became mine. Matching me.id/displayName
+  // against the update's value was fragile (ADO returns that field in different
+  // shapes) and silently dropped real assignments when the shapes didn't line up.
+  for (let i = updates.length - 1; i >= 0; i--) {
+    const f = updates[i].fields?.["System.AssignedTo"];
+    if (!f || f.newValue == null || f.newValue === "") continue;
+    const revisedBy = (updates[i].revisedBy as { displayName?: string } | undefined)?.displayName;
+    const changedBy = updates[i].fields?.["System.ChangedBy"]?.newValue as { displayName?: string } | string | undefined;
+    const assigner = revisedBy ?? (typeof changedBy === "string" ? changedBy : changedBy?.displayName) ?? null;
+    const dateRaw = (updates[i].fields?.["System.ChangedDate"]?.newValue as string | Date | undefined) ?? updates[i].revisedDate;
+    return {
+      assignedBy: assigner && assigner !== me.displayName ? assigner : null,
+      assignedAt: toIso(dateRaw) ?? new Date().toISOString(),
+    };
+  }
+  return null;
 }
 
 // ── Detail (on-demand, for the task popup) ───────────────────────────────────
@@ -313,6 +361,7 @@ export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemD
   const wit = await c.wit;
 
   const wi = await wit.getWorkItem(Number(externalId), undefined, undefined, WorkItemExpand.All);
+  if (!wi) return null; // deleted, or no longer visible to this PAT (permissions/project moved)
   const f = wi.fields ?? {};
   const project = fieldStr(f, "System.TeamProject");
   const type = fieldStr(f, "System.WorkItemType");

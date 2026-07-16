@@ -1,9 +1,14 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { recordNotifications } from "@/features/notifications/actions";
 
 import { fetchEvents } from "./service";
 import type { CalendarEventDTO } from "./types";
+
+// How long before a meeting starts to fire the reminder. Per-user via .env like the
+// rest of the integrations; defaults to 15 minutes.
+const REMINDER_MINUTES = Number(process.env.CALENDAR_REMINDER_MINUTES) || 15;
 
 // Rolling cache window: sync expands occurrences from 1 month back to 6 months ahead.
 const WINDOW_BACK_DAYS = 31;
@@ -139,4 +144,37 @@ export async function getCalendarRange(fromIso: string, toIso: string): Promise<
     orderBy: { start: "asc" },
   });
   return rows.map(toDTO);
+}
+
+export type MeetingReminderResult = { notified: number };
+
+// Fire a "starting soon" notification for meetings that begin within the reminder
+// window (default 15 min) and haven't started yet. Deduped by the event's stable
+// occurrence key, so each meeting reminds exactly once. Runs on the same poller as
+// the ADO/calendar sync — "reminder" here means while the app is open (local-first,
+// no server-side scheduler). Timed events only; all-day rows are skipped.
+export async function checkMeetingReminders(): Promise<MeetingReminderResult> {
+  const now = new Date();
+  const until = new Date(now.getTime() + REMINDER_MINUTES * 60_000);
+  const upcoming = await db.calendarEvent.findMany({
+    where: { deletedAt: null, allDay: false, start: { gt: now, lte: until } },
+    orderBy: { start: "asc" },
+    take: 20,
+  });
+  if (upcoming.length === 0) return { notified: 0 };
+
+  const notified = await recordNotifications(
+    upcoming.map((e) => ({
+      type: "meeting_soon" as const,
+      externalId: e.id,
+      title: e.title,
+      url: e.meetingUrl ?? "/calendar",
+      message: "",
+      project: "Calendar",
+      actor: null,
+      occurredAt: e.start.toISOString(),
+      dedupeKey: `meeting:${e.dedupeKey}`,
+    })),
+  );
+  return { notified };
 }

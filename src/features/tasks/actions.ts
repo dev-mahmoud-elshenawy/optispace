@@ -2,10 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 
+import { recordNotifications } from "@/features/notifications/actions";
 import { db } from "@/lib/db";
 import { type TaskStatus } from "@/types";
 
 import { moveTaskSchema, subtaskTitleSchema, taskInputSchema, type TaskInput } from "./schema";
+import { dueDateNotificationEvents, type DueTaskInput } from "./service";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -158,4 +160,25 @@ export async function moveTasksToProject(ids: string[], projectId: string | null
   revalidatePath("/projects");
   revalidatePath("/");
   return { ok: true };
+}
+
+// Called from the background poller alongside the ADO/calendar sync — surfaces a
+// notification for tasks due today/tomorrow or overdue. Local-only (no external
+// source), so it runs regardless of whether ADO or Calendar are configured.
+export async function checkTaskDueDates(): Promise<{ ok: true; notified: number }> {
+  const rows = await db.task.findMany({
+    where: { deletedAt: null, status: { not: "done" }, dueDate: { not: null } },
+    select: { id: true, title: true, dueDate: true, project: { select: { name: true } } },
+  });
+  const dueTasks: DueTaskInput[] = rows
+    .filter((r): r is typeof r & { dueDate: Date } => r.dueDate != null)
+    .map((r) => ({ id: r.id, title: r.title, dueDate: r.dueDate, projectName: r.project?.name ?? null }));
+
+  const events = dueDateNotificationEvents(dueTasks);
+  let notified = 0;
+  if (events.length > 0) {
+    notified = await recordNotifications(events);
+    if (notified > 0) revalidatePath("/notifications");
+  }
+  return { ok: true, notified };
 }

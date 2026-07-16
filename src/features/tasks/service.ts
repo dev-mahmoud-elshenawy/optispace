@@ -1,5 +1,6 @@
 import type { Task } from "@prisma/client";
 
+import type { NotificationEvent } from "@/features/notifications/service";
 import { type TaskPriority, type TaskStatus } from "@/types";
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -30,6 +31,56 @@ export function taskDaySpan(tasks: { dueDate: Date | null }[]): number | null {
     return null;
   }
   return Math.round((Math.max(...times) - Math.min(...times)) / 86_400_000) + 1;
+}
+
+export interface DueTaskInput {
+  id: string;
+  title: string;
+  dueDate: Date;
+  projectName: string | null;
+}
+
+// One notification per (task, bucket, calendar day) — re-fires daily while a task
+// stays overdue/due-soon instead of nagging every poll, but still surfaces again
+// tomorrow rather than going silent forever after the first notice.
+export function dueDateNotificationEvents(tasks: DueTaskInput[], now: Date = new Date()): NotificationEvent[] {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Build the key from local Y/M/D directly — today.toISOString() shifts by the
+  // UTC offset, so east of Greenwich it silently rolls back to yesterday's date.
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  const events: NotificationEvent[] = [];
+  for (const task of tasks) {
+    const due = new Date(task.dueDate.getFullYear(), task.dueDate.getMonth(), task.dueDate.getDate());
+    const diffDays = Math.round((due.getTime() - today.getTime()) / 86_400_000);
+
+    let type: "due_soon" | "overdue" | null = null;
+    let message = "";
+    if (diffDays < 0) {
+      type = "overdue";
+      message = "Overdue";
+    } else if (diffDays === 0) {
+      type = "due_soon";
+      message = "Due today";
+    } else if (diffDays === 1) {
+      type = "due_soon";
+      message = "Due tomorrow";
+    }
+    if (!type) continue;
+
+    events.push({
+      type,
+      externalId: task.id,
+      title: task.title,
+      url: "/tasks",
+      message,
+      project: task.projectName,
+      actor: null,
+      occurredAt: task.dueDate.toISOString(),
+      dedupeKey: `due:${task.id}:${type}:${todayKey}`,
+    });
+  }
+  return events;
 }
 
 export interface SubtaskView {

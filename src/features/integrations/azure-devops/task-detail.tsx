@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ExternalLink, FileText, GitBranch, Loader2, Paperclip, Save, Send } from "lucide-react";
@@ -13,11 +13,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   addAzureDevOpsComment,
   getAzureDevOpsTaskDetail,
+  searchAzureDevOpsIdentities,
   updateAzureDevOpsWorkItem,
   type WorkItemPatch,
 } from "@/features/integrations/azure-devops/actions";
 import type { WorkItemDetail } from "@/features/integrations/azure-devops/service";
-import { workItemStateColor, workItemTypeColor } from "@/features/integrations/azure-devops/types";
+import { workItemStateColor, workItemTypeColor, type AdoIdentity } from "@/features/integrations/azure-devops/types";
 import { MentionInput } from "@/features/integrations/azure-devops/mention-input";
 
 interface AzureDevOpsTaskDetailProps {
@@ -78,6 +79,19 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
   const [comment, setComment] = useState("");
   const [commentKey, setCommentKey] = useState(0); // bump to remount/clear the comment editor after posting
   const [currentId, setCurrentId] = useState(externalId); // in-modal navigation target — linked items load here
+  // Assignee people-picker: `assigneeQuery` drives both the input text and the
+  // identity search; `assigneePicked` starts true (seeded value is already a person)
+  // so the dropdown only opens once the user starts typing a new name.
+  const [assigneeQuery, setAssigneeQuery] = useState("");
+  const [assigneeResults, setAssigneeResults] = useState<AdoIdentity[]>([]);
+  const [searchingAssignee, setSearchingAssignee] = useState(false);
+  const [assigneePicked, setAssigneePicked] = useState(true);
+  // Guards against a slow, superseded fetch overwriting a newer one's result. The
+  // resync-then-fetch effects below run a render apart, so closing and reopening
+  // with a different item can fire two overlapping loads (stale id, then correct
+  // id) — without this, whichever resolves LAST wins, which briefly showed the
+  // previous item's data even after the correct one had already loaded.
+  const requestIdRef = useRef(0);
 
   function handleOpenChange(next: boolean) {
     onOpenChange(next);
@@ -88,13 +102,17 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     }
   }
 
-  async function load() {
+  async function load(id: string) {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
-    const result = await getAzureDevOpsTaskDetail(currentId);
+    const result = await getAzureDevOpsTaskDetail(id);
+    if (requestIdRef.current !== requestId) return; // superseded by a newer load() — ignore this stale response
     if (result.ok) {
       setDetail(result.detail);
       setForm(toForm(result.detail));
+      setAssigneeQuery(result.detail.assignedTo ?? "");
+      setAssigneePicked(true); // seeded value is already the current person — don't auto-open the dropdown
     } else {
       setError(result.error);
     }
@@ -109,9 +127,39 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     if (!open) return;
     setDetail(null);
     setForm(null);
-    void load();
+    void load(currentId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, currentId]);
+
+  // Debounced identity search for the assignee picker. Same stale-response guard and
+  // "searching" flag as the create dialog; only runs while the user is typing a new
+  // name (assigneePicked === false), so a seeded value doesn't trigger a search.
+  useEffect(() => {
+    const q = assigneeQuery.trim();
+    if (assigneePicked || q.length < 2) {
+      setAssigneeResults([]);
+      setSearchingAssignee(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchingAssignee(true);
+    const t = setTimeout(() => {
+      searchAzureDevOpsIdentities(q)
+        .then((r) => {
+          if (!cancelled) setAssigneeResults(r);
+        })
+        .catch(() => {
+          if (!cancelled) setAssigneeResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearchingAssignee(false);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [assigneeQuery, assigneePicked]);
 
   function set<K extends keyof Form>(key: K, value: Form[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -146,7 +194,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     setSaving(false);
     if (result.ok) {
       toast.success("Saved to Azure DevOps.");
-      await load(); // refetch fresh rev + values
+      await load(currentId); // refetch fresh rev + values
       router.refresh();
     } else {
       toast.error(result.error);
@@ -164,7 +212,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
       toast.success("Comment added to Azure DevOps.");
       setComment("");
       setCommentKey((k) => k + 1); // remount MentionInput so it clears
-      await load(); // refetch to show the new comment
+      await load(currentId); // refetch to show the new comment
     } else {
       toast.error(result.error);
     }
@@ -274,8 +322,47 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="wi-assignee">Assignee (email)</Label>
-                <Input id="wi-assignee" value={form.assignedTo} onChange={(e) => set("assignedTo", e.target.value)} placeholder="name@company.com" />
+                <Label htmlFor="wi-assignee">Assignee</Label>
+                <div className="relative">
+                  <Input
+                    id="wi-assignee"
+                    value={assigneeQuery}
+                    onChange={(e) => {
+                      setAssigneeQuery(e.target.value);
+                      setAssigneePicked(false); // typing a new name — open search, defer write until a pick
+                      set("assignedTo", e.target.value); // keep raw text writable too (e.g. a full email)
+                    }}
+                    placeholder="Type a name…"
+                  />
+                  {!assigneePicked && assigneeQuery.trim().length >= 2 ? (
+                    <div className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-md border border-border bg-popover shadow-md">
+                      {searchingAssignee ? (
+                        <p className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground">
+                          <Loader2 className="size-3.5 animate-spin" /> Searching people…
+                        </p>
+                      ) : assigneeResults.length === 0 ? (
+                        <p className="px-3 py-1.5 text-xs text-muted-foreground">No people found</p>
+                      ) : (
+                        assigneeResults.map((id) => (
+                          <button
+                            key={id.id}
+                            type="button"
+                            onClick={() => {
+                              set("assignedTo", id.mail);
+                              setAssigneeQuery(id.displayName);
+                              setAssigneePicked(true);
+                              setAssigneeResults([]);
+                            }}
+                            className="flex w-full flex-col items-start px-3 py-1.5 text-left text-sm hover:bg-accent/60"
+                          >
+                            <span>{id.displayName}</span>
+                            {id.mail ? <span className="text-xs text-muted-foreground">{id.mail}</span> : null}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label>Priority</Label>

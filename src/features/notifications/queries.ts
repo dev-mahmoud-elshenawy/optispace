@@ -2,7 +2,7 @@ import "server-only";
 
 import { db } from "@/lib/db";
 
-import { toNotificationView, type NotificationView } from "./service";
+import { byDisplayTime, toNotificationView, type NotificationView } from "./service";
 
 export async function listNotifications(limit = 50): Promise<NotificationView[]> {
   const rows = await db.notification.findMany({
@@ -10,7 +10,7 @@ export async function listNotifications(limit = 50): Promise<NotificationView[]>
     orderBy: { createdAt: "desc" },
     take: limit,
   });
-  return rows.map(toNotificationView);
+  return rows.map(toNotificationView).sort(byDisplayTime);
 }
 
 export async function unreadNotificationCount(): Promise<number> {
@@ -23,5 +23,5 @@ export async function recentNotifications(limit = 5): Promise<NotificationView[]
     orderBy: { createdAt: "desc" },
     take: limit,
   });
-  return rows.map(toNotificationView);
+  return rows.map(toNotificationView).sort(byDisplayTime);
 }

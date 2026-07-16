@@ -5,7 +5,14 @@ export interface MilestoneView {
   id: string;
   title: string;
   done: boolean;
+  dueDate: Date | null;
   order: number;
+}
+
+// Shared by milestone-based and task-based progress — whichever ratio the caller
+// has on hand. 0 when there's nothing to divide by (avoids NaN from a 0/0 divide).
+export function computeProgressPct(done: number, total: number): number {
+  return total > 0 ? Math.round((done / total) * 100) : 0;
 }
 
 export interface ProjectFileMeta {
@@ -57,7 +64,6 @@ export interface ProjectView {
   repoUrl: string | null;
   platform: ProjectPlatform;
   status: ProjectStatus;
-  progressPct: number;
   pinned: boolean;
   notes: string | null;
   milestones: MilestoneView[];
@@ -91,7 +97,7 @@ export const PROJECT_STATUS_BADGE_CLASS: Record<ProjectStatus, string> = {
 };
 
 export function toMilestoneView(row: Milestone): MilestoneView {
-  return { id: row.id, title: row.title, done: row.done, order: row.order };
+  return { id: row.id, title: row.title, done: row.done, dueDate: row.dueDate, order: row.order };
 }
 
 export function toProjectView(row: Project & { milestones: Milestone[] }): ProjectView {
@@ -102,7 +108,6 @@ export function toProjectView(row: Project & { milestones: Milestone[] }): Proje
     repoUrl: row.repoUrl,
     platform: row.platform as ProjectPlatform,
     status: row.status as ProjectStatus,
-    progressPct: row.progressPct,
     pinned: row.pinned,
     notes: row.notes,
     milestones,

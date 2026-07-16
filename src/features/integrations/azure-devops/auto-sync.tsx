@@ -4,7 +4,11 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { syncAzureDevOps } from "@/features/integrations/azure-devops/actions";
-import { syncCalendar } from "@/features/calendar/actions";
+import { syncCalendar, checkMeetingReminders } from "@/features/calendar/actions";
+import { checkTaskDueDates } from "@/features/tasks/actions";
+import { runScheduledBackup } from "@/features/backup/actions";
+import { refreshStalePackageStats } from "@/features/packages/actions";
+import { syncGithubPullRequests } from "@/features/integrations/github/actions";
 
 const INTERVAL_MS = 2 * 60 * 1000; // 2 minutes — near-real-time detection of new
 // assignments/mentions (local-first: a webhook would need a public URL, so a short
@@ -39,17 +43,35 @@ export function AzureDevOpsAutoSync({ enabled }: { enabled: boolean }) {
       if (running.current || !claimSync()) return;
       running.current = true;
       try {
-        // Sync ADO (tasks + notifications) and the calendar cache together.
-        const [ado, cal] = await Promise.all([syncAzureDevOps(), syncCalendar()]);
+        // Sync ADO (tasks + notifications), the calendar cache, local due-date
+        // reminders, and the scheduled backup together. Due-date checks and the
+        // backup have no external source, so they run every tick regardless of
+        // whether ADO/Calendar are configured; the backup itself is a cheap fs.stat
+        // no-op after the first successful run each calendar day.
+        const [ado, cal, due, backup, packages, github, meetings] = await Promise.all([
+          syncAzureDevOps(),
+          syncCalendar(),
+          checkTaskDueDates(),
+          runScheduledBackup(),
+          refreshStalePackageStats(),
+          syncGithubPullRequests(),
+          checkMeetingReminders(),
+        ]);
         if (cancelled) return;
+        if (!backup.ok) console.error("[optispace] scheduled backup failed", backup.error);
         const adoChanged = ado.ok && (ado.imported > 0 || ado.updated > 0 || ado.pruned > 0 || ado.notified > 0);
         const calChanged = cal.ok && cal.changed > 0;
-        if (adoChanged || calChanged) {
+        const dueNotified = due.notified > 0;
+        const packagesChanged = packages.refreshed > 0;
+        const githubChanged = github.ok && (github.upserted > 0 || github.pruned > 0 || github.notified > 0);
+        const githubNotified = github.ok && github.notified > 0;
+        const meetingsNotified = meetings.notified > 0;
+        if (adoChanged || calChanged || dueNotified || packagesChanged || githubChanged || meetingsNotified) {
           router.refresh();
         }
         if (typeof window !== "undefined") {
           // Nudge the bell (counter + desktop push) and the calendar view to re-read.
-          if (ado.ok && ado.notified > 0) window.dispatchEvent(new Event("optispace:notifications-updated"));
+          if ((ado.ok && ado.notified > 0) || dueNotified || githubNotified || meetingsNotified) window.dispatchEvent(new Event("optispace:notifications-updated"));
           if (calChanged) window.dispatchEvent(new Event("optispace:calendar-updated"));
         }
       } catch (e) {

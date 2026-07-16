@@ -1,6 +1,14 @@
 import type { Notification } from "@prisma/client";
 
-export type NotificationType = "assigned" | "mentioned";
+export type NotificationType =
+  | "assigned"
+  | "mentioned"
+  | "due_soon"
+  | "overdue"
+  | "status_changed"
+  | "pr_review_requested"
+  | "pr_status_changed"
+  | "meeting_soon";
 
 export interface NotificationView {
   id: string;
@@ -19,6 +27,12 @@ export interface NotificationView {
 export const NOTIFICATION_LABELS: Record<NotificationType, string> = {
   assigned: "Assigned to you",
   mentioned: "Mentioned you",
+  due_soon: "Due soon",
+  overdue: "Overdue",
+  status_changed: "Status changed",
+  pr_review_requested: "Review requested",
+  pr_status_changed: "PR updated",
+  meeting_soon: "Meeting starting soon",
 };
 
 // The bold title of the notification — the project name (falls back to the app name).
@@ -27,10 +41,24 @@ export function notificationTitle(n: Pick<NotificationView, "project">): string 
 }
 
 // The "who did what" line — "Ahmed Ali mentioned you" / "Assigned by Ahmed Ali",
-// with generic fallbacks when the actor is unknown.
+// with generic fallbacks when the actor is unknown. due_soon/overdue have no actor
+// (they're a local deadline, not something someone else did).
 export function notificationActor(n: Pick<NotificationView, "type" | "actor">): string {
   if (n.type === "mentioned") return n.actor ? `${n.actor} mentioned you` : NOTIFICATION_LABELS.mentioned;
+  if (n.type === "due_soon" || n.type === "overdue") return NOTIFICATION_LABELS[n.type];
+  if (n.type === "status_changed") return n.actor ? `${n.actor} changed the status` : NOTIFICATION_LABELS.status_changed;
+  if (n.type === "pr_review_requested") return n.actor ? `${n.actor} requested your review` : NOTIFICATION_LABELS.pr_review_requested;
+  if (n.type === "pr_status_changed") return NOTIFICATION_LABELS.pr_status_changed;
+  if (n.type === "meeting_soon") return NOTIFICATION_LABELS.meeting_soon;
   return n.actor ? `Assigned by ${n.actor}` : NOTIFICATION_LABELS.assigned;
+}
+
+// Sort by the time we actually DISPLAY (occurredAt, falling back to createdAt),
+// newest first. Ordering by createdAt (detection time) instead put freshly-synced
+// but old items — e.g. a PR review requested 3 months ago — above genuinely recent
+// notifications, so the shown dates looked out of order.
+export function byDisplayTime(a: NotificationView, b: NotificationView): number {
+  return (b.occurredAt ?? b.createdAt).getTime() - (a.occurredAt ?? a.createdAt).getTime();
 }
 
 export function toNotificationView(row: Notification): NotificationView {

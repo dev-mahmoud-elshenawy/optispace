@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Loader2Icon } from "lucide-react";
 
 import { searchAzureDevOpsIdentities } from "@/features/integrations/azure-devops/actions";
 import type { AdoIdentity } from "@/features/integrations/azure-devops/types";
@@ -29,6 +30,7 @@ export function MentionInput({ initialHtml = "", onChange, placeholder, classNam
   const ref = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState<string | null>(null);
   const [results, setResults] = useState<AdoIdentity[]>([]);
+  const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(0);
 
   // Seed the editor once on mount (parent remounts via `key` to reset/reseed).
@@ -41,14 +43,17 @@ export function MentionInput({ initialHtml = "", onChange, placeholder, classNam
   useEffect(() => {
     if (query === null) {
       setResults([]);
+      setLoading(false);
       return;
     }
     let cancelled = false;
+    setLoading(true);
     const timer = setTimeout(async () => {
       const found = await searchAzureDevOpsIdentities(query);
       if (!cancelled) {
         setResults(found);
         setActive(0);
+        setLoading(false);
       }
     }, 200);
     return () => {
@@ -141,9 +146,16 @@ export function MentionInput({ initialHtml = "", onChange, placeholder, classNam
           className,
         )}
       />
-      {query !== null && results.length > 0 ? (
+      {query !== null ? (
         <ul className="absolute z-50 mt-1 max-h-56 w-72 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-md">
-          {results.map((r, i) => (
+          {loading ? (
+            <li className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground">
+              <Loader2Icon className="size-3.5 animate-spin" /> Searching people…
+            </li>
+          ) : results.length === 0 ? (
+            <li className="px-2 py-1.5 text-sm text-muted-foreground">No people found</li>
+          ) : (
+            results.map((r, i) => (
             <li key={r.id}>
               <button
                 type="button"
@@ -160,7 +172,8 @@ export function MentionInput({ initialHtml = "", onChange, placeholder, classNam
                 {r.mail ? <span className="text-xs text-muted-foreground">{r.mail}</span> : null}
               </button>
             </li>
-          ))}
+            ))
+          )}
         </ul>
       ) : null}
     </div>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { ProjectStatus } from "@/types";
 import type { TaskView } from "@/features/tasks/service";
@@ -30,12 +31,26 @@ const ALL = "all";
 
 export function ProjectsView({ items, projectOptions }: ProjectsViewProps) {
   const [status, setStatus] = useState<string>(ALL);
+  const [search, setSearch] = useState("");
 
-  const filtered = status === ALL ? items : items.filter((it) => it.project.status === status);
+  // Title-only search (project name), combined with the status filter — matches the
+  // app convention that text search matches the name, not tags/other fields.
+  const query = search.trim().toLowerCase();
+  const filtered = items.filter(
+    (it) =>
+      (status === ALL || it.project.status === status) &&
+      (query === "" || it.project.name.toLowerCase().includes(query)),
+  );
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search projects…"
+          className="h-8 w-full sm:w-64"
+        />
         <Select value={status} onValueChange={setStatus}>
           <SelectTrigger className="h-8 w-44">
             <SelectValue />

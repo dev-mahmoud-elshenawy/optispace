@@ -3,7 +3,7 @@ import { format } from "date-fns";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, ListChecks, GitBranch, Package as PackageIcon, ExternalLink, ArrowUpRight, Activity, Link2, Bell } from "lucide-react";
+import { CalendarDays, ListChecks, GitBranch, GitPullRequest, Package as PackageIcon, ExternalLink, ArrowUpRight, Activity, Link2, Bell } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import type { ReactNode } from "react";
 import { listProfiles } from "@/features/profiles/queries";
@@ -15,6 +15,7 @@ import { countPackages } from "@/features/packages/queries";
 import { recentNotifications, unreadNotificationCount } from "@/features/notifications/queries";
 import { notificationActor, notificationTitle, type NotificationView } from "@/features/notifications/service";
 import { todayCalendarEvents } from "@/features/calendar/queries";
+import { listPullRequests } from "@/features/integrations/github/queries";
 import { DayPreviewCard } from "@/components/dashboard/day-preview-card";
 import { DashboardCharts } from "@/features/dashboard/components/dashboard-charts";
 import type { TaskStatus } from "@/types";
@@ -26,7 +27,7 @@ export default async function DashboardPage() {
   const endToday = new Date(year, now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const startTomorrow = new Date(year, now.getMonth(), now.getDate() + 1);
   const endTomorrow = new Date(year, now.getMonth(), now.getDate() + 1, 23, 59, 59, 999);
-  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents, tomorrowEvents] = await Promise.all([
+  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents, tomorrowEvents, pullRequests] = await Promise.all([
     listProfiles(),
     getLeaveSummary(year),
     getTaskStatusCounts(),
@@ -38,7 +39,9 @@ export default async function DashboardPage() {
     unreadNotificationCount(),
     todayCalendarEvents(startToday, endToday),
     todayCalendarEvents(startTomorrow, endTomorrow),
+    listPullRequests(),
   ]);
+  const topPullRequests = pullRequests.slice(0, 5);
 
   const openTasks = taskCounts.todo + taskCounts.in_progress;
   const activeProjects = projects.filter((p) => p.status === "active");
@@ -130,6 +133,37 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Pull requests — only when GitHub is configured and has open PRs */}
+      {topPullRequests.length > 0 ? (
+        <Card className={`mt-6 border-border/60 transition-colors hover:border-border ${enter}`} style={{ animationDelay: "120ms" }}>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <IconChip>
+                <GitPullRequest className="h-3.5 w-3.5" />
+              </IconChip>
+              Pull requests
+            </CardTitle>
+            <ViewAllLink href="/pull-requests" />
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {topPullRequests.map((pr) => (
+              <a
+                key={pr.id}
+                href={pr.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent/50"
+              >
+                <span className="truncate">
+                  {pr.title} <span className="text-muted-foreground">#{pr.number}</span>
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">{pr.repo}</span>
+              </a>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Recent activity — tasks + status breakdown */}
       <div className={`mt-6 grid gap-6 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "150ms" }}>
