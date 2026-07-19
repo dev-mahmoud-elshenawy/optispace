@@ -11,6 +11,7 @@ export async function listPullRequests(): Promise<PullRequestView[]> {
   });
   return rows.map((r) => ({
     id: r.id,
+    nodeId: r.nodeId,
     repo: r.repo,
     number: r.number,
     title: r.title,

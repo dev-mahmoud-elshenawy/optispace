@@ -71,7 +71,8 @@ export function TaskListTable({
                 {task.title}
               </button>
             </TableCell>
-            <TableCell>{STATUS_LABELS[task.status]}</TableCell>
+            {/* ADO tasks show their real DevOps state (New/Ready For Testing/…); local tasks show the bucket. */}
+            <TableCell>{task.adoState ?? STATUS_LABELS[task.status]}</TableCell>
             <TableCell>
               <PriorityFlag priority={task.priority} />
             </TableCell>

@@ -15,6 +15,7 @@ import {
 } from "@/features/notifications/actions";
 import { notificationActor, notificationTitle, type NotificationView } from "@/features/notifications/service";
 import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
+import { GithubPrDetail } from "@/features/integrations/github/pr-detail";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 20; // rows shown per page; "Load more" reveals another PAGE_SIZE
@@ -27,6 +28,7 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
   const router = useRouter();
   const [rows, setRows] = useState(notifications);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [prTarget, setPrTarget] = useState<{ repo: string; number: number } | null>(null);
   const [visible, setVisible] = useState(PAGE_SIZE);
   const unreadCount = rows.filter((r) => !r.read).length;
   const shown = rows.slice(0, visible);
@@ -63,8 +65,12 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
     if (row.type === "due_soon" || row.type === "overdue") {
       router.push(row.url);
     } else if (row.type === "pr_review_requested" || row.type === "pr_status_changed") {
-      // PRs live on GitHub — externalId is "repo#number", not an ADO id — open externally.
-      window.open(row.url, "_blank", "noreferrer");
+      // Open the PR in the in-app modal — externalId is "owner/repo#number".
+      const hash = row.externalId.lastIndexOf("#");
+      const repo = row.externalId.slice(0, hash);
+      const number = Number(row.externalId.slice(hash + 1));
+      if (repo && Number.isFinite(number)) setPrTarget({ repo, number });
+      else window.open(row.url, "_blank", "noreferrer");
     } else if (row.type === "meeting_soon") {
       // Calendar reminder — url is the meeting join link (open it) or "/calendar".
       if (/^https?:\/\//.test(row.url)) window.open(row.url, "_blank", "noreferrer");
@@ -208,6 +214,18 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
         if (!o) setDetailId(null);
       }}
     />
+    {prTarget ? (
+      <GithubPrDetail
+        nodeId={null}
+        repo={prTarget.repo}
+        number={prTarget.number}
+        title={`#${prTarget.number}`}
+        open={prTarget !== null}
+        onOpenChange={(o) => {
+          if (!o) setPrTarget(null);
+        }}
+      />
+    ) : null}
     </>
   );
 }

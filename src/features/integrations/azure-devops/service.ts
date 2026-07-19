@@ -96,7 +96,8 @@ export interface WorkItemDTO {
   externalId: string;
   title: string;
   description: string | null;
-  status: TaskStatus;
+  status: TaskStatus; // collapsed 3-bucket for board/filter
+  state: string; // raw ADO System.State (New/Active/Ready For Testing/…) for the list badge
   url: string;
   project: string;
   workItemType: string; // ADO System.WorkItemType (Bug/Task/User Story/…)
@@ -236,6 +237,7 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
       title: fieldStr(f, "System.Title") || `Work item ${wi.id}`,
       description: (f["System.Description"] as string | undefined) ?? null,
       status,
+      state,
       url: itemUrl(config.orgUrl, project, wi.id ?? 0),
       project,
       workItemType: type,
@@ -345,8 +347,9 @@ const DETAIL_FIELDS: { key: string; label: string; format: (v: unknown) => strin
   { key: "System.Tags", label: "Tags", format: String },
 ];
 
-// Sanitize ADO-authored HTML with DOMPurify + a strict tag/attr allowlist.
-function sanitizeHtml(html: string): string {
+// Sanitize third-party HTML with DOMPurify + a strict tag/attr allowlist. Shared with the
+// GitHub PR detail view (GitHub's bodyHTML) — same allowlist, defense-in-depth on render.
+export function sanitizeHtml(html: string): string {
   return DOMPurify.sanitize(html, {
     ALLOWED_TAGS: ["p", "br", "b", "i", "strong", "em", "u", "s", "ul", "ol", "li", "a", "code", "pre", "blockquote", "h1", "h2", "h3", "h4", "span", "div", "table", "thead", "tbody", "tr", "th", "td"],
     ALLOWED_ATTR: ["href", "title"],
@@ -542,6 +545,7 @@ export async function createWorkItem(input: {
     title: fieldStr(f, "System.Title") || input.title,
     description: (f["System.Description"] as string | undefined) ?? null,
     status: (await statusForState(input.project, input.type, state)) ?? "todo",
+    state,
     url: itemUrl(config.orgUrl, input.project, wi.id ?? 0),
     project: input.project,
     workItemType: input.type,

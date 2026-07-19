@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
 import { syncGithubPullRequests } from "./actions";
+import { isGithubAuthError } from "./github-token-banner";
 
 export function GithubSyncButton() {
   const router = useRouter();
@@ -17,8 +18,13 @@ export function GithubSyncButton() {
     startTransition(async () => {
       const result = await syncGithubPullRequests();
       if (result.ok) {
+        window.dispatchEvent(new Event("optispace:github-auth-ok"));
         toast.success(`Synced — ${result.upserted} open, ${result.pruned} closed out.`);
         router.refresh();
+      } else if (isGithubAuthError(result.error)) {
+        // Token expired/revoked — surface the persistent reconnect banner, not just a toast.
+        window.dispatchEvent(new Event("optispace:github-auth-error"));
+        toast.error("GitHub token expired — reconnect in Settings.");
       } else {
         toast.error(result.error);
       }

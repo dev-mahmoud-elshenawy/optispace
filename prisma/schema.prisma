@@ -95,6 +95,7 @@ model Task {
   externalId    String? // id in the source system, unique per source
   externalUrl   String? // link back to the source item
   workItemType  String? // ADO System.WorkItemType, e.g. "Bug"/"Task"/"User Story" (source-owned)
+  adoState      String? // raw ADO System.State, e.g. "New"/"Ready For Testing"/"In Test" (source-owned; shown in list)
   adoPriority   Int? // raw ADO Microsoft.VSTS.Common.Priority (1–4) for the card flag (source-owned)
   iterationPath String? // ADO sprint path, e.g. "Canitude\Iteration 2" (source-owned)
   effort        Float? // ADO estimated effort / original estimate (source-owned; null = unestimated)
@@ -174,6 +175,7 @@ model CalendarEvent {
 // Soft-deleted when they leave the open @me result set (merged/closed/reassigned).
 model GithubPullRequest {
   id              String    @id @default(cuid())
+  nodeId          String? // GitHub GraphQL global node ID — fetch detail by this (survives repo renames / name-resolution quirks)
   repo            String // "owner/repo"
   number          Int
   title           String
@@ -192,6 +194,18 @@ model GithubPullRequest {
 
   @@unique([repo, number])
   @@index([state])
+}
+
+// OAuth device-flow token for GitHub — single row (id = "singleton"). When present it
+// takes precedence over the GITHUB_TOKEN PAT in .env; disconnecting deletes the row and
+// falls back to the PAT (if any). login = the authenticated user, shown in Settings.
+model GithubAuth {
+  id          String   @id @default("singleton")
+  accessToken String
+  scope       String?
+  login       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // ── Packages ─────────────────────────────────────────────────

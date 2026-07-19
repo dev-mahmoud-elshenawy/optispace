@@ -103,6 +103,7 @@ export interface TaskView {
   externalId: string | null;
   externalUrl: string | null;
   workItemType: string | null;
+  adoState: string | null;
   adoPriority: number | null;
   iterationPath: string | null;
   effort: number | null;
@@ -132,6 +133,7 @@ export function toTaskView(row: TaskRow): TaskView {
     externalId: row.externalId,
     externalUrl: row.externalUrl,
     workItemType: row.workItemType,
+    adoState: row.adoState,
     adoPriority: row.adoPriority,
     iterationPath: row.iterationPath,
     effort: row.effort,

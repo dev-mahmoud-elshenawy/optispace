@@ -132,6 +132,7 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
           title: item.title,
           description: item.description,
           status: item.status,
+          adoState: item.state,
           priority: item.priority,
           adoPriority: item.adoPriority,
           externalUrl: item.url,
@@ -163,6 +164,7 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
         title: item.title,
         description: item.description,
         status: item.status,
+        adoState: item.state,
         priority: item.priority,
         adoPriority: item.adoPriority,
         externalUrl: item.url,
@@ -390,6 +392,7 @@ export async function createAzureDevOpsTask(input: CreateWorkItemInput): Promise
         title: item.title,
         description: item.description,
         status: item.status,
+        adoState: item.state,
         priority: item.priority,
         adoPriority: item.adoPriority,
         order: 0,
@@ -461,15 +464,23 @@ export async function updateAzureDevOpsWorkItem(
       await updateWorkItem(externalId, rev, fields);
     }
 
-    const data: { title?: string; description?: string | null; status?: TaskStatus; iterationPath?: string | null } = {};
+    const data: { title?: string; description?: string | null; status?: TaskStatus; adoState?: string; iterationPath?: string | null } = {};
     if (patch.title !== undefined) data.title = patch.title;
     if (patch.description !== undefined) data.description = patch.description || null;
     if (patch.iterationPath !== undefined) data.iterationPath = patch.iterationPath || null;
+    // Closing = hide now. If the new ADO state is a done category (Closed/Completed/
+    // Resolved), soft-delete the local task immediately instead of leaving it in the Done
+    // column until the next poll prunes it — ADO owns done items, the sync drops them anyway.
+    let hide = false;
     if (patch.state !== undefined) {
+      data.adoState = patch.state; // reflect the real ADO state in the list
       const status = await statusForState(meta.project, meta.type, patch.state);
-      if (status) data.status = status;
+      if (status === "done") hide = true;
+      else if (status) data.status = status;
     }
-    if (Object.keys(data).length > 0) {
+    if (hide) {
+      await db.task.updateMany({ where: { source: SOURCE, externalId }, data: { ...data, deletedAt: new Date() } });
+    } else if (Object.keys(data).length > 0) {
       await db.task.updateMany({ where: { source: SOURCE, externalId }, data });
     }
 

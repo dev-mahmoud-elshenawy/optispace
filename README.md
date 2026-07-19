@@ -65,7 +65,7 @@ No cloud, no accounts, nothing leaving your laptop. Fast, focused, and entirely 
 | 🛠️ **Development** | Projects with milestone checklists, nested tasks, and a per-project hub: files, links (releases/dashboards/servers, with credentials), and client feedback (tied to a release, with optional attached document) |
 | 📦 **Packages** | Published npm / pub.dev packages with on-demand live stats, source/language/tag filters + update-available badge |
 | 🔄 **Azure DevOps sync** | Imports work items assigned to you into Tasks (configure `AZURE_DEVOPS_*` in `.env`); manual Sync now + auto-sync while the app is open |
-| 🔀 **Pull Requests** | PRs you authored, were asked to review, or are assigned to (configure `GITHUB_TOKEN` in `.env`), grouped by repo in collapsible sections with review-decision + CI-checks badges; review-requested and status-change notifications |
+| 🔀 **Pull Requests** | PRs you authored, were asked to review, or are assigned to (connect GitHub in **Settings** via OAuth device flow — no token/`.env`), grouped by repo in collapsible sections with review-decision + CI-checks badges; review-requested and status-change notifications |
 | 🔔 **Notifications** | Bell in the sidebar + a full list + dashboard widget for Azure DevOps assignments/@mentions, task due-dates, and GitHub PR review requests/status changes, with desktop push while the app is open |
 | 📅 **Calendar** | Agenda of your Outlook/Teams meetings from a published ICS feed (`CALENDAR_ICS_URL` in `.env`); today's meetings also surface on the dashboard |
 | ♻️ **Archive** | Everything deleted lands here — restore it or permanently purge |
@@ -93,7 +93,7 @@ Copy `.env.example` → `.env` and fill in only what you want. Restart `npm run 
 | Integration | Env vars | What you get |
 |-------------|----------|--------------|
 | **Azure DevOps** | `AZURE_DEVOPS_ORG_URL`, `AZURE_DEVOPS_PAT` *(Work Items: Read)* | Your assigned work items in Tasks + assignment/@mention notifications. Use a **Read & Write** PAT to edit state/comments back. |
-| **GitHub PRs** | `GITHUB_TOKEN`, `GITHUB_REPOS` (`all` / list), optional `GITHUB_ORGS` | PRs you authored, were asked to review, or are assigned to — across any repo/org the token can see — grouped by repo in collapsible sections, with review/CI badges + notifications. Org repos need a classic token (`repo` + `read:org`). |
+| **GitHub PRs** | _none_ — connect in **Settings** (OAuth device flow) | PRs you authored, were asked to review, or are assigned to — across any repo the connected account can see — grouped by repo in collapsible sections, with review/CI badges + notifications. One-time: enter your OAuth App **Client ID** (device flow enabled) once in Settings — saved on the device, no token or `.env`; after that it's a one-click Connect. |
 | **Calendar** | `CALENDAR_ICS_URL` | Outlook/Teams agenda (Settings → Calendar → **Publish a calendar** → copy the ICS link). |
 
 Both are optional — leave the vars blank to hide the feature. No keys committed; `.env` is git-ignored.

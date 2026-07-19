@@ -148,18 +148,16 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-1">
             {topPullRequests.map((pr) => (
-              <a
+              <Link
                 key={pr.id}
-                href={pr.url}
-                target="_blank"
-                rel="noreferrer"
+                href="/pull-requests"
                 className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent/50"
               >
                 <span className="truncate">
                   {pr.title} <span className="text-muted-foreground">#{pr.number}</span>
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">{pr.repo}</span>
-              </a>
+              </Link>
             ))}
           </CardContent>
         </Card>
