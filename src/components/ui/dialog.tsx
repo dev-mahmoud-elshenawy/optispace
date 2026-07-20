@@ -58,21 +58,29 @@ const POPPER_SELECTOR =
 const OPEN_POPPER_SELECTOR =
   "[data-slot=select-content][data-state=open],[data-slot=dropdown-menu-content][data-state=open],[data-slot=popover-content][data-state=open]"
 
-function targetInsidePopper(target: EventTarget | null | undefined): boolean {
-  if (target instanceof Element && target.closest(POPPER_SELECTOR)) return true
-  return typeof document !== "undefined" && !!document.querySelector(OPEN_POPPER_SELECTOR)
-}
-
 function DialogContent({
   className,
   children,
   showCloseButton = true,
-  onPointerDownOutside,
   onInteractOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
 }) {
+  // Record — in the CAPTURE phase, before anything closes — whether a portaled popper was open at the
+  // start of the click that begins an outside-interaction. The dialog then refuses to dismiss for that
+  // interaction, which covers both the outside pointer click AND the focus-return fired after the
+  // popper closes (that delayed focus event is why the earlier target/state checks leaked).
+  const popperOpenAt = React.useRef(0)
+  React.useEffect(() => {
+    const onDown = () => {
+      if (typeof document !== "undefined" && document.querySelector(OPEN_POPPER_SELECTOR)) {
+        popperOpenAt.current = Date.now()
+      }
+    }
+    document.addEventListener("pointerdown", onDown, true)
+    return () => document.removeEventListener("pointerdown", onDown, true)
+  }, [])
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -82,13 +90,13 @@ function DialogContent({
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
-        onPointerDownOutside={(e) => {
-          if (targetInsidePopper(e.detail.originalEvent.target)) e.preventDefault()
-          onPointerDownOutside?.(e)
-        }}
         onInteractOutside={(e) => {
-          const original = (e.detail as { originalEvent?: Event }).originalEvent
-          if (targetInsidePopper(original?.target)) e.preventDefault()
+          const target = (e.detail as { originalEvent?: Event }).originalEvent?.target
+          const inPopper = target instanceof Element && !!target.closest(POPPER_SELECTOR)
+          const popperOpen = typeof document !== "undefined" && !!document.querySelector(OPEN_POPPER_SELECTOR)
+          // Block the dismiss if the interaction touches a popper, one is open now, or one was open when
+          // this interaction started (the 400ms window catches the post-close focus-return).
+          if (inPopper || popperOpen || Date.now() - popperOpenAt.current < 400) e.preventDefault()
           onInteractOutside?.(e)
         }}
         {...props}
