@@ -13,42 +13,45 @@ import {
 import { Operation, type JsonPatchDocument } from "azure-devops-node-api/interfaces/common/VSSInterfaces";
 import DOMPurify from "isomorphic-dompurify";
 
+import { db } from "@/lib/db";
 import type { TaskPriority, TaskStatus } from "@/types";
 
 import type { AdoIdentity } from "./types";
 
-// ── Config (per-user, from .env) ─────────────────────────────────────────────
+// ── Config (set in Settings, stored in the DB — no .env) ─────────────────────
 export interface AzureDevOpsConfig {
   orgUrl: string;
   pat: string;
   email: string | null;
-  allProjects: boolean; // AZURE_DEVOPS_PROJECTS="all" → every accessible project
+  allProjects: boolean; // projects = "all" → every accessible project
   projects: string[]; // explicit project names (ignored when allProjects)
   includeDone: boolean;
 }
 
-export function getAzureDevOpsConfig(): AzureDevOpsConfig | null {
-  const orgUrl = process.env.AZURE_DEVOPS_ORG_URL?.trim();
-  const pat = process.env.AZURE_DEVOPS_PAT?.trim();
+export async function getAzureDevOpsConfig(): Promise<AzureDevOpsConfig | null> {
+  const row = await db.adoConfig.findUnique({ where: { id: "singleton" } });
+  if (!row) return null;
+  const orgUrl = row.orgUrl?.trim();
+  const pat = row.pat?.trim();
   if (!orgUrl || !pat) return null;
-  // Explicit opt-in: AZURE_DEVOPS_PROJECTS="all" syncs every project, a comma-separated
-  // list syncs those, and blank syncs nothing (no implicit "blank = all" magic).
-  const rawProjects = (process.env.AZURE_DEVOPS_PROJECTS ?? "").trim();
+  // Explicit opt-in: projects = "all" syncs every project, a comma-separated list syncs
+  // those, and blank syncs nothing (no implicit "blank = all" magic).
+  const rawProjects = (row.projects ?? "").trim();
   return {
     orgUrl: orgUrl.replace(/\/+$/, ""),
     pat,
-    email: process.env.AZURE_DEVOPS_EMAIL?.trim() || null,
+    email: row.email?.trim() || null,
     allProjects: rawProjects.toLowerCase() === "all",
     projects: rawProjects
       .split(",")
       .map((s) => s.trim())
       .filter((s) => s && s.toLowerCase() !== "all"),
-    includeDone: (process.env.AZURE_DEVOPS_INCLUDE_DONE ?? "").toLowerCase() === "true",
+    includeDone: row.includeDone,
   };
 }
 
-export function isAzureDevOpsEnabled(): boolean {
-  return getAzureDevOpsConfig() !== null;
+export async function isAzureDevOpsEnabled(): Promise<boolean> {
+  return (await getAzureDevOpsConfig()) !== null;
 }
 
 // ── SDK connection (azure-devops-node-api) ───────────────────────────────────
@@ -56,8 +59,8 @@ export function isAzureDevOpsEnabled(): boolean {
 // getXxxApi() does a one-time resource-location handshake the SDK caches internally.
 let conn: { key: string; wit: Promise<IWorkItemTrackingApi>; core: Promise<ICoreApi> } | null = null;
 
-function apis(): { wit: Promise<IWorkItemTrackingApi>; core: Promise<ICoreApi> } | null {
-  const config = getAzureDevOpsConfig();
+async function apis(): Promise<{ wit: Promise<IWorkItemTrackingApi>; core: Promise<ICoreApi> } | null> {
+  const config = await getAzureDevOpsConfig();
   if (!config) return null;
   const key = `${config.orgUrl}::${config.pat}`;
   if (!conn || conn.key !== key) {
@@ -171,7 +174,7 @@ export interface AssignedWorkItems {
 }
 
 export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise<AssignedWorkItems> {
-  const c = apis();
+  const c = await apis();
   if (!c) return { items: [], openIds: [], doneIds: [] };
   // Blank config (not "all", no explicit projects) syncs nothing — explicit opt-in.
   if (!config.allProjects && config.projects.length === 0) return { items: [], openIds: [], doneIds: [] };
@@ -263,7 +266,7 @@ export async function fetchAssignmentInfo(
   externalId: string,
   me: { id: string; displayName: string },
 ): Promise<{ assignedBy: string | null; assignedAt: string } | null> {
-  const c = apis();
+  const c = await apis();
   if (!c) return null;
   const wit = await c.wit;
   let updates: WorkItemUpdate[];
@@ -358,8 +361,8 @@ export function sanitizeHtml(html: string): string {
 }
 
 export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemDetail | null> {
-  const config = getAzureDevOpsConfig();
-  const c = apis();
+  const config = await getAzureDevOpsConfig();
+  const c = await apis();
   if (!config || !c) return null;
   const wit = await c.wit;
 
@@ -458,7 +461,7 @@ export interface StateOption {
 }
 
 export async function fetchStates(project: string, type: string): Promise<StateOption[]> {
-  const c = apis();
+  const c = await apis();
   if (!c) return [];
   try {
     const states = await (await c.wit).getWorkItemTypeStates(project, type);
@@ -477,7 +480,7 @@ export async function statusForState(project: string, type: string, state: strin
 // PATCH arbitrary fields (ADO field key → value) with optimistic concurrency
 // (rev test → 412 if changed upstream). Empty-string values clear the field.
 export async function updateWorkItem(externalId: string, rev: number, fields: Record<string, unknown>): Promise<void> {
-  const c = apis();
+  const c = await apis();
   if (!c) throw new Error("Azure DevOps is not configured.");
   const document: JsonPatchDocument = [
     { op: Operation.Test, path: "/rev", value: rev },
@@ -496,7 +499,7 @@ export async function updateWorkItem(externalId: string, rev: number, fields: Re
 // Every project the PAT can access — independent of the @Me WIQL, so the create
 // picker offers all projects, not just ones where I already have assigned work.
 export async function fetchAzureDevOpsProjects(): Promise<string[]> {
-  const c = apis();
+  const c = await apis();
   if (!c) return [];
   const projects = await (await c.core).getProjects();
   return projects
@@ -507,7 +510,7 @@ export async function fetchAzureDevOpsProjects(): Promise<string[]> {
 
 // Work item type names for a project (Bug/Task/User Story/…), excluding disabled ones.
 export async function fetchWorkItemTypes(project: string): Promise<string[]> {
-  const c = apis();
+  const c = await apis();
   if (!c) return [];
   const types = await (await c.wit).getWorkItemTypes(project);
   return types.filter((t) => !t.isDisabled).map((t) => t.name ?? "").filter(Boolean);
@@ -524,8 +527,8 @@ export async function createWorkItem(input: {
   iterationPath?: string;
   assignee?: string; // email/UPN; defaults to me
 }): Promise<WorkItemDTO> {
-  const config = getAzureDevOpsConfig();
-  const c = apis();
+  const config = await getAzureDevOpsConfig();
+  const c = await apis();
   if (!config || !c) throw new Error("Azure DevOps is not configured.");
   const assignee = input.assignee?.trim() || config.email || (await resolveMe())?.uniqueName || null;
   const ops: { op: Operation; path: string; value: unknown }[] = [
@@ -560,7 +563,7 @@ export async function createWorkItem(input: {
 
 // Iteration paths available in a project (for the sprint dropdown).
 export async function fetchIterations(project: string): Promise<string[]> {
-  const c = apis();
+  const c = await apis();
   if (!c) return [];
   let root: WorkItemClassificationNode;
   try {
@@ -580,7 +583,7 @@ export async function fetchIterations(project: string): Promise<string[]> {
 }
 
 export async function postComment(project: string, externalId: string, text: string): Promise<void> {
-  const c = apis();
+  const c = await apis();
   if (!c) throw new Error("Azure DevOps is not configured.");
   await (await c.wit).addComment({ text }, project, Number(externalId));
 }
@@ -589,7 +592,7 @@ export async function postComment(project: string, externalId: string, text: str
 // KEPT ON FETCH: azure-devops-node-api does not wrap the IdentityPicker service.
 // Returns [] on any failure — a suggestion box degrades quietly, no throw.
 export async function searchIdentities(query: string): Promise<AdoIdentity[]> {
-  const config = getAzureDevOpsConfig();
+  const config = await getAzureDevOpsConfig();
   const trimmed = query.trim();
   if (!config || trimmed.length === 0) return [];
 
@@ -629,7 +632,7 @@ export interface RawComment {
 }
 
 export async function fetchRawComments(project: string, externalId: string): Promise<RawComment[]> {
-  const c = apis();
+  const c = await apis();
   if (!c) return [];
   try {
     const list = await (await c.wit).getComments(project, Number(externalId));
@@ -655,7 +658,7 @@ export interface AdoMe {
 }
 
 export async function resolveMe(): Promise<AdoMe | null> {
-  const c = apis();
+  const c = await apis();
   if (!c) return null;
   const wit = await c.wit;
   const result = await wit.queryByWiql({
@@ -681,8 +684,8 @@ export interface MentionCandidate {
 // other people, which the assigned-items sync never sees). Caller confirms the real
 // data-vss-mention GUID in each item's comments to filter plain-name false positives.
 export async function fetchMentionCandidates(displayName: string, lookbackDays: number, cap = 50): Promise<MentionCandidate[]> {
-  const config = getAzureDevOpsConfig();
-  const c = apis();
+  const config = await getAzureDevOpsConfig();
+  const c = await apis();
   if (!config || !c) return [];
   const wit = await c.wit;
   const safeName = displayName.replace(/'/g, "''");
@@ -710,7 +713,7 @@ export async function fetchMentionCandidates(displayName: string, lookbackDays: 
 // URLs → no SSRF). KEPT ON FETCH: we need the raw Content-Type header, which the
 // SDK's stream-based getAttachmentContent does not surface.
 export async function fetchAttachment(id: string, name: string): Promise<{ bytes: ArrayBuffer; contentType: string } | null> {
-  const config = getAzureDevOpsConfig();
+  const config = await getAzureDevOpsConfig();
   if (!config) return null;
   const res = await fetch(
     `${config.orgUrl}/_apis/wit/attachments/${encodeURIComponent(id)}?fileName=${encodeURIComponent(name)}&api-version=7.0`,

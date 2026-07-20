@@ -1,14 +1,45 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+
 import { db } from "@/lib/db";
 import { recordNotifications } from "@/features/notifications/actions";
 
 import { fetchEvents } from "./service";
 import type { CalendarEventDTO } from "./types";
 
-// How long before a meeting starts to fire the reminder. Per-user via .env like the
-// rest of the integrations; defaults to 15 minutes.
-const REMINDER_MINUTES = Number(process.env.CALENDAR_REMINDER_MINUTES) || 15;
+// ── Config (Settings-managed, DB-backed — no .env) ───────────────────────────
+export interface CalendarConfigView {
+  icsUrl: string;
+  reminderMinutes: number;
+}
+
+export async function getCalendarConfig(): Promise<CalendarConfigView> {
+  const row = await db.calendarConfig.findUnique({ where: { id: "singleton" } });
+  return { icsUrl: row?.icsUrl ?? "", reminderMinutes: row?.reminderMinutes ?? 15 };
+}
+
+export async function saveCalendarConfig(
+  input: { icsUrl: string; reminderMinutes: number },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const icsUrl = input.icsUrl.trim();
+  const reminderMinutes =
+    Number.isFinite(input.reminderMinutes) && input.reminderMinutes > 0 ? Math.round(input.reminderMinutes) : 15;
+  const data = { icsUrl: icsUrl || null, reminderMinutes };
+  await db.calendarConfig.upsert({ where: { id: "singleton" }, update: data, create: { id: "singleton", ...data } });
+  revalidatePath("/settings");
+  revalidatePath("/calendar");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function clearCalendarConfig(): Promise<{ ok: true }> {
+  await db.calendarConfig.deleteMany({ where: { id: "singleton" } });
+  revalidatePath("/settings");
+  revalidatePath("/calendar");
+  revalidatePath("/");
+  return { ok: true };
+}
 
 // Rolling cache window: sync expands occurrences from 1 month back to 6 months ahead.
 const WINDOW_BACK_DAYS = 31;
@@ -155,7 +186,9 @@ export type MeetingReminderResult = { notified: number };
 // no server-side scheduler). Timed events only; all-day rows are skipped.
 export async function checkMeetingReminders(): Promise<MeetingReminderResult> {
   const now = new Date();
-  const until = new Date(now.getTime() + REMINDER_MINUTES * 60_000);
+  const cfg = await db.calendarConfig.findUnique({ where: { id: "singleton" } });
+  const reminderMinutes = cfg?.reminderMinutes ?? 15;
+  const until = new Date(now.getTime() + reminderMinutes * 60_000);
   const upcoming = await db.calendarEvent.findMany({
     where: { deletedAt: null, allDay: false, start: { gt: now, lte: until } },
     orderBy: { start: "asc" },

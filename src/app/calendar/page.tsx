@@ -9,7 +9,7 @@ import { CalendarView } from "@/features/calendar/components/calendar-view";
 export const dynamic = "force-dynamic";
 
 export default async function CalendarPage() {
-  if (!isCalendarEnabled()) {
+  if (!(await isCalendarEnabled())) {
     return (
       <PageShell title="Calendar" description="Your Outlook / Teams agenda">
         <Card className="border-dashed border-border/60">

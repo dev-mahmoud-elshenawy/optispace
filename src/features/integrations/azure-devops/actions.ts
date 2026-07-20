@@ -29,6 +29,62 @@ import {
 } from "./service";
 import type { AdoIdentity } from "./types";
 
+// ── Config (Settings-managed, DB-backed — no .env) ───────────────────────────
+export interface AdoConfigView {
+  configured: boolean; // org URL + PAT both set
+  orgUrl: string;
+  patSet: boolean; // whether a PAT is stored (never returned in the clear)
+  email: string;
+  projects: string; // "all" or comma-separated names
+  includeDone: boolean;
+}
+
+export async function getAdoConfig(): Promise<AdoConfigView> {
+  const row = await db.adoConfig.findUnique({ where: { id: "singleton" } });
+  return {
+    configured: !!(row?.orgUrl?.trim() && row?.pat?.trim()),
+    orgUrl: row?.orgUrl ?? "",
+    patSet: !!row?.pat,
+    email: row?.email ?? "",
+    projects: row?.projects ?? "",
+    includeDone: row?.includeDone ?? false,
+  };
+}
+
+export interface SaveAdoConfigInput {
+  orgUrl: string;
+  pat: string; // blank = keep the stored PAT
+  email: string;
+  projects: string;
+  includeDone: boolean;
+}
+
+export async function saveAdoConfig(input: SaveAdoConfigInput): Promise<{ ok: true } | { ok: false; error: string }> {
+  const orgUrl = input.orgUrl.trim();
+  if (!orgUrl) return { ok: false, error: "Organization URL is required." };
+  const existing = await db.adoConfig.findUnique({ where: { id: "singleton" } });
+  const pat = input.pat.trim() || existing?.pat || "";
+  if (!pat) return { ok: false, error: "A Personal Access Token is required." };
+  const data = {
+    orgUrl,
+    pat,
+    email: input.email.trim() || null,
+    projects: input.projects.trim(),
+    includeDone: input.includeDone,
+  };
+  await db.adoConfig.upsert({ where: { id: "singleton" }, update: data, create: { id: "singleton", ...data } });
+  revalidatePath("/settings");
+  revalidatePath("/tasks");
+  return { ok: true };
+}
+
+export async function clearAdoConfig(): Promise<{ ok: true }> {
+  await db.adoConfig.deleteMany({ where: { id: "singleton" } });
+  revalidatePath("/settings");
+  revalidatePath("/tasks");
+  return { ok: true };
+}
+
 const SOURCE = "azure_devops";
 const MENTION_LOOKBACK_DAYS = 14; // only notify for comments newer than this — avoids a
 // first-run flood of ancient mentions once mention detection ships.
@@ -69,7 +125,7 @@ export type SyncResult =
 // externalUrl/projectId; user-owned fields (priority, tags, dueDate) are left untouched
 // on update. Never deletes local tasks.
 export async function syncAzureDevOps(): Promise<SyncResult> {
-  const config = getAzureDevOpsConfig();
+  const config = await getAzureDevOpsConfig();
   if (!config) {
     return { ok: false, error: "Azure DevOps is not configured. Set AZURE_DEVOPS_ORG_URL and AZURE_DEVOPS_PAT in .env." };
   }
@@ -519,7 +575,7 @@ export async function updateAzureDevOpsWorkItem(
 // @-mention autocomplete: search ADO users by the typed query. Config-gated,
 // returns [] when ADO isn't set up so the suggestion box just stays empty.
 export async function searchAzureDevOpsIdentities(query: string): Promise<AdoIdentity[]> {
-  if (!getAzureDevOpsConfig()) return [];
+  if (!(await getAzureDevOpsConfig())) return [];
   try {
     return await searchIdentities(query);
   } catch {

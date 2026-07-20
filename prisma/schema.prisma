@@ -208,6 +208,27 @@ model GithubAuth {
   updatedAt   DateTime @updatedAt
 }
 
+// Azure DevOps connection config — set in Settings (no .env). Single row (id="singleton").
+model AdoConfig {
+  id          String   @id @default("singleton")
+  orgUrl      String?
+  pat         String?
+  email       String?
+  projects    String   @default("") // "all" or a comma-separated list of project names
+  includeDone Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Calendar (published ICS feed) config — set in Settings (no .env). Single row (id="singleton").
+model CalendarConfig {
+  id              String   @id @default("singleton")
+  icsUrl          String?
+  reminderMinutes Int      @default(15)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
 // ── Packages ─────────────────────────────────────────────────
 // Cache of Azure DevOps projects the PAT can access, so the "create in DevOps" picker
 // is instant. Refreshed on each sync (syncAzureDevOpsProjects); soft-deleted when a

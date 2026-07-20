@@ -2,8 +2,10 @@ import "server-only";
 
 import nodeIcal from "node-ical";
 
+import { db } from "@/lib/db";
+
 // Calendar via a published ICS feed (Outlook/Teams → Publish calendar → ICS link).
-// Per-user, from .env (like Azure DevOps) — never the DB.
+// Set in Settings, stored in the DB (no .env).
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -16,12 +18,13 @@ export interface CalendarEvent {
   attendees: string[]; // display names (or emails) of invitees
 }
 
-export function getCalendarIcsUrl(): string | null {
-  return process.env.CALENDAR_ICS_URL?.trim() || null;
+export async function getCalendarIcsUrl(): Promise<string | null> {
+  const row = await db.calendarConfig.findUnique({ where: { id: "singleton" } });
+  return row?.icsUrl?.trim() || null;
 }
 
-export function isCalendarEnabled(): boolean {
-  return getCalendarIcsUrl() !== null;
+export async function isCalendarEnabled(): Promise<boolean> {
+  return (await getCalendarIcsUrl()) !== null;
 }
 
 type IcalPerson = string | { val?: string; params?: { CN?: string } };
@@ -77,7 +80,7 @@ function attendeeNames(a?: IcalPerson | IcalPerson[]): string[] {
 // Fetch the ICS feed and expand events (recurring included) overlapping [from, to].
 // Returns [] on any failure so the UI degrades quietly.
 export async function fetchEvents(from: Date, to: Date): Promise<CalendarEvent[]> {
-  const url = getCalendarIcsUrl();
+  const url = await getCalendarIcsUrl();
   if (!url) return [];
 
   let data: Record<string, IcalEvent>;
