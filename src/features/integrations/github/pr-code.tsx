@@ -290,28 +290,41 @@ export function PrCode({ repo, number, headOid, headBranch, headRepo, threads, v
         </div>
       </div>
 
-      {/* Submit-review bar — a fixed footer below the scrollable diff (never overlaps the tree/diff). */}
-      <div className="shrink-0 space-y-2 border-t border-border bg-background pt-3">
+      {/* Submit-review composer — a polished fixed footer card below the scrollable diff. */}
+      <div className="shrink-0 rounded-xl border border-border bg-muted/30 p-3 shadow-sm">
+        <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <MessageSquarePlus className="size-3.5" />
+          Finish your review
+        </div>
         <MentionTextarea
           value={reviewBody}
           onChange={setReviewBody}
           repo={repo}
-          placeholder="Overall review comment… type @ to mention"
-          rows={2}
+          placeholder="Leave an overall comment… type @ to mention someone"
+          rows={3}
+          className="resize-none bg-background"
         />
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => review("APPROVE")} disabled={reviewBusy !== null}>
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            onClick={() => review("APPROVE")}
+            disabled={reviewBusy !== null}
+            className="bg-emerald-600 text-white hover:bg-emerald-600/90 focus-visible:ring-emerald-600/30"
+          >
             {reviewBusy === "APPROVE" ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
             Approve
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => review("COMMENT")} disabled={reviewBusy !== null}>
-            {reviewBusy === "COMMENT" ? <Loader2 className="size-4 animate-spin" /> : null}
-            Comment
           </Button>
           <Button size="sm" variant="destructive" onClick={() => review("REQUEST_CHANGES")} disabled={reviewBusy !== null}>
             {reviewBusy === "REQUEST_CHANGES" ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
             Request changes
           </Button>
+          <Button size="sm" variant="outline" onClick={() => review("COMMENT")} disabled={reviewBusy !== null}>
+            {reviewBusy === "COMMENT" ? <Loader2 className="size-4 animate-spin" /> : <MessageSquare className="size-4" />}
+            Comment
+          </Button>
+          <span className="ml-auto hidden text-xs text-muted-foreground md:block">
+            Approve / Request changes can be sent without a comment.
+          </span>
         </div>
       </div>
         </>
