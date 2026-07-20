@@ -27,7 +27,13 @@ interface DevicePrompt {
   verificationUri: string;
 }
 
-export function GithubConnectPanel({ status }: { status: GithubAuthStatus }) {
+export function GithubConnectPanel({
+  status,
+  stats,
+}: {
+  status: GithubAuthStatus;
+  stats?: { count: number; latest: string | null };
+}) {
   const router = useRouter();
   const [clientId, setClientId] = useState("");
   // Default to the entry field so a first-time user sees it immediately (no flicker). The
@@ -157,9 +163,17 @@ export function GithubConnectPanel({ status }: { status: GithubAuthStatus }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {status.connected ? (
-          <Button variant="outline" onClick={handleDisconnect}>
-            Disconnect
-          </Button>
+          <div className="space-y-3">
+            {stats ? (
+              <p className="text-xs text-muted-foreground">
+                {stats.count} pull request{stats.count === 1 ? "" : "s"}
+                {stats.latest ? ` · updated ${stats.latest}` : ""}
+              </p>
+            ) : null}
+            <Button variant="outline" onClick={handleDisconnect}>
+              Disconnect
+            </Button>
+          </div>
         ) : prompt ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">

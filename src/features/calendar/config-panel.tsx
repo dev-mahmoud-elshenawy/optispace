@@ -12,7 +12,13 @@ import { Label } from "@/components/ui/label";
 
 import { clearCalendarConfig, saveCalendarConfig, type CalendarConfigView } from "./actions";
 
-export function CalendarConfigPanel({ config }: { config: CalendarConfigView }) {
+export function CalendarConfigPanel({
+  config,
+  stats,
+}: {
+  config: CalendarConfigView;
+  stats?: { count: number; latest: string | null };
+}) {
   const router = useRouter();
   const [icsUrl, setIcsUrl] = useState(config.icsUrl);
   const [reminderMinutes, setReminderMinutes] = useState(String(config.reminderMinutes));
@@ -59,6 +65,11 @@ export function CalendarConfigPanel({ config }: { config: CalendarConfigView }) 
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {connected && stats ? (
+          <p className="text-xs text-muted-foreground">
+            {stats.count} event{stats.count === 1 ? "" : "s"} cached{stats.latest ? ` · updated ${stats.latest}` : ""}
+          </p>
+        ) : null}
         <div className="space-y-1.5">
           <Label htmlFor="cal-ics">ICS feed URL</Label>
           <Input

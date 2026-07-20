@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CalendarDays, ListChecks, GitBranch, GitPullRequest, Package as PackageIcon, ExternalLink, ArrowUpRight, Activity, Link2, Bell } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import type { ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { listProfiles } from "@/features/profiles/queries";
 import { getLeaveSummary, listLeaves } from "@/features/leave/queries";
 import { getTaskStatusCounts, listTasks } from "@/features/tasks/queries";
@@ -42,6 +42,11 @@ export default async function DashboardPage() {
     listPullRequests(),
   ]);
   const topPullRequests = pullRequests.slice(0, 5);
+  // "Today's focus" — the day's urgent items, surfaced in one strip at the top.
+  const upcomingMeetings = todayEvents.filter((e) => new Date(e.end) >= now);
+  const prsToReview = pullRequests.filter(
+    (p) => !p.draft && (p.reviewDecision === "REVIEW_REQUIRED" || p.reviewDecision == null),
+  ).length;
 
   const openTasks = taskCounts.todo + taskCounts.in_progress;
   const activeProjects = projects.filter((p) => p.status === "active");
@@ -96,8 +101,58 @@ export default async function DashboardPage() {
   const dateLabel = format(now, "EEEE, MMMM d");
   const enter = "animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both";
 
+  const focusCount = upcomingMeetings.length + dueTodayOrOverdue.length + prsToReview + unreadCount;
+
   return (
     <PageShell title={greeting} description={dateLabel}>
+      {focusCount > 0 ? (
+        <Card className="mb-6 border-primary/30 bg-primary/[0.03]">
+          <CardContent className="flex flex-wrap items-center gap-2.5 pt-6">
+            <span className="mr-1 text-sm font-medium text-muted-foreground">Today&rsquo;s focus</span>
+            {upcomingMeetings.length > 0 ? (
+              <FocusChip
+                href="/calendar"
+                icon={CalendarDays}
+                tone="bg-sky-500/15 text-sky-600 dark:text-sky-400"
+                label={`${upcomingMeetings.length} meeting${upcomingMeetings.length === 1 ? "" : "s"}`}
+                sub={upcomingMeetings[0] ? `Next: ${upcomingMeetings[0].title}` : undefined}
+              />
+            ) : null}
+            {dueTodayOrOverdue.length > 0 ? (
+              <FocusChip
+                href="/tasks"
+                icon={ListChecks}
+                tone="bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                label={`${dueTodayOrOverdue.length} task${dueTodayOrOverdue.length === 1 ? "" : "s"} due`}
+                sub="Due today or overdue"
+              />
+            ) : null}
+            {prsToReview > 0 ? (
+              <FocusChip
+                href="/pull-requests"
+                icon={GitPullRequest}
+                tone="bg-indigo-500/15 text-indigo-600 dark:text-indigo-400"
+                label={`${prsToReview} PR${prsToReview === 1 ? "" : "s"} to review`}
+                sub="Awaiting your review"
+              />
+            ) : null}
+            {unreadCount > 0 ? (
+              <FocusChip
+                href="/notifications"
+                icon={Bell}
+                tone="bg-rose-500/15 text-rose-600 dark:text-rose-400"
+                label={`${unreadCount} unread`}
+                sub="Notifications"
+              />
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="mb-6 border-emerald-500/30 bg-emerald-500/[0.03]">
+          <CardContent className="pt-6 text-sm text-muted-foreground">You&rsquo;re all clear for today 🎉</CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard href="/leave" icon={<CalendarDays className="h-5 w-5" />} label="Remaining leave" value={`${leave.remainingDays}`} sub={`of ${leave.allowanceDays} days`} delay={0} />
         <StatCard href="/tasks" icon={<ListChecks className="h-5 w-5" />} label="Open tasks" value={`${openTasks}`} sub={`${taskCounts.done} done`} delay={75} />
@@ -228,6 +283,35 @@ export default async function DashboardPage() {
         </CardContent>
       </Card>
     </PageShell>
+  );
+}
+
+function FocusChip({
+  href,
+  icon: Icon,
+  label,
+  sub,
+  tone,
+}: {
+  href: string;
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  sub?: string;
+  tone: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group flex items-center gap-2.5 rounded-lg border border-border/60 bg-card px-3 py-2 transition-all hover:-translate-y-px hover:border-primary/40 hover:shadow-sm"
+    >
+      <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone}`}>
+        <Icon className="size-4" />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold leading-tight">{label}</span>
+        {sub ? <span className="block max-w-[14rem] truncate text-xs text-muted-foreground">{sub}</span> : null}
+      </span>
+    </Link>
   );
 }
 

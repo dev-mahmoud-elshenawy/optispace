@@ -1,4 +1,7 @@
+import { formatDistanceToNow } from "date-fns";
+
 import { PageShell } from "@/components/layout/page-shell";
+import { db } from "@/lib/db";
 import { getCalendarConfig } from "@/features/calendar/actions";
 import { CalendarConfigPanel } from "@/features/calendar/config-panel";
 import { BackupPanel } from "@/features/backup/components/backup-panel";
@@ -10,19 +13,35 @@ import { AzureDevOpsConfigPanel } from "@/features/integrations/azure-devops/con
 import { getGithubAuthStatus } from "@/features/integrations/github/actions";
 import { GithubConnectPanel } from "@/features/integrations/github/connect-panel";
 
+// Per-integration health shown in each card: how many items are cached + how fresh they are.
+export interface IntegrationStats {
+  count: number;
+  latest: string | null; // relative label ("2 hours ago") of the newest cached item
+}
+
+function stat(count: number, latest: Date | null | undefined): IntegrationStats {
+  return { count, latest: latest ? formatDistanceToNow(latest, { addSuffix: true }) : null };
+}
+
 export default async function SettingsPage() {
-  const scheduledBackups = await listScheduledBackups();
-  const githubStatus = await getGithubAuthStatus();
-  const adoConfig = await getAdoConfig();
-  const calendarConfig = await getCalendarConfig();
+  const [scheduledBackups, githubStatus, adoConfig, calendarConfig, adoAgg, calAgg, ghAgg] = await Promise.all([
+    listScheduledBackups(),
+    getGithubAuthStatus(),
+    getAdoConfig(),
+    getCalendarConfig(),
+    db.task.aggregate({ where: { source: "azure_devops", deletedAt: null }, _count: true, _max: { updatedAt: true } }),
+    db.calendarEvent.aggregate({ where: { deletedAt: null }, _count: true, _max: { updatedAt: true } }),
+    db.githubPullRequest.aggregate({ where: { deletedAt: null }, _count: true, _max: { updatedAtRemote: true } }),
+  ]);
+
   return (
     <PageShell title="Settings" description="Connect integrations and back up your workspace.">
       <div className="space-y-8">
         <section className="space-y-4">
           <SectionHeading>Integrations</SectionHeading>
-          <AzureDevOpsConfigPanel config={adoConfig} />
-          <CalendarConfigPanel config={calendarConfig} />
-          <GithubConnectPanel status={githubStatus} />
+          <AzureDevOpsConfigPanel config={adoConfig} stats={stat(adoAgg._count, adoAgg._max.updatedAt)} />
+          <CalendarConfigPanel config={calendarConfig} stats={stat(calAgg._count, calAgg._max.updatedAt)} />
+          <GithubConnectPanel status={githubStatus} stats={stat(ghAgg._count, ghAgg._max.updatedAtRemote)} />
         </section>
 
         <section className="space-y-4">

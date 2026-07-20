@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import {
   ArrowRight,
@@ -11,11 +11,14 @@ import {
   ExternalLink,
   GitPullRequest,
   Loader2,
+  Search,
   X,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 import { GithubPrDetail } from "./pr-detail";
@@ -48,16 +51,91 @@ function prAccent(pr: PullRequestView): { rail: string; icon: string } {
 export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
   const [selected, setSelected] = useState<PullRequestView | null>(null);
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [repoFilter, setRepoFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const repos = useMemo(() => [...new Set(prs.map((p) => p.repo))].sort(), [prs]);
+  const filtered = useMemo(
+    () => prs.filter((pr) => matchesFilters(pr, query, repoFilter, statusFilter)),
+    [prs, query, repoFilter, statusFilter],
+  );
+  const filtering = query.trim() !== "" || repoFilter !== "all" || statusFilter !== "all";
 
   function openPr(pr: PullRequestView) {
     setSelected(pr);
     setOpen(true);
   }
 
+  function clearFilters() {
+    setQuery("");
+    setRepoFilter("all");
+    setStatusFilter("all");
+  }
+
   return (
     <>
-      <div className="space-y-5">
-        {groupByRepo(prs).map(([repo, repoPrs]) => (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[12rem] flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search title, repo, author, branch, #number…"
+              className="pl-8"
+            />
+          </div>
+          <Select value={repoFilter} onValueChange={setRepoFilter}>
+            <SelectTrigger className="w-[12rem]">
+              <SelectValue placeholder="Repo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All repos</SelectItem>
+              {repos.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {r}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[11rem]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Any status</SelectItem>
+              <SelectItem value="review_required">Needs review</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="changes_requested">Changes requested</SelectItem>
+              <SelectItem value="checks_failing">Checks failing</SelectItem>
+              <SelectItem value="draft">Draft</SelectItem>
+            </SelectContent>
+          </Select>
+          {filtering ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+
+        {filtering ? (
+          <p className="text-xs text-muted-foreground">
+            {filtered.length} of {prs.length} pull request{prs.length === 1 ? "" : "s"}
+          </p>
+        ) : null}
+
+        {filtered.length === 0 ? (
+          <p className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
+            No pull requests match your filters.
+          </p>
+        ) : (
+          <div className="space-y-5">
+        {groupByRepo(filtered).map(([repo, repoPrs]) => (
           <details key={repo} open className="group">
             <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-1 py-1.5 hover:bg-muted/50 [&::-webkit-details-marker]:hidden">
               <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
@@ -143,6 +221,8 @@ export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
             </div>
           </details>
         ))}
+          </div>
+        )}
       </div>
 
       {selected ? (
@@ -167,6 +247,23 @@ function StatusBadge({ k, label, className }: { k: string; label: string; classN
       {label}
     </Badge>
   );
+}
+
+// Client-side filter: repo + a derived review/checks status + a free-text match across the
+// fields on the card (title, repo, author, branches, #number).
+function matchesFilters(pr: PullRequestView, query: string, repo: string, status: string): boolean {
+  if (repo !== "all" && pr.repo !== repo) return false;
+  if (status === "draft" && !pr.draft) return false;
+  if (status === "approved" && pr.reviewDecision !== "APPROVED") return false;
+  if (status === "changes_requested" && pr.reviewDecision !== "CHANGES_REQUESTED") return false;
+  if (status === "review_required" && !(pr.reviewDecision === "REVIEW_REQUIRED" || pr.reviewDecision == null)) return false;
+  if (status === "checks_failing" && pr.checksStatus !== "FAILURE" && pr.checksStatus !== "ERROR") return false;
+  const q = query.trim().toLowerCase();
+  if (q) {
+    const hay = `${pr.title} ${pr.repo} ${pr.author} ${pr.headBranch} ${pr.baseBranch} #${pr.number}`.toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
 }
 
 // Group PRs by repo. Rows arrive newest-first (updatedAtRemote desc), so each repo keeps

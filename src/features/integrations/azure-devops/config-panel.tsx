@@ -14,7 +14,13 @@ import { cn } from "@/lib/utils";
 
 import { clearAdoConfig, saveAdoConfig, syncAzureDevOps, type AdoConfigView } from "./actions";
 
-export function AzureDevOpsConfigPanel({ config }: { config: AdoConfigView }) {
+export function AzureDevOpsConfigPanel({
+  config,
+  stats,
+}: {
+  config: AdoConfigView;
+  stats?: { count: number; latest: string | null };
+}) {
   const router = useRouter();
   const [orgUrl, setOrgUrl] = useState(config.orgUrl);
   const [pat, setPat] = useState("");
@@ -80,6 +86,11 @@ export function AzureDevOpsConfigPanel({ config }: { config: AdoConfigView }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {config.configured && stats ? (
+          <p className="text-xs text-muted-foreground">
+            {stats.count} task{stats.count === 1 ? "" : "s"} synced{stats.latest ? ` · updated ${stats.latest}` : ""}
+          </p>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="ado-org">Organization URL</Label>
