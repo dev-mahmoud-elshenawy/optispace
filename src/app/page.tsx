@@ -27,7 +27,9 @@ export default async function DashboardPage() {
   const endToday = new Date(year, now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const startTomorrow = new Date(year, now.getMonth(), now.getDate() + 1);
   const endTomorrow = new Date(year, now.getMonth(), now.getDate() + 1, 23, 59, 59, 999);
-  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents, tomorrowEvents, pullRequests] = await Promise.all([
+  const startWeek = new Date(year, now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7)); // Monday
+  const endWeek = new Date(startWeek.getTime() + 7 * 86_400_000 - 1);
+  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents, tomorrowEvents, pullRequests, weekEvents] = await Promise.all([
     listProfiles(),
     getLeaveSummary(year),
     getTaskStatusCounts(),
@@ -40,8 +42,14 @@ export default async function DashboardPage() {
     todayCalendarEvents(startToday, endToday),
     todayCalendarEvents(startTomorrow, endTomorrow),
     listPullRequests(),
+    todayCalendarEvents(startWeek, endWeek),
   ]);
   const topPullRequests = pullRequests.slice(0, 5);
+  const weekTasksDone = tasks.filter((t) => t.status === "done" && t.updatedAt >= startWeek).length;
+  // Approx: counts a leave's full length if it overlaps the week at all (ponytail: good enough for a digest).
+  const weekLeaveDays = leaves
+    .filter((l) => l.startDate <= endWeek && l.endDate >= startWeek)
+    .reduce((n, l) => n + l.days, 0);
   // "Today's focus" — the day's urgent items, surfaced in one strip at the top.
   const upcomingMeetings = todayEvents.filter((e) => new Date(e.end) >= now);
   const prsToReview = pullRequests.filter(
@@ -159,6 +167,31 @@ export default async function DashboardPage() {
         <StatCard href="/projects" icon={<GitBranch className="h-5 w-5" />} label="Active projects" value={`${activeProjects.length}`} sub={`${projects.length} total`} delay={150} />
         <StatCard href="/packages" icon={<PackageIcon className="h-5 w-5" />} label="Packages" value={`${packageCount}`} sub="published" delay={225} />
       </div>
+
+      <Card className={`mt-6 border-border/60 ${enter}`} style={{ animationDelay: "90ms" }}>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <IconChip>
+              <Activity className="h-3.5 w-3.5" />
+            </IconChip>
+            This week
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-3 divide-x divide-border/60 text-center">
+          <div className="px-2">
+            <div className="font-heading text-2xl font-bold tabular-nums">{weekTasksDone}</div>
+            <div className="text-xs text-muted-foreground">tasks done</div>
+          </div>
+          <div className="px-2">
+            <div className="font-heading text-2xl font-bold tabular-nums">{weekEvents.length}</div>
+            <div className="text-xs text-muted-foreground">meetings</div>
+          </div>
+          <div className="px-2">
+            <div className="font-heading text-2xl font-bold tabular-nums">{weekLeaveDays}</div>
+            <div className="text-xs text-muted-foreground">leave days</div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Needs attention now — Today/Tomorrow (toggle) + Notifications side by side */}
       <div className={`mt-6 grid gap-6 lg:grid-cols-2 ${enter}`} style={{ animationDelay: "100ms" }}>

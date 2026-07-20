@@ -2,9 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { DatabaseBackup, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 
 import { NAV_ITEMS } from "@/lib/nav";
 import type { SearchItem, SearchItemType } from "@/features/search/types";
+import { runScheduledBackup } from "@/features/backup/actions";
+import { syncCalendar } from "@/features/calendar/actions";
+import { syncAzureDevOps } from "@/features/integrations/azure-devops/actions";
+import { syncGithubPullRequests } from "@/features/integrations/github/actions";
 import {
   CommandDialog,
   CommandEmpty,
@@ -53,11 +59,40 @@ export function CommandPalette({ items = [] }: { items?: SearchItem[] }) {
     router.push(href);
   }
 
+  async function syncAll() {
+    setOpen(false);
+    toast.info("Syncing integrations…");
+    await Promise.allSettled([syncAzureDevOps(), syncGithubPullRequests(), syncCalendar()]);
+    toast.success("Synced all integrations.");
+    router.refresh();
+  }
+
+  async function backupNow() {
+    setOpen(false);
+    const res = await runScheduledBackup();
+    if (res.ok) {
+      toast.success(res.created ? "Backup created." : "Already backed up today.");
+      router.refresh();
+    } else {
+      toast.error(res.error);
+    }
+  }
+
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <CommandInput placeholder="Search pages, tasks, projects, packages…" />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
+        <CommandGroup heading="Actions">
+          <CommandItem value="sync all integrations azure devops github calendar" onSelect={syncAll}>
+            <RefreshCw />
+            Sync all integrations
+          </CommandItem>
+          <CommandItem value="back up now backup database" onSelect={backupNow}>
+            <DatabaseBackup />
+            Back up now
+          </CommandItem>
+        </CommandGroup>
         <CommandGroup heading="Navigate">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;

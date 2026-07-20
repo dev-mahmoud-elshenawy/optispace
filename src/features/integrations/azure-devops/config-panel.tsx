@@ -81,8 +81,8 @@ export function AzureDevOpsConfigPanel({
           ) : null}
         </CardTitle>
         <CardDescription>
-          Sync work items assigned to you into Tasks (auto-syncs while the app is open). No .env — everything
-          is stored on this device.
+          Sync work items assigned to you into Tasks (auto-syncs while the app is open). Everything is stored
+          on this device.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

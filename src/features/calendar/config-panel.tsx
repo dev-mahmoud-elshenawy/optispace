@@ -61,7 +61,7 @@ export function CalendarConfigPanel({
         </CardTitle>
         <CardDescription>
           Show meetings from a published ICS feed. In Outlook: Settings → Calendar → Shared calendars →
-          Publish a calendar → copy the ICS link. No .env — stored on this device.
+          Publish a calendar → copy the ICS link. Stored on this device.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
