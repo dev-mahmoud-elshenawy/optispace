@@ -692,6 +692,28 @@ export async function submitReview(
   await rest(token).pulls.createReview({ owner: p.owner, repo: p.name, pull_number: number, event, body: body || undefined });
 }
 
+// Submit a review with a batch of inline comments in one shot (the "pending review" flow). GitHub
+// posts them atomically as a single review with the given verdict.
+export async function submitReviewWithComments(
+  token: string,
+  repo: string,
+  number: number,
+  event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
+  body: string,
+  comments: { path: string; line: number; side: "LEFT" | "RIGHT"; start_line?: number; start_side?: "LEFT" | "RIGHT"; body: string }[],
+): Promise<void> {
+  const p = splitRepo(repo);
+  if (!p) throw new Error("Invalid repository.");
+  await rest(token).pulls.createReview({
+    owner: p.owner,
+    repo: p.name,
+    pull_number: number,
+    event,
+    body: body || undefined,
+    comments: comments.length ? comments : undefined,
+  });
+}
+
 // Resolve / unresolve a review thread (GraphQL — no REST equivalent).
 export async function setThreadResolved(token: string, threadId: string, resolved: boolean): Promise<void> {
   const client = graphql.defaults({ headers: { authorization: `token ${token}` } });

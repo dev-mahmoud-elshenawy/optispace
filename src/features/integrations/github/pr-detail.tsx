@@ -5,6 +5,7 @@ import { formatDistanceToNow } from "date-fns";
 import {
   ArrowRight,
   Check,
+  ChevronRight,
   ExternalLink,
   GitBranch,
   GitMerge,
@@ -28,7 +29,7 @@ import { MentionTextarea } from "./mention-textarea";
 import { EditableComment } from "./pr-comment";
 import { PrCode } from "./pr-code";
 import { PrTimeline } from "./pr-timeline";
-import { CHECKS_BADGE, REVIEW_BADGE, type PullRequestDetail, type PullRequestReview } from "./types";
+import { CHECKS_BADGE, REVIEW_BADGE, type PullRequestDetail, type PullRequestReview, type ReviewThread } from "./types";
 
 // Rendered PR/comment HTML is sanitized server-side (shared ADO allowlist) before it gets here.
 const htmlBox =
@@ -199,7 +200,6 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
   const state = detail ? stateMeta(detail) : null;
   const reviewers = detail ? reviewerSummary(detail.reviews) : [];
   const diffTotal = detail ? detail.additions + detail.deletions : 0;
-  const reviewCommentCount = detail ? detail.reviewThreads.reduce((n, t) => n + t.comments.length, 0) : 0;
   const convos = detail ? detail.reviewThreads.filter((t) => t.comments.length > 0) : [];
   const unresolvedConvos = convos.filter((t) => !t.isResolved).length;
   const resolvedConvos = convos.length - unresolvedConvos;
@@ -454,35 +454,28 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                   </section>
                 ) : null}
 
-                {/* All inline review comments in one place (they also live on their lines in Code). */}
-                {reviewCommentCount > 0 ? (
+                {/* Inline review threads — grouped & collapsible; resolved fold to a one-line header
+                    you click to expand (they also live on their lines in Code). Open threads first. */}
+                {convos.length > 0 ? (
                   <section className="space-y-2">
                     <h3 className="flex items-center gap-1.5">
                       <MessageSquare className="size-3.5 text-muted-foreground" />
-                      <SectionLabel>Review comments</SectionLabel>
+                      <SectionLabel>Conversations</SectionLabel>
                       <Badge variant="secondary" className="rounded-full px-1.5 py-0 text-[11px]">
-                        {reviewCommentCount}
+                        {convos.length}
                       </Badge>
                     </h3>
-                    {detail.reviewThreads.flatMap((t) =>
-                      t.comments.map((c) => (
-                        <EditableComment
-                          key={c.id}
+                    {[...convos]
+                      .sort((a, b) => Number(a.isResolved) - Number(b.isResolved))
+                      .map((t) => (
+                        <SummaryThread
+                          key={t.id}
+                          thread={t}
                           repo={detail.repo}
-                          kind="review"
-                          commentId={c.databaseId}
-                          author={c.author}
-                          bodyHtml={c.bodyHtml}
-                          body={c.body}
-                          createdAt={c.createdAt}
                           viewerLogin={detail.viewerLogin}
                           onChanged={reload}
-                          label={t.line != null ? `${t.path}:${t.line}` : t.path}
-                          subjectId={c.id}
-                          reactions={c.reactions}
                         />
-                      )),
-                    )}
+                      ))}
                   </section>
                 ) : null}
 
@@ -542,4 +535,69 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{children}</span>;
+}
+
+// One inline review thread in the Summary — a clickable header (location + Open/Resolved) that expands
+// to its comments. Resolved threads start collapsed so the section isn't a wall of settled discussion.
+function SummaryThread({
+  thread,
+  repo,
+  viewerLogin,
+  onChanged,
+}: {
+  thread: ReviewThread;
+  repo: string;
+  viewerLogin: string;
+  onChanged: () => void;
+}) {
+  const [expanded, setExpanded] = useState(!thread.isResolved);
+  const first = thread.comments[0];
+  const loc = thread.line != null ? `${thread.path}:${thread.line}` : thread.path;
+  return (
+    <div className={cn("rounded-lg border", thread.isResolved ? "border-emerald-500/30" : "border-border/60")}>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
+      >
+        <ChevronRight
+          className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-90")}
+        />
+        {thread.isResolved ? (
+          <span className="inline-flex shrink-0 items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
+            <Check className="size-3.5" /> Resolved
+          </span>
+        ) : (
+          <span className="inline-flex shrink-0 items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
+            <MessageSquare className="size-3.5" /> Open
+          </span>
+        )}
+        <code className="truncate rounded bg-muted px-1 text-muted-foreground">{loc}</code>
+        <span className="shrink-0 text-muted-foreground">
+          · {thread.comments.length} comment{thread.comments.length === 1 ? "" : "s"}
+        </span>
+        {first ? <span className="ml-auto shrink-0 truncate text-muted-foreground">{first.author}</span> : null}
+      </button>
+      {expanded ? (
+        <div className="space-y-2 border-t border-border/60 p-2.5">
+          {thread.comments.map((c) => (
+            <EditableComment
+              key={c.id}
+              repo={repo}
+              kind="review"
+              commentId={c.databaseId}
+              author={c.author}
+              bodyHtml={c.bodyHtml}
+              body={c.body}
+              createdAt={c.createdAt}
+              viewerLogin={viewerLogin}
+              onChanged={onChanged}
+              subjectId={c.id}
+              reactions={c.reactions}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }

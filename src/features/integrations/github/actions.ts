@@ -27,12 +27,13 @@ import {
   resolveGithubToken,
   setThreadResolved,
   submitReview,
+  submitReviewWithComments,
   toggleReaction,
   updateIssueComment,
   updateReviewCommentById,
   type PullRequestDTO,
 } from "./service";
-import type { DiffFile, PrCommit, PullRequestDetail, TimelineItem } from "./types";
+import type { DiffFile, PendingReviewComment, PrCommit, PullRequestDetail, TimelineItem } from "./types";
 
 export type GithubSyncResult =
   | { ok: true; upserted: number; pruned: number; notified: number }
@@ -360,6 +361,36 @@ export async function submitPrReview(
   // COMMENT with an empty body is a no-op on GitHub; require text for it.
   if (event === "COMMENT" && !body.trim()) return { ok: false, error: "Add a comment before submitting." };
   return withGithubToken((t) => submitReview(t, repo, number, event, body.trim()));
+}
+
+// Submit a review together with a batch of queued inline comments (the pending-review flow).
+export async function submitPrReviewBatch(
+  repo: string,
+  number: number,
+  event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
+  body: string,
+  comments: PendingReviewComment[],
+): Promise<PrWriteResult> {
+  // A plain COMMENT review needs *something* — a body or at least one queued comment.
+  if (event === "COMMENT" && !body.trim() && comments.length === 0) {
+    return { ok: false, error: "Add a comment before submitting." };
+  }
+  return withGithubToken((t) =>
+    submitReviewWithComments(
+      t,
+      repo,
+      number,
+      event,
+      body.trim(),
+      comments.map((c) => ({
+        path: c.path,
+        line: c.line,
+        side: c.side,
+        body: c.body,
+        ...(c.startLine != null && c.startLine < c.line ? { start_line: c.startLine, start_side: c.side } : {}),
+      })),
+    ),
+  );
 }
 
 // ── OAuth device flow ────────────────────────────────────────

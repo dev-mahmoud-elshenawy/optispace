@@ -94,6 +94,15 @@ export interface TimelineItem {
   sha?: string; // abbreviated commit oid (commit events)
 }
 
+// A review comment queued into a pending (batched) review — submitted together via one createReview.
+export interface PendingReviewComment {
+  path: string;
+  line: number; // the line the comment anchors to (new side for RIGHT, old for LEFT)
+  side: "LEFT" | "RIGHT";
+  startLine: number | null; // multi-line range start (null = single line)
+  body: string;
+}
+
 // One line of a parsed unified diff.
 export interface DiffLine {
   type: "add" | "del" | "context" | "hunk";

@@ -13,6 +13,7 @@ import {
   Loader2,
   MessageSquare,
   MessageSquarePlus,
+  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,13 +42,13 @@ import {
   getPullRequestFiles,
   replyPrThread,
   setPrThreadResolved,
-  submitPrReview,
+  submitPrReviewBatch,
 } from "./actions";
 import { MentionTextarea } from "./mention-textarea";
 import { EditableComment } from "./pr-comment";
 import { PrFileTree } from "./pr-file-tree";
 import { extractSuggestion } from "./types";
-import type { DiffFile, DiffLine, PrCommit, ReviewThread } from "./types";
+import type { DiffFile, DiffLine, PendingReviewComment, PrCommit, ReviewThread } from "./types";
 
 // File extension → highlight.js language (common set). Unknown → no highlight (escaped plain).
 const EXT_LANG: Record<string, string> = {
@@ -103,6 +104,7 @@ export function PrCode({ repo, number, headOid, headBranch, headRepo, threads, v
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reviewBody, setReviewBody] = useState("");
   const [reviewBusy, setReviewBusy] = useState<null | string>(null);
+  const [pending, setPending] = useState<PendingReviewComment[]>([]); // queued into a batched review
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set()); // controlled per-file open/closed
   const [viewed, setViewed] = useState<Set<string>>(new Set()); // GitHub-style "Viewed" toggle
   const [commits, setCommits] = useState<PrCommit[]>([]); // for the "filter by commit" picker
@@ -191,16 +193,21 @@ export function PrCode({ repo, number, headOid, headBranch, headRepo, threads, v
     setOpen(path, !nowViewed);
   }
 
+  function addPending(c: PendingReviewComment) {
+    setPending((prev) => [...prev, c]);
+  }
+
   async function review(event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT") {
     setReviewBusy(event);
-    const res = await submitPrReview(repo, number, event, reviewBody);
+    const res = await submitPrReviewBatch(repo, number, event, reviewBody, pending);
     setReviewBusy(null);
     if (!res.ok) {
       toast.error(res.error);
       return;
     }
     setReviewBody("");
-    toast.success("Review submitted.");
+    setPending([]);
+    toast.success(pending.length > 0 ? `Review submitted with ${pending.length} comment${pending.length === 1 ? "" : "s"}.` : "Review submitted.");
     onChanged();
   }
 
@@ -277,6 +284,7 @@ export function PrCode({ repo, number, headOid, headBranch, headRepo, threads, v
               threads={threads}
               viewerLogin={viewerLogin}
               onChanged={onChanged}
+              onAddPending={addPending}
               open={!collapsed.has(file.path)}
               onToggleOpen={(open) => setOpen(file.path, open)}
               viewed={viewed.has(file.path)}
@@ -304,6 +312,29 @@ export function PrCode({ repo, number, headOid, headBranch, headRepo, threads, v
           rows={3}
           className="resize-none bg-background"
         />
+        {pending.length > 0 ? (
+          <div className="mt-2.5 space-y-1 rounded-lg border border-primary/30 bg-primary/[0.04] p-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Pending · {pending.length} comment{pending.length === 1 ? "" : "s"} to submit with this review
+            </p>
+            {pending.map((c, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs">
+                <code className="shrink-0 rounded bg-muted px-1 text-muted-foreground">
+                  {c.path}:{c.line}
+                </code>
+                <span className="min-w-0 flex-1 truncate">{c.body}</span>
+                <button
+                  type="button"
+                  onClick={() => setPending((p) => p.filter((_, j) => j !== i))}
+                  aria-label="Remove pending comment"
+                  className="shrink-0 text-muted-foreground transition-colors hover:text-destructive"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           <Button
             size="sm"
@@ -482,6 +513,7 @@ function FileBlock({
   threads,
   viewerLogin,
   onChanged,
+  onAddPending,
   open,
   onToggleOpen,
   viewed,
@@ -497,6 +529,7 @@ function FileBlock({
   threads: ReviewThread[];
   viewerLogin: string;
   onChanged: () => void;
+  onAddPending: (c: PendingReviewComment) => void;
   open: boolean;
   onToggleOpen: (open: boolean) => void;
   viewed: boolean;
@@ -642,6 +675,12 @@ function FileBlock({
                         toast.success("Comment added.");
                         onChanged();
                       }}
+                      onAddToReviewComposer={(body, startLine) => {
+                        if (lineNo == null) return;
+                        onAddPending({ path: file.path, line: lineNo, side, startLine: startLine ?? null, body });
+                        setActive(null);
+                        toast.success("Added to review.");
+                      }}
                       onCancelComposer={() => setActive(null)}
                     />
                   );
@@ -691,6 +730,7 @@ function LineRow({
   composerOpen,
   endLine,
   onSubmitComposer,
+  onAddToReviewComposer,
   onCancelComposer,
 }: {
   dl: DiffLine;
@@ -707,6 +747,7 @@ function LineRow({
   composerOpen: boolean;
   endLine: number;
   onSubmitComposer: (body: string, startLine?: number | null) => Promise<void>;
+  onAddToReviewComposer: (body: string, startLine?: number | null) => void;
   onCancelComposer: () => void;
 }) {
   const bg =
@@ -766,6 +807,7 @@ function LineRow({
               repo={repo}
               lineContent={dl.content}
               onSubmit={onSubmitComposer}
+              onAddToReview={onAddToReviewComposer}
               onCancel={onCancelComposer}
             />
           </td>
@@ -780,12 +822,14 @@ function LineComposer({
   repo,
   lineContent,
   onSubmit,
+  onAddToReview,
   onCancel,
 }: {
   endLine: number;
   repo: string;
   lineContent: string; // the current line — seeds a "Suggest" block
   onSubmit: (body: string, startLine?: number | null) => Promise<void>;
+  onAddToReview: (body: string, startLine?: number | null) => void;
   onCancel: () => void;
 }) {
   const [body, setBody] = useState("");
@@ -821,6 +865,19 @@ function LineComposer({
           <Button
             size="sm"
             disabled={busy || !body.trim()}
+            title="Queue this into your review — submit all comments at once"
+            onClick={() => {
+              const start = startLine.trim() ? Number(startLine) : null;
+              onAddToReview(body, start != null && start < endLine ? start : null);
+            }}
+          >
+            Add to review
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || !body.trim()}
+            title="Post this one comment immediately"
             onClick={async () => {
               const start = startLine.trim() ? Number(startLine) : null;
               setBusy(true);
@@ -829,7 +886,7 @@ function LineComposer({
             }}
           >
             {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-            Comment
+            Comment now
           </Button>
           <Button size="sm" variant="ghost" onClick={onCancel} disabled={busy}>
             Cancel
