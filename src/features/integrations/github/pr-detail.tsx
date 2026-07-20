@@ -200,6 +200,9 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
   const reviewers = detail ? reviewerSummary(detail.reviews) : [];
   const diffTotal = detail ? detail.additions + detail.deletions : 0;
   const reviewCommentCount = detail ? detail.reviewThreads.reduce((n, t) => n + t.comments.length, 0) : 0;
+  const convos = detail ? detail.reviewThreads.filter((t) => t.comments.length > 0) : [];
+  const unresolvedConvos = convos.filter((t) => !t.isResolved).length;
+  const resolvedConvos = convos.length - unresolvedConvos;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -331,9 +334,30 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                   </div>
                 </div>
 
+                {convos.length > 0 ? (
+                  <div className="space-y-2 rounded-lg border p-3">
+                    <SectionLabel>Conversations</SectionLabel>
+                    <div className="flex items-center gap-1.5 text-sm">
+                      <Check className={cn("size-4", unresolvedConvos === 0 ? "text-emerald-500" : "text-muted-foreground")} />
+                      <span className="tabular-nums">
+                        {resolvedConvos}/{convos.length} resolved
+                      </span>
+                    </div>
+                    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div className="bg-emerald-500" style={{ width: `${(resolvedConvos / convos.length) * 100}%` }} />
+                    </div>
+                  </div>
+                ) : null}
+
                 {detail.state === "open" && !detail.merged ? (
                   <div className="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.03] p-3">
                     <SectionLabel>Actions</SectionLabel>
+                    {unresolvedConvos > 0 ? (
+                      <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                        <MessageSquare className="size-3.5" /> {unresolvedConvos} unresolved conversation
+                        {unresolvedConvos === 1 ? "" : "s"}
+                      </p>
+                    ) : null}
                     <Select value={mergeMethod} onValueChange={(v) => setMergeMethod(v as "squash" | "merge" | "rebase")}>
                       <SelectTrigger className="h-8 w-full text-xs">
                         <SelectValue />

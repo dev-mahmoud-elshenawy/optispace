@@ -47,17 +47,20 @@ function DialogOverlay({
   )
 }
 
-// A Radix dropdown / select / popover portals its content OUTSIDE this dialog. Clicking to dismiss
-// that popper (outside-click, or its own overlay) would otherwise register as an interaction
-// "outside" the dialog and close the whole dialog. Ignore any outside-dismissal whose target sits
-// inside a portaled Radix popper — so only the popper closes, not the dialog.
+// A Radix dropdown / select / popover portals its content OUTSIDE this dialog. Dismissing that popper
+// — whether by clicking ON it or on empty space while it's open — otherwise registers as an
+// interaction "outside" the dialog and closes the whole dialog. So we ignore the dialog's outside-
+// dismiss when (a) the target is inside a portaled popper, OR (b) any popper is currently open (its
+// own dismiss will close it; the dialog must stay). At outside-pointerdown the popper's `data-state`
+// is still "open" (React updates it on the next render), so (b) reliably catches the empty-space case.
+const POPPER_SELECTOR =
+  "[data-radix-popper-content-wrapper],[data-slot=select-content],[data-slot=dropdown-menu-content],[data-slot=popover-content]"
+const OPEN_POPPER_SELECTOR =
+  "[data-slot=select-content][data-state=open],[data-slot=dropdown-menu-content][data-state=open],[data-slot=popover-content][data-state=open]"
+
 function targetInsidePopper(target: EventTarget | null | undefined): boolean {
-  return (
-    target instanceof Element &&
-    !!target.closest(
-      "[data-radix-popper-content-wrapper],[data-slot=select-content],[data-slot=dropdown-menu-content],[data-slot=popover-content]"
-    )
-  )
+  if (target instanceof Element && target.closest(POPPER_SELECTOR)) return true
+  return typeof document !== "undefined" && !!document.querySelector(OPEN_POPPER_SELECTOR)
 }
 
 function DialogContent({

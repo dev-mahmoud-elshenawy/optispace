@@ -10,6 +10,7 @@ import {
   FileDiff,
   GitCommit,
   Loader2,
+  MessageSquare,
   MessageSquarePlus,
   X,
 } from "lucide-react";
@@ -482,15 +483,25 @@ function FileBlock({
   const lang = langFor(file.path);
 
   const fileThreads = threads.filter((t) => t.path === file.path);
-  // Inline threads keyed by side+line; outdated / line-less ones drop to a block below.
+  // Which side:line pairs actually exist in the rendered diff — a thread can only be shown inline on a
+  // line that's present. Anything else must NOT be dropped; it falls to the "other comments" block.
+  const presentLines = new Set<string>();
+  for (const dl of file.lines) {
+    if (dl.type === "hunk") continue;
+    const side = dl.type === "del" ? "LEFT" : "RIGHT";
+    const ln = side === "LEFT" ? dl.oldLine : dl.newLine;
+    if (ln != null) presentLines.add(`${side}:${ln}`);
+  }
+  // Inline threads keyed by side+line; outdated / line-less / off-diff ones drop to a block below so
+  // no previous comment ever disappears (e.g. its line isn't in the current or commit-filtered diff).
   const byLine = new Map<string, ReviewThread[]>();
   const orphan: ReviewThread[] = [];
   for (const t of fileThreads) {
-    if (t.line == null || t.isOutdated) {
+    const key = t.line != null ? `${t.diffSide}:${t.line}` : "";
+    if (t.line == null || t.isOutdated || !presentLines.has(key)) {
       orphan.push(t);
       continue;
     }
-    const key = `${t.diffSide}:${t.line}`;
     const arr = byLine.get(key);
     if (arr) arr.push(t);
     else byLine.set(key, [t]);
@@ -521,6 +532,15 @@ function FileBlock({
           <span className="text-emerald-600 dark:text-emerald-400">+{file.additions}</span>
           <span className="text-destructive">−{file.deletions}</span>
         </span>
+        {fileThreads.length > 0 ? (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+            title="Comments on this file"
+          >
+            <MessageSquare className="size-3" />
+            {fileThreads.reduce((n, t) => n + t.comments.length, 0)}
+          </span>
+        ) : null}
         <button
           type="button"
           onClick={() => setFileComposer((v) => !v)}
@@ -606,7 +626,10 @@ function FileBlock({
 
       {open && orphan.length > 0 ? (
         <div className="space-y-2 border-t border-border/60 px-3 py-2">
-          <p className="text-xs font-medium text-muted-foreground">Outdated / other comments</p>
+          <p className="text-xs font-medium text-muted-foreground">
+            {orphan.reduce((n, t) => n + t.comments.length, 0)} comment
+            {orphan.reduce((n, t) => n + t.comments.length, 0) === 1 ? "" : "s"} — outdated or not on a line shown here
+          </p>
           {orphan.map((t) => (
             <ThreadView key={t.id} thread={t} repo={repo} number={number} viewerLogin={viewerLogin} onChanged={onChanged} />
           ))}
@@ -793,7 +816,9 @@ function ThreadView({
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [resolveBusy, setResolveBusy] = useState(false);
+  const [expanded, setExpanded] = useState(!thread.isResolved); // resolved threads start collapsed
   const lastDbId = [...thread.comments].reverse().find((c) => c.databaseId != null)?.databaseId ?? null;
+  const first = thread.comments[0];
 
   async function reply() {
     if (lastDbId == null) return;
@@ -823,25 +848,48 @@ function ThreadView({
   }
 
   return (
-    <div className="space-y-2 rounded-md border border-border bg-background p-2 font-sans text-foreground">
-      <div className="flex items-center justify-between">
-        {thread.isResolved ? (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-            <Check className="size-3.5" /> Resolved
+    <div
+      className={cn(
+        "space-y-2 rounded-md border bg-background p-2 font-sans text-foreground",
+        thread.isResolved ? "border-emerald-500/30" : "border-border",
+      )}
+    >
+      {/* Header — click to collapse/expand; resolved threads fold to this one line by default. */}
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs"
+        >
+          <ChevronRight
+            className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-90")}
+          />
+          {thread.isResolved ? (
+            <span className="inline-flex shrink-0 items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
+              <Check className="size-3.5" /> Resolved
+            </span>
+          ) : (
+            <span className="inline-flex shrink-0 items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
+              <MessageSquarePlus className="size-3.5" /> Open
+            </span>
+          )}
+          <span className="shrink-0 text-muted-foreground">
+            · {thread.comments.length} comment{thread.comments.length === 1 ? "" : "s"}
           </span>
-        ) : (
-          <span />
-        )}
+          {first ? <span className="truncate text-muted-foreground">· {first.author}</span> : null}
+        </button>
         <button
           type="button"
           onClick={toggleResolve}
           disabled={resolveBusy}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
         >
           {resolveBusy ? <Loader2 className="size-3 animate-spin" /> : null}
           {thread.isResolved ? "Unresolve" : "Resolve"}
         </button>
       </div>
+      {!expanded ? null : (
+        <>
       {thread.comments.map((c) => (
         <EditableComment
           key={c.id}
@@ -874,6 +922,8 @@ function ThreadView({
           Reply
         </button>
       ) : null}
+        </>
+      )}
     </div>
   );
 }
