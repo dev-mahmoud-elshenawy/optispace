@@ -7,11 +7,13 @@ import { recordNotifications } from "@/features/notifications/actions";
 import type { NotificationEvent } from "@/features/notifications/service";
 
 import {
+  applySuggestion,
   closePullRequest,
   createFileComment,
   createIssueComment,
   createReviewComment,
   deleteIssueComment,
+  fetchMentionableUsers,
   deleteReviewCommentById,
   fetchCommitFiles,
   fetchCommitRangeFiles,
@@ -25,6 +27,7 @@ import {
   resolveGithubToken,
   setThreadResolved,
   submitReview,
+  toggleReaction,
   updateIssueComment,
   updateReviewCommentById,
   type PullRequestDTO,
@@ -283,6 +286,30 @@ export async function addPrLineComment(
 
 export async function setPrThreadResolved(threadId: string, resolved: boolean): Promise<PrWriteResult> {
   return withGithubToken((t) => setThreadResolved(t, threadId, resolved));
+}
+
+// Add / remove a reaction on a comment (subjectId = its GraphQL node id).
+export async function togglePrReaction(subjectId: string, content: string, add: boolean): Promise<PrWriteResult> {
+  return withGithubToken((t) => toggleReaction(t, subjectId, content, add));
+}
+
+// Commit a suggested change to the PR's head branch (needs push access; forks → the fork repo).
+export async function applyPrSuggestion(
+  headRepo: string,
+  branch: string,
+  path: string,
+  startLine: number,
+  endLine: number,
+  replacement: string,
+): Promise<PrWriteResult> {
+  return withGithubToken((t) => applySuggestion(t, headRepo, branch, path, startLine, endLine, replacement));
+}
+
+// Autocomplete source for @-mentions in the comment composers. Returns [] when not connected.
+export async function searchPrMentionUsers(repo: string, query: string): Promise<{ login: string; name: string | null }[]> {
+  const token = await resolveGithubToken();
+  if (!token) return [];
+  return fetchMentionableUsers(token, repo, query);
 }
 
 export async function mergePr(repo: string, number: number, method: "merge" | "squash" | "rebase"): Promise<PrWriteResult> {

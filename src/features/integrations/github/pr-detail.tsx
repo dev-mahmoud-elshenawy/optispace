@@ -21,10 +21,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 import { addPrComment, closePr, getPullRequestDetail, mergePr } from "./actions";
+import { MentionTextarea } from "./mention-textarea";
 import { EditableComment } from "./pr-comment";
 import { PrCode } from "./pr-code";
 import { PrTimeline } from "./pr-timeline";
@@ -447,6 +447,8 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                         createdAt={c.createdAt}
                         viewerLogin={detail.viewerLogin}
                         onChanged={reload}
+                        subjectId={c.nodeId}
+                        reactions={c.reactions}
                       />
                     ))}
                   </section>
@@ -476,6 +478,8 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                           viewerLogin={detail.viewerLogin}
                           onChanged={reload}
                           label={t.line != null ? `${t.path}:${t.line}` : t.path}
+                          subjectId={c.id}
+                          reactions={c.reactions}
                         />
                       )),
                     )}
@@ -489,12 +493,14 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                   never overlaps the thread and can't be clipped at the scroll edge. */}
               <div className="mt-3 shrink-0 border-t pt-3">
                 <div className="flex items-end gap-2">
-                  <Textarea
+                  <MentionTextarea
                     value={commentBody}
-                    onChange={(e) => setCommentBody(e.target.value)}
-                    placeholder="Leave a comment…"
+                    onChange={setCommentBody}
+                    repo={detail.repo}
+                    placeholder="Leave a comment… type @ to mention"
                     rows={2}
-                    className="max-h-32 min-h-[2.5rem] flex-1 resize-none bg-background"
+                    wrapperClassName="flex-1"
+                    className="max-h-32 min-h-[2.5rem] resize-none bg-background"
                   />
                   <Button
                     size="sm"
@@ -520,6 +526,8 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                 repo={detail.repo}
                 number={detail.number}
                 headOid={detail.headOid}
+                headBranch={detail.headBranch}
+                headRepo={detail.headRepo}
                 threads={detail.reviewThreads}
                 viewerLogin={detail.viewerLogin}
                 onChanged={reload}

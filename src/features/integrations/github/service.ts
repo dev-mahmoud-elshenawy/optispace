@@ -6,7 +6,7 @@ import { Octokit } from "@octokit/rest";
 import { db } from "@/lib/db";
 import { sanitizeHtml } from "@/features/integrations/azure-devops/service";
 
-import type { DiffFile, DiffLine, PrCommit, PullRequestDetail, TimelineItem } from "./types";
+import type { DiffFile, DiffLine, PrCommit, PullRequestDetail, ReactionGroup, TimelineItem } from "./types";
 
 // The GitHub token comes ONLY from the OAuth device-flow connection (DB, single-row
 // GithubAuth). No .env, no PAT. Not connected → null → the sync no-ops.
@@ -170,13 +170,14 @@ const PR_DETAIL_FIELDS = `
   headRefName
   reviewDecision
   repository { nameWithOwner }
+  headRepository { nameWithOwner }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
-  comments(last: 100) { nodes { databaseId author { login } bodyHTML body createdAt } }
+  comments(last: 100) { nodes { id databaseId author { login } bodyHTML body createdAt reactionGroups { content viewerHasReacted reactors { totalCount } } } }
   reviews(last: 50) { nodes { author { login } state bodyHTML createdAt } }
   reviewThreads(first: 100) {
     nodes {
-      id isResolved isOutdated line diffSide path
-      comments(first: 50) { nodes { id databaseId author { login } bodyHTML body createdAt } }
+      id isResolved isOutdated line startLine diffSide path
+      comments(first: 50) { nodes { id databaseId author { login } bodyHTML body createdAt reactionGroups { content viewerHasReacted reactors { totalCount } } } }
     }
   }
 `;
@@ -208,15 +209,33 @@ const NODE_DETAIL_QUERY = `query ($id: ID!) { viewer { login } node(id: $id) { .
 // Fallback for rows synced before nodeId existed: resolve by owner/name/number.
 const REPO_DETAIL_QUERY = `query ($owner: String!, $name: String!, $number: Int!) { viewer { login } repository(owner: $owner, name: $name) { pullRequest(number: $number) { ${PR_DETAIL_FIELDS} } } }`;
 
+// GraphQL reactionGroups node — one per reaction type (present even at 0, so we filter).
+type ReactionGroupNode = { content: string; viewerHasReacted: boolean; reactors: { totalCount: number } };
+
+function mapReactions(groups: ReactionGroupNode[] | undefined): ReactionGroup[] {
+  return (groups ?? [])
+    .filter((g) => g.reactors.totalCount > 0)
+    .map((g) => ({ content: g.content, count: g.reactors.totalCount, viewerReacted: g.viewerHasReacted }));
+}
+
 interface ThreadNode {
   id: string;
   isResolved: boolean;
   isOutdated: boolean;
   line: number | null;
+  startLine: number | null;
   diffSide: string;
   path: string;
   comments: {
-    nodes: { id: string; databaseId: number | null; author: { login: string } | null; bodyHTML: string; body: string; createdAt: string }[];
+    nodes: {
+      id: string;
+      databaseId: number | null;
+      author: { login: string } | null;
+      bodyHTML: string;
+      body: string;
+      createdAt: string;
+      reactionGroups?: ReactionGroupNode[];
+    }[];
   };
 }
 
@@ -252,8 +271,9 @@ interface DetailNode {
   headRefName: string;
   reviewDecision: string | null;
   repository: { nameWithOwner: string } | null;
+  headRepository: { nameWithOwner: string } | null;
   commits: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
-  comments: { nodes: { databaseId: number | null; author: { login: string } | null; bodyHTML: string; body: string; createdAt: string }[] };
+  comments: { nodes: { id: string; databaseId: number | null; author: { login: string } | null; bodyHTML: string; body: string; createdAt: string; reactionGroups?: ReactionGroupNode[] }[] };
   reviews: { nodes: { author: { login: string } | null; state: string; bodyHTML: string; createdAt: string }[] };
   reviewThreads: { nodes: ThreadNode[] };
 }
@@ -312,6 +332,7 @@ function mapDetail(pr: DetailNode, repo: string, viewerLogin: string): PullReque
     author: pr.author?.login ?? "unknown",
     baseBranch: pr.baseRefName,
     headBranch: pr.headRefName,
+    headRepo: pr.headRepository?.nameWithOwner ?? repo,
     headOid: pr.headRefOid,
     reviewDecision: pr.reviewDecision,
     checksStatus: pr.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
@@ -322,11 +343,13 @@ function mapDetail(pr: DetailNode, repo: string, viewerLogin: string): PullReque
     createdAt: pr.createdAt,
     updatedAt: pr.updatedAt,
     comments: pr.comments.nodes.map((c) => ({
+      nodeId: c.id,
       databaseId: c.databaseId,
       author: c.author?.login ?? "unknown",
       bodyHtml: sanitizeHtml(c.bodyHTML),
       body: c.body,
       createdAt: c.createdAt,
+      reactions: mapReactions(c.reactionGroups),
     })),
     reviews: pr.reviews.nodes
       // GitHub emits an empty COMMENTED review for every inline-comment batch; drop the
@@ -342,6 +365,7 @@ function mapDetail(pr: DetailNode, repo: string, viewerLogin: string): PullReque
       id: t.id,
       path: t.path,
       line: t.line,
+      startLine: t.startLine,
       diffSide: t.diffSide,
       isResolved: t.isResolved,
       isOutdated: t.isOutdated,
@@ -352,6 +376,7 @@ function mapDetail(pr: DetailNode, repo: string, viewerLogin: string): PullReque
         bodyHtml: sanitizeHtml(c.bodyHTML),
         body: c.body,
         createdAt: c.createdAt,
+        reactions: mapReactions(c.reactionGroups),
       })),
     })),
   };
@@ -676,6 +701,40 @@ export async function setThreadResolved(token: string, threadId: string, resolve
   await client(mutation, { id: threadId });
 }
 
+// Users who can be @-mentioned on this repo, for the composer autocomplete. `query` filters by
+// login/name prefix (empty = recent mentionables). Best-effort: any failure → [] (no autocomplete).
+export async function fetchMentionableUsers(
+  token: string,
+  repo: string,
+  query: string,
+): Promise<{ login: string; name: string | null }[]> {
+  const parts = splitRepo(repo);
+  if (!parts) return [];
+  const client = graphql.defaults({ headers: { authorization: `token ${token}` } });
+  try {
+    const res = await client<{ repository: { mentionableUsers: { nodes: { login: string; name: string | null }[] } } | null }>(
+      `query ($owner: String!, $name: String!, $q: String!) {
+        repository(owner: $owner, name: $name) {
+          mentionableUsers(first: 6, query: $q) { nodes { login name } }
+        }
+      }`,
+      { owner: parts.owner, name: parts.name, q: query },
+    );
+    return res.repository?.mentionableUsers.nodes ?? [];
+  } catch {
+    return [];
+  }
+}
+
+// Add / remove one of the viewer's reactions on a comment (subjectId = the comment's node id).
+export async function toggleReaction(token: string, subjectId: string, content: string, add: boolean): Promise<void> {
+  const client = graphql.defaults({ headers: { authorization: `token ${token}` } });
+  const mutation = add
+    ? `mutation ($id: ID!, $c: ReactionContent!) { addReaction(input: { subjectId: $id, content: $c }) { reaction { id } } }`
+    : `mutation ($id: ID!, $c: ReactionContent!) { removeReaction(input: { subjectId: $id, content: $c }) { reaction { id } } }`;
+  await client(mutation, { id: subjectId, c: content });
+}
+
 // Merge the PR (merge | squash | rebase).
 export async function mergePullRequest(token: string, repo: string, number: number, method: "merge" | "squash" | "rebase"): Promise<void> {
   const p = splitRepo(repo);
@@ -688,4 +747,46 @@ export async function closePullRequest(token: string, repo: string, number: numb
   const p = splitRepo(repo);
   if (!p) throw new Error("Invalid repository.");
   await rest(token).pulls.update({ owner: p.owner, repo: p.name, pull_number: number, state: "closed" });
+}
+
+// Commit a suggested change: replace lines [startLine..endLine] (1-based, new side) of `path` on the
+// PR's head branch with `replacement` (empty = delete those lines). GitHub has no public "apply
+// suggestion" endpoint, so we read → splice → recommit via the Contents API.
+// ponytail: matches by line number against current head content; if the head moved under the comment
+// the splice guard throws instead of committing the wrong lines. Files >1MB (getContent returns no
+// inline content) and non-file paths are rejected. Forks need push access on `headRepo`.
+export async function applySuggestion(
+  token: string,
+  headRepo: string,
+  branch: string,
+  path: string,
+  startLine: number,
+  endLine: number,
+  replacement: string,
+): Promise<void> {
+  const p = splitRepo(headRepo);
+  if (!p) throw new Error("Invalid repository.");
+  const octo = rest(token);
+  const got = await octo.repos.getContent({ owner: p.owner, repo: p.name, path, ref: branch });
+  const data = got.data;
+  if (Array.isArray(data) || data.type !== "file" || typeof data.content !== "string" || !data.content) {
+    throw new Error("Cannot apply suggestion — the target is not a readable file (it may be too large).");
+  }
+  const original = Buffer.from(data.content, "base64").toString("utf8");
+  const lines = original.split("\n");
+  if (startLine < 1 || endLine > lines.length || startLine > endLine) {
+    throw new Error("Suggestion no longer matches the file — it may have changed. Re-sync and retry.");
+  }
+  const replacementLines = replacement === "" ? [] : replacement.split("\n");
+  const next = [...lines.slice(0, startLine - 1), ...replacementLines, ...lines.slice(endLine)].join("\n");
+  if (next === original) throw new Error("The suggestion already matches the file — nothing to apply.");
+  await octo.repos.createOrUpdateFileContents({
+    owner: p.owner,
+    repo: p.name,
+    path,
+    branch,
+    message: `Apply suggestion to ${path}`,
+    content: Buffer.from(next, "utf8").toString("base64"),
+    sha: data.sha,
+  });
 }

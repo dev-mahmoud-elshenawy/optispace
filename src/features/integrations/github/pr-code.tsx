@@ -9,6 +9,7 @@ import {
   ChevronRight,
   FileDiff,
   GitCommit,
+  Lightbulb,
   Loader2,
   MessageSquare,
   MessageSquarePlus,
@@ -29,12 +30,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 import {
   addPrFileComment,
   addPrLineComment,
+  applyPrSuggestion,
   getCommitRangeFiles,
   getPullRequestCommits,
   getPullRequestFiles,
@@ -42,8 +43,10 @@ import {
   setPrThreadResolved,
   submitPrReview,
 } from "./actions";
+import { MentionTextarea } from "./mention-textarea";
 import { EditableComment } from "./pr-comment";
 import { PrFileTree } from "./pr-file-tree";
+import { extractSuggestion } from "./types";
 import type { DiffFile, DiffLine, PrCommit, ReviewThread } from "./types";
 
 // File extension → highlight.js language (common set). Unknown → no highlight (escaped plain).
@@ -81,6 +84,8 @@ interface PrCodeProps {
   repo: string;
   number: number;
   headOid: string;
+  headBranch: string; // where "Apply suggestion" commits
+  headRepo: string; // head repository owner/name (may be a fork)
   threads: ReviewThread[];
   viewerLogin: string;
   onChanged: () => void; // re-fetch the PR detail after a write
@@ -93,7 +98,7 @@ interface ActiveLine {
   side: "LEFT" | "RIGHT";
 }
 
-export function PrCode({ repo, number, headOid, threads, viewerLogin, onChanged }: PrCodeProps) {
+export function PrCode({ repo, number, headOid, headBranch, headRepo, threads, viewerLogin, onChanged }: PrCodeProps) {
   const [files, setFiles] = useState<DiffFile[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reviewBody, setReviewBody] = useState("");
@@ -267,6 +272,8 @@ export function PrCode({ repo, number, headOid, threads, viewerLogin, onChanged 
               repo={repo}
               number={number}
               headOid={headOid}
+              headBranch={headBranch}
+              headRepo={headRepo}
               threads={threads}
               viewerLogin={viewerLogin}
               onChanged={onChanged}
@@ -285,10 +292,11 @@ export function PrCode({ repo, number, headOid, threads, viewerLogin, onChanged 
 
       {/* Submit-review bar — a fixed footer below the scrollable diff (never overlaps the tree/diff). */}
       <div className="shrink-0 space-y-2 border-t border-border bg-background pt-3">
-        <Textarea
+        <MentionTextarea
           value={reviewBody}
-          onChange={(e) => setReviewBody(e.target.value)}
-          placeholder="Overall review comment (optional for approve / request changes)…"
+          onChange={setReviewBody}
+          repo={repo}
+          placeholder="Overall review comment… type @ to mention"
           rows={2}
         />
         <div className="flex flex-wrap gap-2">
@@ -456,6 +464,8 @@ function FileBlock({
   repo,
   number,
   headOid,
+  headBranch,
+  headRepo,
   threads,
   viewerLogin,
   onChanged,
@@ -469,6 +479,8 @@ function FileBlock({
   repo: string;
   number: number;
   headOid: string;
+  headBranch: string;
+  headRepo: string;
   threads: ReviewThread[];
   viewerLogin: string;
   onChanged: () => void;
@@ -562,6 +574,7 @@ function FileBlock({
       {fileComposer ? (
         <div className="border-b border-border/60 bg-background px-3 py-2">
           <FileComposer
+            repo={repo}
             onSubmit={async (body) => {
               const res = await addPrFileComment(repo, number, headOid, file.path, body);
               if (!res.ok) {
@@ -599,6 +612,8 @@ function FileBlock({
                       threads={lineThreads}
                       repo={repo}
                       number={number}
+                      headBranch={headBranch}
+                      headRepo={headRepo}
                       viewerLogin={viewerLogin}
                       onChanged={onChanged}
                       composerOpen={composerOpen}
@@ -631,7 +646,16 @@ function FileBlock({
             {orphan.reduce((n, t) => n + t.comments.length, 0) === 1 ? "" : "s"} — outdated or not on a line shown here
           </p>
           {orphan.map((t) => (
-            <ThreadView key={t.id} thread={t} repo={repo} number={number} viewerLogin={viewerLogin} onChanged={onChanged} />
+            <ThreadView
+              key={t.id}
+              thread={t}
+              repo={repo}
+              number={number}
+              headBranch={headBranch}
+              headRepo={headRepo}
+              viewerLogin={viewerLogin}
+              onChanged={onChanged}
+            />
           ))}
         </div>
       ) : null}
@@ -647,6 +671,8 @@ function LineRow({
   threads,
   repo,
   number,
+  headBranch,
+  headRepo,
   viewerLogin,
   onChanged,
   composerOpen,
@@ -661,6 +687,8 @@ function LineRow({
   threads: ReviewThread[];
   repo: string;
   number: number;
+  headBranch: string;
+  headRepo: string;
   viewerLogin: string;
   onChanged: () => void;
   composerOpen: boolean;
@@ -704,7 +732,15 @@ function LineRow({
       {threads.map((t) => (
         <tr key={t.id}>
           <td colSpan={4} className="px-3 py-2">
-            <ThreadView thread={t} repo={repo} number={number} viewerLogin={viewerLogin} onChanged={onChanged} />
+            <ThreadView
+              thread={t}
+              repo={repo}
+              number={number}
+              headBranch={headBranch}
+              headRepo={headRepo}
+              viewerLogin={viewerLogin}
+              onChanged={onChanged}
+            />
           </td>
         </tr>
       ))}
@@ -712,7 +748,13 @@ function LineRow({
       {composerOpen ? (
         <tr>
           <td colSpan={4} className="px-3 py-2">
-            <LineComposer endLine={endLine} onSubmit={onSubmitComposer} onCancel={onCancelComposer} />
+            <LineComposer
+              endLine={endLine}
+              repo={repo}
+              lineContent={dl.content}
+              onSubmit={onSubmitComposer}
+              onCancel={onCancelComposer}
+            />
           </td>
         </tr>
       ) : null}
@@ -722,10 +764,14 @@ function LineRow({
 
 function LineComposer({
   endLine,
+  repo,
+  lineContent,
   onSubmit,
   onCancel,
 }: {
   endLine: number;
+  repo: string;
+  lineContent: string; // the current line — seeds a "Suggest" block
   onSubmit: (body: string, startLine?: number | null) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -734,7 +780,7 @@ function LineComposer({
   const [busy, setBusy] = useState(false);
   return (
     <div className="space-y-2 rounded-md border border-border bg-background p-2 font-sans text-foreground">
-      <Textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder={`Comment on line ${endLine}…`} rows={2} autoFocus />
+      <MentionTextarea value={body} onChange={setBody} repo={repo} placeholder={`Comment on line ${endLine}… type @ to mention`} rows={2} autoFocus />
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-1 text-xs text-muted-foreground">
           Range from line
@@ -750,6 +796,15 @@ function LineComposer({
           <span>to {endLine}</span>
         </label>
         <div className="ml-auto flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            title="Insert a suggested-change block seeded with this line"
+            onClick={() => setBody((b) => (b.includes("```suggestion") ? b : `\`\`\`suggestion\n${lineContent}\n\`\`\`\n${b}`))}
+          >
+            <Lightbulb className="size-4" /> Suggest
+          </Button>
           <Button
             size="sm"
             disabled={busy || !body.trim()}
@@ -772,12 +827,12 @@ function LineComposer({
   );
 }
 
-function FileComposer({ onSubmit, onCancel }: { onSubmit: (body: string) => Promise<void>; onCancel: () => void }) {
+function FileComposer({ repo, onSubmit, onCancel }: { repo: string; onSubmit: (body: string) => Promise<void>; onCancel: () => void }) {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   return (
     <div className="space-y-2 py-1 font-sans text-foreground">
-      <Textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Comment on the whole file…" rows={2} autoFocus />
+      <MentionTextarea value={body} onChange={setBody} repo={repo} placeholder="Comment on the whole file… type @ to mention" rows={2} autoFocus />
       <div className="flex gap-2">
         <Button
           size="sm"
@@ -803,12 +858,16 @@ function ThreadView({
   thread,
   repo,
   number,
+  headBranch,
+  headRepo,
   viewerLogin,
   onChanged,
 }: {
   thread: ReviewThread;
   repo: string;
   number: number;
+  headBranch: string;
+  headRepo: string;
   viewerLogin: string;
   onChanged: () => void;
 }) {
@@ -816,9 +875,25 @@ function ThreadView({
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [resolveBusy, setResolveBusy] = useState(false);
+  const [applyBusy, setApplyBusy] = useState(false);
   const [expanded, setExpanded] = useState(!thread.isResolved); // resolved threads start collapsed
   const lastDbId = [...thread.comments].reverse().find((c) => c.databaseId != null)?.databaseId ?? null;
   const first = thread.comments[0];
+  // Suggestions commit onto the new-side lines; only applicable while the thread still maps to them.
+  const canApply = thread.line != null && thread.diffSide === "RIGHT" && !thread.isOutdated;
+
+  async function apply(replacement: string) {
+    if (thread.line == null) return;
+    setApplyBusy(true);
+    const res = await applyPrSuggestion(headRepo, headBranch, thread.path, thread.startLine ?? thread.line, thread.line, replacement);
+    setApplyBusy(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(`Suggestion committed to ${headBranch}.`);
+    onChanged();
+  }
 
   async function reply() {
     if (lastDbId == null) return;
@@ -890,23 +965,35 @@ function ThreadView({
       </div>
       {!expanded ? null : (
         <>
-      {thread.comments.map((c) => (
-        <EditableComment
-          key={c.id}
-          repo={repo}
-          kind="review"
-          commentId={c.databaseId}
-          author={c.author}
-          bodyHtml={c.bodyHtml}
-          body={c.body}
-          createdAt={c.createdAt}
-          viewerLogin={viewerLogin}
-          onChanged={onChanged}
-        />
-      ))}
+      {thread.comments.map((c) => {
+        const suggestion = extractSuggestion(c.body);
+        return (
+          <div key={c.id} className="space-y-1.5">
+            <EditableComment
+              repo={repo}
+              kind="review"
+              commentId={c.databaseId}
+              author={c.author}
+              bodyHtml={c.bodyHtml}
+              body={c.body}
+              createdAt={c.createdAt}
+              viewerLogin={viewerLogin}
+              onChanged={onChanged}
+              subjectId={c.id}
+              reactions={c.reactions}
+            />
+            {suggestion !== null && canApply ? (
+              <Button size="sm" variant="outline" className="h-7" disabled={applyBusy} onClick={() => apply(suggestion)}>
+                {applyBusy ? <Loader2 className="size-3.5 animate-spin" /> : <GitCommit className="size-3.5" />}
+                Apply suggestion
+              </Button>
+            ) : null}
+          </div>
+        );
+      })}
       {replying ? (
         <div className="space-y-2">
-          <Textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="Reply…" rows={2} autoFocus />
+          <MentionTextarea value={body} onChange={setBody} repo={repo} placeholder="Reply… type @ to mention" rows={2} autoFocus />
           <div className="flex gap-2">
             <Button size="sm" onClick={reply} disabled={busy || !body.trim()}>
               {busy ? <Loader2 className="size-4 animate-spin" /> : null}

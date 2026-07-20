@@ -9,22 +9,45 @@ export interface PullRequestReview {
   createdAt: string; // ISO
 }
 
+// A grouped reaction on a comment (👍 ×3, …) — from GraphQL reactionGroups.
+export interface ReactionGroup {
+  content: string; // GraphQL enum: THUMBS_UP | THUMBS_DOWN | LAUGH | HOORAY | CONFUSED | HEART | ROCKET | EYES
+  count: number;
+  viewerReacted: boolean; // the connected user already reacted with this
+}
+
+// The 8 reaction types GitHub supports, in its picker order.
+export const REACTIONS: { content: string; emoji: string }[] = [
+  { content: "THUMBS_UP", emoji: "👍" },
+  { content: "THUMBS_DOWN", emoji: "👎" },
+  { content: "LAUGH", emoji: "😄" },
+  { content: "HOORAY", emoji: "🎉" },
+  { content: "CONFUSED", emoji: "😕" },
+  { content: "HEART", emoji: "❤️" },
+  { content: "ROCKET", emoji: "🚀" },
+  { content: "EYES", emoji: "👀" },
+];
+export const REACTION_EMOJI: Record<string, string> = Object.fromEntries(REACTIONS.map((r) => [r.content, r.emoji]));
+
 export interface PullRequestComment {
+  nodeId: string; // GraphQL node id — the subjectId for add/remove reaction
   databaseId: number | null; // REST issue-comment id — for edit / delete
   author: string;
   bodyHtml: string; // sanitized (display)
   body: string; // raw markdown (editing)
   createdAt: string; // ISO
+  reactions: ReactionGroup[];
 }
 
 // One inline review comment inside a thread anchored to a diff line.
 export interface ReviewThreadComment {
-  id: string; // GraphQL node id
+  id: string; // GraphQL node id (also the reaction subjectId)
   databaseId: number | null; // REST id — needed to reply / edit / delete via the REST API
   author: string;
   bodyHtml: string; // sanitized (display)
   body: string; // raw markdown (editing)
   createdAt: string;
+  reactions: ReactionGroup[];
 }
 
 // A resolved/unresolved discussion thread pinned to a file + line in the diff.
@@ -32,10 +55,19 @@ export interface ReviewThread {
   id: string;
   path: string;
   line: number | null; // current line (new side for RIGHT, old side for LEFT)
+  startLine: number | null; // first line of a multi-line thread (null = single line)
   diffSide: string; // LEFT | RIGHT
   isResolved: boolean;
   isOutdated: boolean;
   comments: ReviewThreadComment[];
+}
+
+// The replacement text of the first ```suggestion block in a comment body, or null if none.
+// "" means the suggestion deletes the target line(s). Interior newlines are preserved.
+export function extractSuggestion(body: string): string | null {
+  const m = /```suggestion\n([\s\S]*?)```/.exec(body);
+  if (!m) return null;
+  return m[1].replace(/\n$/, ""); // drop the newline before the closing fence
 }
 
 export type TimelineKind =
@@ -103,6 +135,7 @@ export interface PullRequestDetail {
   viewerLogin: string; // the connected user's login — to show edit/delete only on own comments
   baseBranch: string;
   headBranch: string;
+  headRepo: string; // head repository owner/name — where suggestions commit (may be a fork)
   headOid: string; // head commit sha — the commit_id when posting review comments
   reviewDecision: string | null;
   checksStatus: string | null;
