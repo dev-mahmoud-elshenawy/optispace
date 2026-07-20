@@ -9,7 +9,8 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  // Local-first: fixed path (relative to prisma/), so no .env / DATABASE_URL is needed.
+  url      = "file:./dev.db"
 }
 
 // ── Annual Leave ─────────────────────────────────────────────

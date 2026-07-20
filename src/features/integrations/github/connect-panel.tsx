@@ -143,6 +143,11 @@ export function GithubConnectPanel({ status }: { status: GithubAuthStatus }) {
         <CardTitle className="flex items-center gap-2">
           <GitPullRequest className="size-4" />
           GitHub
+          {status.connected ? (
+            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+              Connected
+            </span>
+          ) : null}
         </CardTitle>
         <CardDescription>
           {status.connected

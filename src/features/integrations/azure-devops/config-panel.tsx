@@ -3,15 +3,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2, Server } from "lucide-react";
+import { Loader2, RefreshCw, Server } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
-import { clearAdoConfig, saveAdoConfig, type AdoConfigView } from "./actions";
+import { clearAdoConfig, saveAdoConfig, syncAzureDevOps, type AdoConfigView } from "./actions";
 
 export function AzureDevOpsConfigPanel({ config }: { config: AdoConfigView }) {
   const router = useRouter();
@@ -21,6 +22,19 @@ export function AzureDevOpsConfigPanel({ config }: { config: AdoConfigView }) {
   const [projects, setProjects] = useState(config.projects || "all");
   const [includeDone, setIncludeDone] = useState(config.includeDone);
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  async function sync() {
+    setSyncing(true);
+    const res = await syncAzureDevOps();
+    setSyncing(false);
+    if (!res.ok) {
+      toast.error(res.error || "Azure DevOps sync failed.");
+      return;
+    }
+    toast.success(`Synced: ${res.imported} imported, ${res.updated} updated, ${res.pruned} removed.`);
+    router.refresh();
+  }
 
   async function save() {
     setBusy(true);
@@ -115,15 +129,21 @@ export function AzureDevOpsConfigPanel({ config }: { config: AdoConfigView }) {
             Include completed / closed work items
           </label>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={save} disabled={busy}>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={save} disabled={busy || syncing}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : null}
             Save
           </Button>
           {config.configured ? (
-            <Button variant="outline" onClick={disconnect} disabled={busy}>
-              Disconnect
-            </Button>
+            <>
+              <Button variant="outline" onClick={sync} disabled={busy || syncing}>
+                <RefreshCw className={cn("size-4", syncing && "animate-spin")} />
+                Sync now
+              </Button>
+              <Button variant="outline" onClick={disconnect} disabled={busy || syncing}>
+                Disconnect
+              </Button>
+            </>
           ) : null}
         </div>
       </CardContent>
