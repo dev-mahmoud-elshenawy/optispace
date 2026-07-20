@@ -41,6 +41,25 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+// Flatten a (possibly Aggregate) error into a searchable string: message + code + nested causes.
+// A Node AggregateError from multiple failed connect attempts has an EMPTY .message — the real
+// ETIMEDOUT/EHOSTUNREACH codes live on .code and .errors[].code, so matching .message alone misses them.
+function flattenError(error: unknown): string {
+  const parts: string[] = [];
+  const visit = (e: unknown) => {
+    if (!e || typeof e !== "object") {
+      if (e != null) parts.push(String(e));
+      return;
+    }
+    const o = e as { message?: unknown; code?: unknown; errors?: unknown };
+    if (typeof o.message === "string") parts.push(o.message);
+    if (typeof o.code === "string") parts.push(o.code);
+    if (Array.isArray(o.errors)) for (const sub of o.errors) visit(sub);
+  };
+  visit(error);
+  return parts.join(" ").trim();
+}
+
 export type SyncResult =
   | { ok: true; imported: number; updated: number; pruned: number; notified: number }
   | { ok: false; error: string };
@@ -67,16 +86,21 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
     // whether this is a network timeout, a 401 (expired/invalid PAT), or a 404
     // (wrong org URL). Log the full error to the terminal and return a message
     // that names the likely fix.
-    console.error("[optispace] Azure DevOps sync failed", error);
-    const raw = error instanceof Error ? error.message : String(error ?? "");
+    const detail = flattenError(error);
     const status = (error as { statusCode?: number })?.statusCode;
-    let hint = raw;
-    if (status === 401 || status === 203 || /unauthor|401|invalid.*(token|pat)|TF400813/i.test(raw)) {
+    const isAuth = status === 401 || status === 203 || /unauthor|401|invalid.*(token|pat)|TF400813/i.test(detail);
+    const isNetwork = /ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED|ECONNRESET|EAI_AGAIN|network|fetch failed/i.test(detail);
+    if (isNetwork && !isAuth) {
+      // Transient (offline / VPN down) — a one-line warning, not a full AggregateError dump on every poll.
+      console.warn("[optispace] Azure DevOps sync skipped — can't reach the server (offline or VPN down?)");
+      return { ok: false, error: "Couldn't reach Azure DevOps (network). Check your connection / VPN and try again." };
+    }
+    // Surface the REAL cause instead of swallowing it — distinguishes a 401 (expired/invalid PAT)
+    // or a 404 (wrong org URL) from anything else.
+    console.error("[optispace] Azure DevOps sync failed", error);
+    let hint = detail || "Azure DevOps sync failed.";
+    if (isAuth) {
       hint = "Azure DevOps rejected the PAT (likely expired or wrong scope). Regenerate AZURE_DEVOPS_PAT and restart.";
-    } else if (/ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|ECONNREFUSED|network|fetch failed/i.test(raw)) {
-      hint = "Couldn't reach Azure DevOps (network). Check your connection / VPN and try again.";
-    } else if (!hint) {
-      hint = "Azure DevOps sync failed.";
     }
     return { ok: false, error: hint };
   }

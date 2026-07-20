@@ -199,7 +199,7 @@ export function PrCode({ repo, number, headOid, threads, viewerLogin, onChanged 
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex h-full min-h-0 flex-col gap-3">
       {/* Commit picker — filter the diff to one or more commits (GitHub "Select commits to view"). */}
       {commits.length > 0 ? (
         <CommitFilter commits={commits} selectedShas={selectedShas} onApply={setSelectedShas} />
@@ -218,7 +218,7 @@ export function PrCode({ repo, number, headOid, threads, viewerLogin, onChanged 
       ) : (
         <>
       {/* Toolbar — totals, viewed progress, bulk expand/collapse */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
           <span>
             <span className="font-semibold text-foreground">{files.length}</span> file{files.length === 1 ? "" : "s"} changed
@@ -249,7 +249,7 @@ export function PrCode({ repo, number, headOid, threads, viewerLogin, onChanged 
         </div>
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex min-h-0 flex-1 gap-4 overflow-y-auto pr-1">
         <PrFileTree
           files={files}
           viewed={viewed}
@@ -282,8 +282,8 @@ export function PrCode({ repo, number, headOid, threads, viewerLogin, onChanged 
         </div>
       </div>
 
-      {/* Submit-review bar */}
-      <div className="sticky bottom-0 space-y-2 border-t border-border bg-background/95 pb-3 pt-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      {/* Submit-review bar — a fixed footer below the scrollable diff (never overlaps the tree/diff). */}
+      <div className="shrink-0 space-y-2 border-t border-border bg-background pt-3">
         <Textarea
           value={reviewBody}
           onChange={(e) => setReviewBody(e.target.value)}

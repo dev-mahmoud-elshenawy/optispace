@@ -101,7 +101,7 @@ export function PrFileTree({
   }
 
   return (
-    <div className="sticky top-0 flex max-h-[calc(92vh-11rem)] w-60 shrink-0 flex-col gap-2 self-start">
+    <div className="sticky top-0 flex max-h-full w-60 shrink-0 flex-col gap-2 self-start">
       <div className="flex items-center justify-between px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         <span>Files</span>
         <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums">{files.length}</span>

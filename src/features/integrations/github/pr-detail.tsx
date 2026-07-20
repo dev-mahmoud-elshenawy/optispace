@@ -261,10 +261,8 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
             </TabsList>
 
             {/* Summary — two-column: conversation on the left, status/actions rail on the right */}
-            <TabsContent
-              value="summary"
-              className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-5 overflow-y-auto pr-1 lg:grid-cols-[1fr_15rem]"
-            >
+            <TabsContent value="summary" className="mt-3 flex min-h-0 flex-1 flex-col">
+              <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 overflow-y-auto pr-1 lg:grid-cols-[1fr_15rem]">
               {/* Rail (order-first on mobile so status/actions lead; right column on desktop) */}
               <aside className="order-1 space-y-3 lg:order-2 lg:self-start">
                 <div className="space-y-2 rounded-lg border p-3">
@@ -460,28 +458,30 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                   </section>
                 ) : null}
 
-                {/* Add a general PR comment — pinned to the bottom of the conversation column so
-                    it stays reachable while the thread scrolls above it. */}
-                <section className="sticky bottom-0 z-10 space-y-2 border-t bg-background/95 pb-3 pt-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-                  <div className="flex items-end gap-2 px-0.5">
-                    <Textarea
-                      value={commentBody}
-                      onChange={(e) => setCommentBody(e.target.value)}
-                      placeholder="Leave a comment…"
-                      rows={2}
-                      className="min-h-[2.5rem] flex-1 resize-none bg-background"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={postComment}
-                      disabled={commentBusy || !commentBody.trim()}
-                      className="shrink-0"
-                    >
-                      {commentBusy ? <Loader2 className="size-4 animate-spin" /> : <MessageSquare className="size-4" />}
-                      Comment
-                    </Button>
-                  </div>
-                </section>
+              </div>
+              </div>
+
+              {/* Add-comment composer — a fixed footer below the scroll area (not inside it), so it
+                  never overlaps the thread and can't be clipped at the scroll edge. */}
+              <div className="mt-3 shrink-0 border-t pt-3">
+                <div className="flex items-end gap-2">
+                  <Textarea
+                    value={commentBody}
+                    onChange={(e) => setCommentBody(e.target.value)}
+                    placeholder="Leave a comment…"
+                    rows={2}
+                    className="max-h-32 min-h-[2.5rem] flex-1 resize-none bg-background"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={postComment}
+                    disabled={commentBusy || !commentBody.trim()}
+                    className="shrink-0"
+                  >
+                    {commentBusy ? <Loader2 className="size-4 animate-spin" /> : <MessageSquare className="size-4" />}
+                    Comment
+                  </Button>
+                </div>
               </div>
             </TabsContent>
 
@@ -491,7 +491,7 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
             </TabsContent>
 
             {/* Code */}
-            <TabsContent value="code" className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+            <TabsContent value="code" className="mt-3 flex min-h-0 flex-1 flex-col">
               <PrCode
                 repo={detail.repo}
                 number={detail.number}

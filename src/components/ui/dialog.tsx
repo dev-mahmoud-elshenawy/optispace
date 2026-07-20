@@ -47,10 +47,25 @@ function DialogOverlay({
   )
 }
 
+// A Radix dropdown / select / popover portals its content OUTSIDE this dialog. Clicking to dismiss
+// that popper (outside-click, or its own overlay) would otherwise register as an interaction
+// "outside" the dialog and close the whole dialog. Ignore any outside-dismissal whose target sits
+// inside a portaled Radix popper — so only the popper closes, not the dialog.
+function targetInsidePopper(target: EventTarget | null | undefined): boolean {
+  return (
+    target instanceof Element &&
+    !!target.closest(
+      "[data-radix-popper-content-wrapper],[data-slot=select-content],[data-slot=dropdown-menu-content],[data-slot=popover-content]"
+    )
+  )
+}
+
 function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onPointerDownOutside,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -64,6 +79,15 @@ function DialogContent({
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
+        onPointerDownOutside={(e) => {
+          if (targetInsidePopper(e.detail.originalEvent.target)) e.preventDefault()
+          onPointerDownOutside?.(e)
+        }}
+        onInteractOutside={(e) => {
+          const original = (e.detail as { originalEvent?: Event }).originalEvent
+          if (targetInsidePopper(original?.target)) e.preventDefault()
+          onInteractOutside?.(e)
+        }}
         {...props}
       >
         {children}
