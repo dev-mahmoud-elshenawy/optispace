@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 import { toggleProjectPin } from "../actions";
 import {
   computeProgressPct,
+  projectHealth,
+  PROJECT_HEALTH_BADGE,
   PROJECT_PLATFORM_LABELS,
   PROJECT_STATUS_BADGE_CLASS,
   PROJECT_STATUS_LABELS,
@@ -49,6 +51,11 @@ export function ProjectCard({ project: initialProject, tasks, files, links, feed
   const [editingTask, setEditingTask] = useState<TaskView | null>(null);
   const [deletingTask, setDeletingTask] = useState<TaskView | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  // Compute health only after mount — `new Date()` at SSR would risk a hydration mismatch
+  // on the due-soon boundary. null on first render (no badge), then the effect fills it in.
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => setNow(new Date()), []);
+  const health = now ? projectHealth(project, now) : null;
 
   // Synced (DevOps) tasks open the DevOps editor; local tasks use the form dialog —
   // same routing as the Tasks page, so editing behaves identically everywhere.
@@ -129,6 +136,11 @@ export function ProjectCard({ project: initialProject, tasks, files, links, feed
             <Badge variant="outline" className={cn(PROJECT_STATUS_BADGE_CLASS[project.status])}>
               {PROJECT_STATUS_LABELS[project.status]}
             </Badge>
+            {health ? (
+              <Badge variant="outline" className={cn(PROJECT_HEALTH_BADGE[health.level].className)}>
+                {PROJECT_HEALTH_BADGE[health.level].label(health.count)}
+              </Badge>
+            ) : null}
           </div>
           {project.repoUrl ? (
             <a

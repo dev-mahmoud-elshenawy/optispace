@@ -96,6 +96,44 @@ export const PROJECT_STATUS_BADGE_CLASS: Record<ProjectStatus, string> = {
   production: "border-transparent bg-violet-500/15 text-violet-700 dark:text-violet-300",
 };
 
+// Project health from milestone deadlines (the data already on ProjectView — no extra query).
+// overdue: a milestone past its dueDate and not done. due_soon: due within the next 3 days.
+// null = on track / no dated milestones (no badge shown). ponytail: stale-tasks would need task
+// data ProjectView doesn't carry — milestone-based is the lazy correct signal; add tasks later.
+export type ProjectHealthLevel = "overdue" | "due_soon";
+
+export interface ProjectHealth {
+  level: ProjectHealthLevel;
+  count: number; // how many milestones drive the signal
+}
+
+const DUE_SOON_MS = 3 * 24 * 60 * 60 * 1000;
+
+export function projectHealth(project: Pick<ProjectView, "milestones">, now: Date): ProjectHealth | null {
+  let overdue = 0;
+  let dueSoon = 0;
+  for (const m of project.milestones) {
+    if (m.done || !m.dueDate) continue;
+    const delta = m.dueDate.getTime() - now.getTime();
+    if (delta < 0) overdue += 1;
+    else if (delta <= DUE_SOON_MS) dueSoon += 1;
+  }
+  if (overdue > 0) return { level: "overdue", count: overdue };
+  if (dueSoon > 0) return { level: "due_soon", count: dueSoon };
+  return null;
+}
+
+export const PROJECT_HEALTH_BADGE: Record<ProjectHealthLevel, { label: (n: number) => string; className: string }> = {
+  overdue: {
+    label: (n) => `${n} overdue`,
+    className: "border-transparent bg-destructive/15 text-destructive",
+  },
+  due_soon: {
+    label: (n) => `${n} due soon`,
+    className: "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  },
+};
+
 export function toMilestoneView(row: Milestone): MilestoneView {
   return { id: row.id, title: row.title, done: row.done, dueDate: row.dueDate, order: row.order };
 }
