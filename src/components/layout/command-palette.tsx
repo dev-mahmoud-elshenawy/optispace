@@ -26,11 +26,28 @@ const GROUP_ORDER: SearchItemType[] = [
   "Package",
   "Profile",
   "Milestone",
+  "PullRequest",
+  "Feedback",
   "Leave",
   "Notification",
   "Link",
   "File",
 ];
+
+// Display heading per group (PullRequest → "Pull Requests", not "PullRequests").
+const GROUP_HEADINGS: Record<SearchItemType, string> = {
+  Task: "Tasks",
+  Project: "Projects",
+  Package: "Packages",
+  Profile: "Profiles",
+  Milestone: "Milestones",
+  PullRequest: "Pull Requests",
+  Feedback: "Feedback",
+  Leave: "Leave",
+  Notification: "Notifications",
+  Link: "Links",
+  File: "Files",
+};
 
 export function CommandPalette({ items = [] }: { items?: SearchItem[] }) {
   const router = useRouter();
@@ -108,9 +125,13 @@ export function CommandPalette({ items = [] }: { items?: SearchItem[] }) {
           const group = items.filter((it) => it.type === type);
           if (group.length === 0) return null;
           return (
-            <CommandGroup key={type} heading={`${type}s`}>
+            <CommandGroup key={type} heading={GROUP_HEADINGS[type]}>
               {group.map((it, i) => (
-                <CommandItem key={`${type}-${i}`} value={`${it.label} ${type}`} onSelect={() => go(it.href)}>
+                <CommandItem
+                  key={`${type}-${i}`}
+                  value={`${it.label} ${type} ${it.keywords ?? ""}`}
+                  onSelect={() => go(it.href)}
+                >
                   <span className="truncate">{it.label}</span>
                   <span className="ml-auto text-xs text-muted-foreground">{type}</span>
                 </CommandItem>

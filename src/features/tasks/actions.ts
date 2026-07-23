@@ -162,6 +162,26 @@ export async function moveTasksToProject(ids: string[], projectId: string | null
   return { ok: true };
 }
 
+// Bulk set status. Callers pass local-task ids only — sync owns ADO task status,
+// so a local flip on a synced task would be overwritten on the next poll.
+export async function setTasksStatus(ids: string[], status: TaskStatus): Promise<ActionResult> {
+  if (ids.length === 0) return { ok: false, error: "No tasks selected." };
+  await db.task.updateMany({ where: { id: { in: ids } }, data: { status } });
+  revalidatePath("/tasks");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+// Bulk soft-delete. Local tasks only (sync never deletes local rows; ADO tasks are
+// pruned by the sync, not the user).
+export async function deleteTasks(ids: string[]): Promise<ActionResult> {
+  if (ids.length === 0) return { ok: false, error: "No tasks selected." };
+  await db.task.updateMany({ where: { id: { in: ids } }, data: { deletedAt: new Date() } });
+  revalidatePath("/tasks");
+  revalidatePath("/");
+  return { ok: true };
+}
+
 // Called from the background poller alongside the ADO/calendar sync — surfaces a
 // notification for tasks due today/tomorrow or overdue. Local-only (no external
 // source), so it runs regardless of whether ADO or Calendar are configured.

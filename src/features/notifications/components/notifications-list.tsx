@@ -7,13 +7,20 @@ import { Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   dismissNotification,
   markAllNotificationsRead,
   markNotificationRead,
   pollNotificationFeed,
 } from "@/features/notifications/actions";
-import { notificationActor, notificationTitle, type NotificationView } from "@/features/notifications/service";
+import {
+  NOTIFICATION_LABELS,
+  notificationActor,
+  notificationTitle,
+  type NotificationType,
+  type NotificationView,
+} from "@/features/notifications/service";
 import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
 import { GithubPrDetail } from "@/features/integrations/github/pr-detail";
 import { cn } from "@/lib/utils";
@@ -30,8 +37,12 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [prTarget, setPrTarget] = useState<{ repo: string; number: number } | null>(null);
   const [visible, setVisible] = useState(PAGE_SIZE);
+  const [typeFilter, setTypeFilter] = useState<NotificationType | "all">("all");
   const unreadCount = rows.filter((r) => !r.read).length;
-  const shown = rows.slice(0, visible);
+  // Only offer type options that actually appear in the current rows.
+  const presentTypes = Array.from(new Set(rows.map((r) => r.type)));
+  const filtered = typeFilter === "all" ? rows : rows.filter((r) => r.type === typeFilter);
+  const shown = filtered.slice(0, visible);
 
   // Live-prepend new notifications while this page is open — the poller fires
   // "optispace:notifications-updated" when fresh rows land; pull the recent feed
@@ -179,16 +190,39 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
   return (
     <>
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           {unreadCount > 0 ? `${unreadCount} unread` : "You're all caught up."}
         </p>
-        {unreadCount > 0 ? (
-          <Button variant="outline" size="sm" onClick={handleMarkAllRead}>
-            Mark all read
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {presentTypes.length > 1 ? (
+            <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as NotificationType | "all")}>
+              <SelectTrigger size="sm" className="w-44">
+                <SelectValue>{typeFilter === "all" ? "All types" : NOTIFICATION_LABELS[typeFilter]}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {presentTypes.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {NOTIFICATION_LABELS[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          {unreadCount > 0 ? (
+            <Button variant="outline" size="sm" onClick={handleMarkAllRead}>
+              Mark all read
+            </Button>
+          ) : null}
+        </div>
       </div>
+
+      {filtered.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          No {typeFilter === "all" ? "" : `${NOTIFICATION_LABELS[typeFilter].toLowerCase()} `}notifications.
+        </p>
+      ) : null}
 
       {buckets
         .filter((b) => b.rows.length > 0)
@@ -199,10 +233,10 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
           </div>
         ))}
 
-      {rows.length > visible ? (
+      {filtered.length > visible ? (
         <div className="flex justify-center pt-2">
           <Button variant="outline" size="sm" onClick={() => setVisible((v) => v + PAGE_SIZE)}>
-            Load more ({rows.length - visible})
+            Load more ({filtered.length - visible})
           </Button>
         </div>
       ) : null}

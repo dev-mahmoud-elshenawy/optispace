@@ -2,12 +2,13 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
-import { moveTasksToProject } from "@/features/tasks/actions";
+import { deleteTasks, moveTasksToProject, setTasksStatus } from "@/features/tasks/actions";
 import { TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from "@/types";
 
 import { TaskListTable, type SortKey } from "./task-list-table";
@@ -32,6 +33,7 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListPr
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moveTarget, setMoveTarget] = useState<string>("");
   const [isMoving, startMove] = useTransition();
+  const [isBulk, startBulk] = useTransition();
 
   const rows = useMemo(() => {
     const filtered = tasks.filter((task) => {
@@ -82,6 +84,44 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListPr
       const result = await moveTasksToProject([...selected], projectId);
       if (result.ok) {
         toast.success(`Moved ${count} task${count === 1 ? "" : "s"}.`);
+        setSelected(new Set());
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
+
+  // Status change and delete apply to local tasks only — sync owns ADO task status
+  // and prunes ADO rows, so flipping/deleting synced tasks locally is pointless.
+  const localSelectedIds = useMemo(
+    () => rows.filter((r) => selected.has(r.id) && r.source !== "azure_devops").map((r) => r.id),
+    [rows, selected],
+  );
+  const skipped = selected.size - localSelectedIds.length;
+
+  function setStatus(status: TaskStatus) {
+    if (localSelectedIds.length === 0) return;
+    const count = localSelectedIds.length;
+    startBulk(async () => {
+      const result = await setTasksStatus(localSelectedIds, status);
+      if (result.ok) {
+        toast.success(`Set ${count} task${count === 1 ? "" : "s"} to ${STATUS_LABELS[status]}.`);
+        setSelected(new Set());
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
+
+  function removeSelected() {
+    if (localSelectedIds.length === 0) return;
+    const count = localSelectedIds.length;
+    startBulk(async () => {
+      const result = await deleteTasks(localSelectedIds);
+      if (result.ok) {
+        toast.success(`Deleted ${count} task${count === 1 ? "" : "s"}.`);
         setSelected(new Set());
         router.refresh();
       } else {
@@ -142,6 +182,30 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListPr
           <Button size="sm" onClick={move} disabled={isMoving || moveTarget === ""}>
             Move
           </Button>
+          <Select value="" onValueChange={(v) => setStatus(v as TaskStatus)} disabled={isBulk || localSelectedIds.length === 0}>
+            <SelectTrigger className="h-8 w-40">
+              <SelectValue placeholder="Set status…" />
+            </SelectTrigger>
+            <SelectContent>
+              {TASK_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {STATUS_LABELS[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={removeSelected}
+            disabled={isBulk || localSelectedIds.length === 0}
+          >
+            <Trash2Icon />
+            Delete
+          </Button>
+          {skipped > 0 ? (
+            <span className="text-xs text-muted-foreground">{skipped} Azure DevOps skipped</span>
+          ) : null}
           <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
             Clear
           </Button>
