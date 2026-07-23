@@ -24,12 +24,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-import { addPrComment, closePr, getPullRequestDetail, mergePr } from "./actions";
+import { addPrComment, closePr, getPullRequestDetail, mergePr, setPrDraft } from "./actions";
 import { MentionTextarea } from "./mention-textarea";
-import { EditableComment } from "./pr-comment";
+import { EditableComment, ReactionBar } from "./pr-comment";
 import { PrCode } from "./pr-code";
 import { PrTimeline } from "./pr-timeline";
-import { CHECKS_BADGE, REVIEW_BADGE, type PullRequestDetail, type PullRequestReview, type ReviewThread } from "./types";
+import { CHECKS_BADGE, REVIEW_BADGE, type CheckRun, type PullRequestDetail, type PullRequestReview, type ReviewThread } from "./types";
+
+// CI check conclusion → dot tint. Anything unknown/running reads as amber.
+function checkTint(conclusion: string): string {
+  if (conclusion === "SUCCESS") return "bg-emerald-500";
+  if (conclusion === "FAILURE" || conclusion === "ERROR" || conclusion === "TIMED_OUT" || conclusion === "CANCELLED") {
+    return "bg-destructive";
+  }
+  if (conclusion === "NEUTRAL" || conclusion === "SKIPPED") return "bg-muted-foreground";
+  return "bg-amber-500"; // PENDING / IN_PROGRESS / QUEUED / EXPECTED / ACTION_REQUIRED
+}
 
 // Rendered PR/comment HTML is sanitized server-side (shared ADO allowlist) before it gets here.
 const htmlBox =
@@ -195,6 +205,20 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
     reload();
   }
 
+  async function doDraft() {
+    if (!detail) return;
+    const toDraft = !detail.draft;
+    setPrBusy("draft");
+    const res = await setPrDraft(detail.nodeId, toDraft);
+    setPrBusy(null);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(toDraft ? "Converted to draft." : "Marked ready for review.");
+    reload();
+  }
+
   const review = detail?.reviewDecision ? REVIEW_BADGE[detail.reviewDecision] : null;
   const checks = detail?.checksStatus ? CHECKS_BADGE[detail.checksStatus] : null;
   const state = detail ? stateMeta(detail) : null;
@@ -285,6 +309,30 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                       <span className="text-xs text-muted-foreground">No review or check status.</span>
                     ) : null}
                   </div>
+                  {detail.checks.length > 0 ? (
+                    <ul className="max-h-48 space-y-1 overflow-y-auto pt-1">
+                      {detail.checks.map((c: CheckRun, i) => (
+                        <li key={`${c.name}-${i}`} className="flex items-center gap-2 text-xs">
+                          <span className={cn("size-2 shrink-0 rounded-full", checkTint(c.conclusion))} />
+                          {c.url ? (
+                            <a
+                              href={c.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="min-w-0 flex-1 truncate hover:text-foreground hover:underline"
+                            >
+                              {c.name}
+                            </a>
+                          ) : (
+                            <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                          )}
+                          <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
+                            {c.conclusion.toLowerCase().replace(/_/g, " ")}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
 
                 {reviewers.length > 0 ? (
@@ -376,6 +424,14 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                       )}
                       Merge
                     </Button>
+                    <Button size="sm" variant="outline" className="w-full" onClick={doDraft} disabled={prBusy !== null}>
+                      {prBusy === "draft" ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <GitPullRequestDraft className="size-4" />
+                      )}
+                      {detail.draft ? "Mark ready for review" : "Convert to draft"}
+                    </Button>
                     <Button size="sm" variant="outline" className="w-full" onClick={doClose} disabled={prBusy !== null}>
                       {prBusy === "close" ? <Loader2 className="size-4 animate-spin" /> : null}
                       Close
@@ -396,6 +452,7 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                     ) : (
                       <p className="text-sm italic text-muted-foreground">No description.</p>
                     )}
+                    <ReactionBar subjectId={detail.nodeId} reactions={detail.bodyReactions} onChanged={reload} />
                   </div>
                 </section>
 

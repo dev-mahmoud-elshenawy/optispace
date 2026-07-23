@@ -6,7 +6,7 @@ import { Octokit } from "@octokit/rest";
 import { db } from "@/lib/db";
 import { sanitizeHtml } from "@/features/integrations/azure-devops/service";
 
-import type { DiffFile, DiffLine, PrCommit, PullRequestDetail, ReactionGroup, TimelineItem } from "./types";
+import type { CheckRun, DiffFile, DiffLine, PrCommit, PullRequestDetail, ReactionGroup, TimelineItem } from "./types";
 
 // The GitHub token comes ONLY from the OAuth device-flow connection (DB, single-row
 // GithubAuth). No .env, no PAT. Not connected → null → the sync no-ops.
@@ -152,6 +152,7 @@ function toDto(node: SearchNode, relation: PullRequestRelation): PullRequestDTO 
 // GitHub returns `bodyHTML` (server-rendered markdown); we still sanitize it on our side
 // (shared ADO allowlist) before it reaches the client.
 const PR_DETAIL_FIELDS = `
+  id
   number
   title
   url
@@ -159,6 +160,7 @@ const PR_DETAIL_FIELDS = `
   isDraft
   merged
   bodyHTML
+  reactionGroups { content viewerHasReacted reactors { totalCount } }
   additions
   deletions
   changedFiles
@@ -171,7 +173,11 @@ const PR_DETAIL_FIELDS = `
   reviewDecision
   repository { nameWithOwner }
   headRepository { nameWithOwner }
-  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+  commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { nodes {
+    __typename
+    ... on CheckRun { name conclusion status detailsUrl }
+    ... on StatusContext { context state targetUrl }
+  } } } } } }
   comments(last: 100) { nodes { id databaseId author { login } bodyHTML body createdAt reactionGroups { content viewerHasReacted reactors { totalCount } } } }
   reviews(last: 50) { nodes { author { login } state bodyHTML createdAt } }
   reviewThreads(first: 100) {
@@ -218,6 +224,16 @@ function mapReactions(groups: ReactionGroupNode[] | undefined): ReactionGroup[] 
     .map((g) => ({ content: g.content, count: g.reactors.totalCount, viewerReacted: g.viewerHasReacted }));
 }
 
+// Flatten statusCheckRollup.contexts into a normalized CheckRun[]. CheckRuns use
+// conclusion (falling back to status while still running); StatusContexts use state.
+function mapChecks(nodes: CheckContextNode[] | undefined): CheckRun[] {
+  return (nodes ?? []).map((n) =>
+    n.__typename === "CheckRun"
+      ? { name: n.name ?? "check", conclusion: (n.conclusion ?? n.status ?? "PENDING").toUpperCase(), url: n.detailsUrl ?? null }
+      : { name: n.context ?? "status", conclusion: (n.state ?? "PENDING").toUpperCase(), url: n.targetUrl ?? null },
+  );
+}
+
 interface ThreadNode {
   id: string;
   isResolved: boolean;
@@ -252,7 +268,20 @@ interface TimelineNode {
   assignee?: { login?: string } | null;
 }
 
+// One entry in statusCheckRollup.contexts — a CheckRun (Actions/apps) or legacy StatusContext.
+type CheckContextNode = {
+  __typename: string;
+  name?: string;
+  conclusion?: string | null;
+  status?: string;
+  detailsUrl?: string | null;
+  context?: string;
+  state?: string;
+  targetUrl?: string | null;
+};
+
 interface DetailNode {
+  id: string;
   number: number;
   title: string;
   url: string;
@@ -260,6 +289,7 @@ interface DetailNode {
   isDraft: boolean;
   merged: boolean;
   bodyHTML: string;
+  reactionGroups?: ReactionGroupNode[];
   additions: number;
   deletions: number;
   changedFiles: number;
@@ -272,7 +302,7 @@ interface DetailNode {
   reviewDecision: string | null;
   repository: { nameWithOwner: string } | null;
   headRepository: { nameWithOwner: string } | null;
-  commits: { nodes: { commit: { statusCheckRollup: { state: string } | null } }[] };
+  commits: { nodes: { commit: { statusCheckRollup: { state: string; contexts: { nodes: CheckContextNode[] } } | null } }[] };
   comments: { nodes: { id: string; databaseId: number | null; author: { login: string } | null; bodyHTML: string; body: string; createdAt: string; reactionGroups?: ReactionGroupNode[] }[] };
   reviews: { nodes: { author: { login: string } | null; state: string; bodyHTML: string; createdAt: string }[] };
   reviewThreads: { nodes: ThreadNode[] };
@@ -320,8 +350,10 @@ export async function fetchPullRequestDetail(
 }
 
 function mapDetail(pr: DetailNode, repo: string, viewerLogin: string): PullRequestDetail {
+  const rollup = pr.commits.nodes[0]?.commit.statusCheckRollup ?? null;
   return {
     repo,
+    nodeId: pr.id,
     viewerLogin,
     number: pr.number,
     title: pr.title,
@@ -335,11 +367,13 @@ function mapDetail(pr: DetailNode, repo: string, viewerLogin: string): PullReque
     headRepo: pr.headRepository?.nameWithOwner ?? repo,
     headOid: pr.headRefOid,
     reviewDecision: pr.reviewDecision,
-    checksStatus: pr.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
+    checksStatus: rollup?.state ?? null,
+    checks: mapChecks(rollup?.contexts.nodes),
     additions: pr.additions,
     deletions: pr.deletions,
     changedFiles: pr.changedFiles,
     bodyHtml: pr.bodyHTML ? sanitizeHtml(pr.bodyHTML) : "",
+    bodyReactions: mapReactions(pr.reactionGroups),
     createdAt: pr.createdAt,
     updatedAt: pr.updatedAt,
     comments: pr.comments.nodes.map((c) => ({
@@ -755,6 +789,15 @@ export async function toggleReaction(token: string, subjectId: string, content: 
     ? `mutation ($id: ID!, $c: ReactionContent!) { addReaction(input: { subjectId: $id, content: $c }) { reaction { id } } }`
     : `mutation ($id: ID!, $c: ReactionContent!) { removeReaction(input: { subjectId: $id, content: $c }) { reaction { id } } }`;
   await client(mutation, { id: subjectId, c: content });
+}
+
+// Flip a PR between draft and ready-for-review (keyed on the PR node id).
+export async function setPullRequestDraft(token: string, nodeId: string, draft: boolean): Promise<void> {
+  const client = graphql.defaults({ headers: { authorization: `token ${token}` } });
+  const mutation = draft
+    ? `mutation ($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { pullRequest { id } } }`
+    : `mutation ($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { id } } }`;
+  await client(mutation, { id: nodeId });
 }
 
 // Merge the PR (merge | squash | rebase).

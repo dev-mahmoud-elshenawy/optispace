@@ -124,7 +124,8 @@ export function EditableComment({
 }
 
 // GitHub-style reaction bar: existing reactions as toggle pills + a picker for the 8 types.
-function ReactionBar({
+// Exported so the PR body (and any other Reactable subject) can reuse it, not just comments.
+export function ReactionBar({
   subjectId,
   reactions,
   onChanged,

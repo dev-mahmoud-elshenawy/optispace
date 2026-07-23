@@ -25,6 +25,7 @@ import {
   mergePullRequest,
   replyReviewComment,
   resolveGithubToken,
+  setPullRequestDraft,
   setThreadResolved,
   submitReview,
   submitReviewWithComments,
@@ -315,6 +316,11 @@ export async function searchPrMentionUsers(repo: string, query: string): Promise
 
 export async function mergePr(repo: string, number: number, method: "merge" | "squash" | "rebase"): Promise<PrWriteResult> {
   return withGithubToken((t) => mergePullRequest(t, repo, number, method));
+}
+
+// Convert a PR to draft (draft=true) or mark it ready for review (draft=false).
+export async function setPrDraft(nodeId: string, draft: boolean): Promise<PrWriteResult> {
+  return withGithubToken((t) => setPullRequestDraft(t, nodeId, draft));
 }
 
 export async function closePr(repo: string, number: number): Promise<PrWriteResult> {

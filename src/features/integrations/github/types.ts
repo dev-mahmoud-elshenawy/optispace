@@ -122,6 +122,15 @@ export interface PrCommit {
   date: string; // ISO
 }
 
+// One CI check in the statusCheckRollup breakdown (a CheckRun or a legacy StatusContext,
+// normalized). `conclusion` is an uppercase status: SUCCESS | FAILURE | ERROR | PENDING |
+// NEUTRAL | SKIPPED | ... — mapped to an icon/tint in the UI.
+export interface CheckRun {
+  name: string;
+  conclusion: string;
+  url: string | null;
+}
+
 // One changed file with its parsed diff.
 export interface DiffFile {
   path: string;
@@ -134,6 +143,7 @@ export interface DiffFile {
 
 export interface PullRequestDetail {
   repo: string; // canonical owner/name (from GraphQL) — safe for REST calls
+  nodeId: string; // the PR's GraphQL node id — subjectId for body reactions
   number: number;
   title: string;
   url: string;
@@ -152,6 +162,8 @@ export interface PullRequestDetail {
   deletions: number;
   changedFiles: number;
   bodyHtml: string; // sanitized; empty string when the PR has no description
+  bodyReactions: ReactionGroup[]; // reactions on the PR body itself (PullRequest is Reactable)
+  checks: CheckRun[]; // per-check breakdown of the CI statusCheckRollup
   createdAt: string; // ISO
   updatedAt: string; // ISO
   comments: PullRequestComment[];
