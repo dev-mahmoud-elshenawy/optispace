@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Download, ExternalLink, Paperclip, Plus, Trash2 } from "lucide-react";
+import { Check, Copy, Download, ExternalLink, Eye, EyeOff, Paperclip, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,49 @@ import {
   deleteProjectFeedback,
   deleteProjectLink,
 } from "../actions";
+
+// A credential line: label + value, with copy-to-clipboard. `masked` hides the value
+// behind dots until the eye is toggled (for secrets); usernames render in the clear.
+function CredentialRow({ label, value, masked = false }: { label: string; value: string; masked?: boolean }) {
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      toast.error("Couldn't copy to clipboard.");
+    }
+  }
+
+  const shown = masked && !revealed;
+  return (
+    <div className="flex items-center gap-1.5">
+      <span>{label}:</span>
+      <span className="font-mono text-foreground">{shown ? "••••••••" : value}</span>
+      {masked ? (
+        <button
+          type="button"
+          onClick={() => setRevealed((v) => !v)}
+          aria-label={revealed ? "Hide" : "Reveal"}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          {revealed ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={copy}
+        aria-label={`Copy ${label}`}
+        className="text-muted-foreground hover:text-foreground"
+      >
+        {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+      </button>
+    </div>
+  );
+}
 
 // ── Links ────────────────────────────────────────────────────
 export function ProjectLinks({ projectId, links }: { projectId: string; links: ProjectLinkItem[] }) {
@@ -95,8 +138,8 @@ export function ProjectLinks({ projectId, links }: { projectId: string; links: P
           </div>
           {link.username || link.secret || link.notes ? (
             <div className="mt-1 space-y-0.5 pl-1 text-xs text-muted-foreground">
-              {link.username ? <div>user: <span className="font-mono text-foreground">{link.username}</span></div> : null}
-              {link.secret ? <div>secret: <span className="font-mono text-foreground">{link.secret}</span></div> : null}
+              {link.username ? <CredentialRow label="user" value={link.username} /> : null}
+              {link.secret ? <CredentialRow label="secret" value={link.secret} masked /> : null}
               {link.notes ? <div>{link.notes}</div> : null}
             </div>
           ) : null}

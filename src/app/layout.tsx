@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Sidebar } from "@/components/layout/sidebar";
 import { CommandPalette } from "@/components/layout/command-palette";
+import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { Toaster } from "@/components/ui/sonner";
 import { getSearchIndex } from "@/features/search/queries";
 import { AzureDevOpsAutoSync } from "@/features/integrations/azure-devops/auto-sync";
@@ -41,6 +42,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
           </div>
           <CommandPalette items={searchIndex} />
+          <KeyboardShortcuts />
           {/* Always on — due-date reminders have no external dependency, and ADO/Calendar
               syncs already no-op gracefully when their own config is missing. */}
           <AzureDevOpsAutoSync enabled />
