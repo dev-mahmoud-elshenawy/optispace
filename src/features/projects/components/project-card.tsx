@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bookmark, ChevronRight, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { Bookmark, ChevronRight, ExternalLink, FileDown, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -163,6 +163,11 @@ export function ProjectCard({ project: initialProject, tasks, files, links, feed
             title={project.pinned ? "Bookmarked — shows first" : "Bookmark to show first"}
           >
             <Bookmark className={cn(project.pinned && "fill-amber-400 text-amber-500")} />
+          </Button>
+          <Button variant="ghost" size="icon-sm" asChild title="Download Markdown status report">
+            <a href={`/api/project-report?id=${project.id}`} download aria-label="Download status report">
+              <FileDown />
+            </a>
           </Button>
           <ProjectFormDialog
             mode="edit"
