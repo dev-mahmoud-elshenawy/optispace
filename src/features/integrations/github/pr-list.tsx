@@ -53,14 +53,13 @@ export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [repoFilter, setRepoFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
 
   const repos = useMemo(() => [...new Set(prs.map((p) => p.repo))].sort(), [prs]);
   const filtered = useMemo(
-    () => prs.filter((pr) => matchesFilters(pr, query, repoFilter, statusFilter)),
-    [prs, query, repoFilter, statusFilter],
+    () => prs.filter((pr) => matchesFilters(pr, query, repoFilter)),
+    [prs, query, repoFilter],
   );
-  const filtering = query.trim() !== "" || repoFilter !== "all" || statusFilter !== "all";
+  const filtering = query.trim() !== "" || repoFilter !== "all";
 
   function openPr(pr: PullRequestView) {
     setSelected(pr);
@@ -70,7 +69,6 @@ export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
   function clearFilters() {
     setQuery("");
     setRepoFilter("all");
-    setStatusFilter("all");
   }
 
   return (
@@ -97,19 +95,6 @@ export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
                   {r}
                 </SelectItem>
               ))}
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[11rem]">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Any status</SelectItem>
-              <SelectItem value="review_required">Needs review</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
-              <SelectItem value="changes_requested">Changes requested</SelectItem>
-              <SelectItem value="checks_failing">Checks failing</SelectItem>
-              <SelectItem value="draft">Draft</SelectItem>
             </SelectContent>
           </Select>
           {filtering ? (
@@ -249,16 +234,11 @@ function StatusBadge({ k, label, className }: { k: string; label: string; classN
   );
 }
 
-// Client-side filter: repo + a derived review/checks status + a free-text match across the
-// fields on the card (title, repo, author, branches, #number).
-function matchesFilters(pr: PullRequestView, query: string, repo: string, status: string): boolean {
+// Client-side filter: repo + a free-text match across the fields on the card
+// (title, repo, author, branches, #number). Review/CI decision states aren't filterable
+// because they're mostly null for these repos (no required reviews) — see AGENTS.md.
+function matchesFilters(pr: PullRequestView, query: string, repo: string): boolean {
   if (repo !== "all" && pr.repo !== repo) return false;
-  if (status === "draft" && !pr.draft) return false;
-  if (status === "approved" && pr.reviewDecision !== "APPROVED") return false;
-  if (status === "changes_requested" && pr.reviewDecision !== "CHANGES_REQUESTED") return false;
-  // Strict: GitHub sends reviewDecision=null when no review is required, so null is NOT "needs review".
-  if (status === "review_required" && pr.reviewDecision !== "REVIEW_REQUIRED") return false;
-  if (status === "checks_failing" && pr.checksStatus !== "FAILURE" && pr.checksStatus !== "ERROR") return false;
   const q = query.trim().toLowerCase();
   if (q) {
     const hay = `${pr.title} ${pr.repo} ${pr.author} ${pr.headBranch} ${pr.baseBranch} #${pr.number}`.toLowerCase();
