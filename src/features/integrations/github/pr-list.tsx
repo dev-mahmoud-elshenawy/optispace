@@ -256,7 +256,8 @@ function matchesFilters(pr: PullRequestView, query: string, repo: string, status
   if (status === "draft" && !pr.draft) return false;
   if (status === "approved" && pr.reviewDecision !== "APPROVED") return false;
   if (status === "changes_requested" && pr.reviewDecision !== "CHANGES_REQUESTED") return false;
-  if (status === "review_required" && !(pr.reviewDecision === "REVIEW_REQUIRED" || pr.reviewDecision == null)) return false;
+  // Strict: GitHub sends reviewDecision=null when no review is required, so null is NOT "needs review".
+  if (status === "review_required" && pr.reviewDecision !== "REVIEW_REQUIRED") return false;
   if (status === "checks_failing" && pr.checksStatus !== "FAILURE" && pr.checksStatus !== "ERROR") return false;
   const q = query.trim().toLowerCase();
   if (q) {

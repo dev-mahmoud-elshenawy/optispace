@@ -6,22 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createProfile, updateProfile } from "@/features/profiles/actions";
 import { ProfileIcon } from "@/features/profiles/components/profile-icon";
-import { PROFILE_ICON_KEYS, profileSchema, type ProfileIconKey } from "@/features/profiles/schema";
-import type { ProfileView } from "@/features/profiles/service";
-
-const ICON_LABELS: Record<ProfileIconKey, string> = {
-  github: "GitHub",
-  linkedin: "LinkedIn",
-  x: "X",
-  medium: "Medium",
-  npm: "npm",
-  pubdev: "pub.dev",
-  globe: "Website",
-  mail: "Email",
-};
+import { profileSchema } from "@/features/profiles/schema";
+import { detectProfileIcon, type ProfileView } from "@/features/profiles/service";
 
 interface ProfileFormDialogProps {
   open: boolean;
@@ -33,7 +21,6 @@ export function ProfileFormDialog({ open, onOpenChange, profile }: ProfileFormDi
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
   const [username, setUsername] = useState("");
-  const [icon, setIcon] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -42,17 +29,16 @@ export function ProfileFormDialog({ open, onOpenChange, profile }: ProfileFormDi
     setLabel(profile?.label ?? "");
     setUrl(profile?.url ?? "");
     setUsername(profile?.username ?? "");
-    setIcon(profile?.icon ?? undefined);
     setError(null);
   }, [open, profile]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Icon is derived from the URL at read time (see toProfileView) — nothing to submit.
     const parsed = profileSchema.safeParse({
       label,
       url,
       username: username || undefined,
-      icon,
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Invalid input");
@@ -86,12 +72,19 @@ export function ProfileFormDialog({ open, onOpenChange, profile }: ProfileFormDi
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="profile-url">URL</Label>
-            <Input
-              id="profile-url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://github.com/you"
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                <ProfileIcon icon={detectProfileIcon(url)} className="size-4" />
+              </span>
+              <Input
+                id="profile-url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://github.com/you"
+                className="pl-8"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">The platform logo is detected automatically from the link.</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="profile-username">Username</Label>
@@ -101,22 +94,6 @@ export function ProfileFormDialog({ open, onOpenChange, profile }: ProfileFormDi
               onChange={(e) => setUsername(e.target.value)}
               placeholder="you"
             />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="profile-icon">Icon</Label>
-            <Select value={icon} onValueChange={setIcon}>
-              <SelectTrigger id="profile-icon" className="w-full">
-                <SelectValue placeholder="Choose an icon" />
-              </SelectTrigger>
-              <SelectContent>
-                {PROFILE_ICON_KEYS.map((key) => (
-                  <SelectItem key={key} value={key}>
-                    <ProfileIcon icon={key} className="size-4" />
-                    {ICON_LABELS[key]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <DialogFooter>

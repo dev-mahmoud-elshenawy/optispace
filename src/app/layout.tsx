@@ -34,6 +34,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         />
       </head>
       <body suppressHydrationWarning className="h-dvh overflow-hidden bg-background text-foreground">
+        {/* App-wide ambient backdrop — a faint grid + top glow that shows through the
+            translucent sidebar and cards, giving every page depth (not just the dashboard). */}
+        <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
+          <div className="absolute inset-0 bg-grid opacity-40" />
+          <div className="absolute -top-48 left-1/2 h-[34rem] w-[62rem] -translate-x-1/2 rounded-full bg-primary/[0.05] blur-[150px]" />
+        </div>
         <ThemeProvider>
           <div className="flex h-full">
             <Sidebar />

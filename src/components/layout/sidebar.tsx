@@ -15,7 +15,7 @@ export function Sidebar() {
     <aside className="flex h-dvh w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar/80 backdrop-blur-xl">
       <div className="flex items-center justify-between px-5 py-5">
         <Link href="/" className="flex items-center gap-2.5 font-heading text-lg font-bold tracking-tight">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground shadow-lg shadow-primary/30">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-primary to-chart-2 text-white shadow-lg shadow-primary/30">
             O
           </span>
           <span className="text-gradient">OptiSpace</span>

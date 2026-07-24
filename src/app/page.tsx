@@ -17,6 +17,7 @@ import { todayCalendarEvents } from "@/features/calendar/queries";
 import { listPullRequests } from "@/features/integrations/github/queries";
 import { DayPreviewCard } from "@/components/dashboard/day-preview-card";
 import { DashboardCharts } from "@/features/dashboard/components/dashboard-charts";
+import { ProfileIcon } from "@/features/profiles/components/profile-icon";
 
 export default async function DashboardPage() {
   const now = new Date();
@@ -25,9 +26,7 @@ export default async function DashboardPage() {
   const endToday = new Date(year, now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const startTomorrow = new Date(year, now.getMonth(), now.getDate() + 1);
   const endTomorrow = new Date(year, now.getMonth(), now.getDate() + 1, 23, 59, 59, 999);
-  const startWeek = new Date(year, now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7)); // Monday
-  const endWeek = new Date(startWeek.getTime() + 7 * 86_400_000 - 1);
-  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents, tomorrowEvents, pullRequests, weekEvents] = await Promise.all([
+  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents, tomorrowEvents, pullRequests] = await Promise.all([
     listProfiles(),
     getLeaveSummary(year),
     getTaskStatusCounts(),
@@ -40,15 +39,9 @@ export default async function DashboardPage() {
     todayCalendarEvents(startToday, endToday),
     todayCalendarEvents(startTomorrow, endTomorrow),
     listPullRequests(),
-    todayCalendarEvents(startWeek, endWeek),
   ]);
   const topPullRequests = pullRequests.slice(0, 12);
   const hasPRs = topPullRequests.length > 0;
-  const weekTasksDone = tasks.filter((t) => t.status === "done" && t.updatedAt >= startWeek).length;
-  // Approx: counts a leave's full length if it overlaps the week at all (ponytail: good enough for a digest).
-  const weekLeaveDays = leaves
-    .filter((l) => l.startDate <= endWeek && l.endDate >= startWeek)
-    .reduce((n, l) => n + l.days, 0);
   // "Today's focus" — the day's urgent items, surfaced in one strip at the top.
   const upcomingMeetings = todayEvents.filter((e) => new Date(e.end) >= now);
   const prsToReview = pullRequests.filter(
@@ -190,22 +183,6 @@ export default async function DashboardPage() {
             <StatCard href="/projects" icon={<GitBranch className="size-5" />} label="Active projects" value={`${activeProjects.length}`} sub={`${projects.length} total`} delay={140} />
             <StatCard href="/packages" icon={<PackageIcon className="size-5" />} label="Packages" value={`${packageCount}`} sub="published" delay={210} />
           </div>
-
-          <div className={`space-y-2 ${enter}`} style={{ animationDelay: "280ms" }}>
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">This week</p>
-            <div className="grid grid-cols-3 divide-x divide-border/60 overflow-hidden rounded-2xl border border-border/60 bg-card/50 backdrop-blur">
-              {[
-                { label: "tasks done", value: weekTasksDone },
-                { label: "meetings", value: weekEvents.length },
-                { label: "leave days", value: weekLeaveDays },
-              ].map((m) => (
-                <div key={m.label} className="px-4 py-5 text-center">
-                  <div className="font-mono text-3xl font-semibold tabular-nums text-foreground">{m.value}</div>
-                  <div className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">{m.label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
         </section>
 
         {/* ─── 02 Focus — bento grid of scrollable panels ─── */}
@@ -283,6 +260,7 @@ export default async function DashboardPage() {
                 profiles.map((pr) => (
                   <Button key={pr.id} asChild variant="outline" size="sm">
                     <a href={pr.url} target="_blank" rel="noreferrer">
+                      <ProfileIcon icon={pr.icon} className="size-3.5" />
                       {pr.label}
                       <ExternalLink className="ml-1 h-3 w-3" />
                     </a>
