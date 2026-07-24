@@ -50,6 +50,9 @@ prisma/*.db-journal
 
 # Tooling
 .omc/
+.claude-flow/
+.claude/
+.history/
 
 # Lockfile (ignored per project preference)
 package-lock.json
