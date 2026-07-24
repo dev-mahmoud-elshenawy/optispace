@@ -13,10 +13,13 @@ import {
   createIssueComment,
   createReviewComment,
   deleteIssueComment,
+  fetchIssueSuggestions,
   fetchMentionableUsers,
+  requestReviewers,
   deleteReviewCommentById,
   fetchCommitFiles,
   fetchCommitRangeFiles,
+  fetchPullRequestConflicts,
   fetchMyPullRequests,
   fetchPullRequestCommits,
   fetchPullRequestDetail,
@@ -253,6 +256,25 @@ export async function getCommitRangeFiles(
   }
 }
 
+// Likely-conflicting files (files touched on both sides since the merge base) — lazily loaded by the
+// merge panel only when the PR is CONFLICTING, so a clean PR never pays for the two compare calls.
+export type GetPrConflictsResult = { ok: true; files: string[] } | { ok: false; error: string };
+
+export async function getPullRequestConflicts(
+  repo: string,
+  baseBranch: string,
+  headOid: string,
+): Promise<GetPrConflictsResult> {
+  const token = await resolveGithubToken();
+  if (!token) return { ok: false, error: "GitHub is not connected." };
+  try {
+    const files = await fetchPullRequestConflicts(token, repo, baseBranch, headOid);
+    return { ok: true, files };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to inspect conflicts." };
+  }
+}
+
 // Commits in the PR, for the Code-tab commit picker.
 export type GetPullRequestCommitsResult = { ok: true; commits: PrCommit[] } | { ok: false; error: string };
 
@@ -327,6 +349,22 @@ export async function searchPrMentionUsers(repo: string, query: string): Promise
   const token = await resolveGithubToken();
   if (!token) return [];
   return fetchMentionableUsers(token, repo, query);
+}
+
+// Autocomplete source for `#`-issue/PR references in the composers. Returns [] when not connected.
+export async function searchPrIssueRefs(
+  repo: string,
+  query: string,
+): Promise<{ number: number; title: string; kind: "issue" | "pr" }[]> {
+  const token = await resolveGithubToken();
+  if (!token) return [];
+  return fetchIssueSuggestions(token, repo, query);
+}
+
+// Re-request a review from previously-listed reviewers (GitHub's circular-arrow affordance).
+export async function reRequestReview(repo: string, number: number, logins: string[]): Promise<PrWriteResult> {
+  if (logins.length === 0) return { ok: false, error: "No reviewer selected." };
+  return withGithubToken((t) => requestReviewers(t, repo, number, logins));
 }
 
 export async function mergePr(repo: string, number: number, method: "merge" | "squash" | "rebase"): Promise<PrWriteResult> {

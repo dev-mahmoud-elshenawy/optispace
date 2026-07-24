@@ -3,16 +3,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import {
+  AlertTriangle,
   ArrowRight,
   Check,
   ChevronRight,
   ExternalLink,
+  FileWarning,
   GitBranch,
   GitMerge,
   GitPullRequest,
   GitPullRequestDraft,
   Loader2,
   MessageSquare,
+  RefreshCw,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -24,12 +27,29 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-import { addPrComment, closePr, getPullRequestDetail, mergePr, setPrDraft } from "./actions";
+import {
+  addPrComment,
+  closePr,
+  getPullRequestConflicts,
+  getPullRequestDetail,
+  mergePr,
+  reRequestReview,
+  setPrDraft,
+} from "./actions";
 import { MentionTextarea } from "./mention-textarea";
 import { EditableComment, ReactionBar } from "./pr-comment";
 import { PrCode } from "./pr-code";
 import { PrTimeline } from "./pr-timeline";
-import { CHECKS_BADGE, REVIEW_BADGE, type CheckRun, type PullRequestDetail, type PullRequestReview, type ReviewThread } from "./types";
+import {
+  CHECKS_BADGE,
+  mergeStateMeta,
+  REVIEW_BADGE,
+  type CheckRun,
+  type MergeTone,
+  type PullRequestDetail,
+  type PullRequestReview,
+  type ReviewThread,
+} from "./types";
 
 // CI check conclusion → dot tint. Anything unknown/running reads as amber.
 function checkTint(conclusion: string): string {
@@ -40,6 +60,14 @@ function checkTint(conclusion: string): string {
   if (conclusion === "NEUTRAL" || conclusion === "SKIPPED") return "bg-muted-foreground";
   return "bg-amber-500"; // PENDING / IN_PROGRESS / QUEUED / EXPECTED / ACTION_REQUIRED
 }
+
+// Merge-status tone → icon + colour classes for the merge panel.
+const MERGE_TONE: Record<MergeTone, { Icon: typeof Check; text: string; ring: string }> = {
+  clean: { Icon: GitMerge, text: "text-emerald-600 dark:text-emerald-400", ring: "border-emerald-500/30 bg-emerald-500/[0.04]" },
+  conflict: { Icon: AlertTriangle, text: "text-destructive", ring: "border-destructive/30 bg-destructive/[0.04]" },
+  blocked: { Icon: AlertTriangle, text: "text-amber-600 dark:text-amber-400", ring: "border-amber-500/30 bg-amber-500/[0.04]" },
+  unknown: { Icon: Loader2, text: "text-muted-foreground", ring: "border-border bg-muted/30" },
+};
 
 // Rendered PR/comment HTML is sanitized server-side (shared ADO allowlist) before it gets here.
 const htmlBox =
@@ -124,6 +152,9 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
   const [commentBusy, setCommentBusy] = useState(false);
   const [mergeMethod, setMergeMethod] = useState<"squash" | "merge" | "rebase">("squash");
   const [prBusy, setPrBusy] = useState<null | string>(null);
+  const [reReqBusy, setReReqBusy] = useState<string | null>(null);
+  const [conflictFiles, setConflictFiles] = useState<string[] | null>(null);
+  const [conflictBusy, setConflictBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -164,6 +195,32 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
       }
     });
   }, [nodeId, repo, number]);
+
+  // GitHub computes `mergeable` asynchronously — the first fetch often returns UNKNOWN. Re-poll
+  // once after a short delay (like GitHub's own merge box) so the status settles without a manual refresh.
+  useEffect(() => {
+    if (!open || detail?.mergeable !== "UNKNOWN") return;
+    const timer = setTimeout(reload, 2500);
+    return () => clearTimeout(timer);
+  }, [open, detail?.mergeable, reload]);
+
+  // Only inspect conflicts when the PR actually conflicts — a clean PR never pays the two compare calls.
+  useEffect(() => {
+    if (!open || !detail || detail.mergeable !== "CONFLICTING") {
+      setConflictFiles(null);
+      return;
+    }
+    let active = true;
+    setConflictBusy(true);
+    getPullRequestConflicts(detail.repo, detail.baseBranch, detail.headOid).then((res) => {
+      if (!active) return;
+      setConflictFiles(res.ok ? res.files : []);
+      setConflictBusy(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [open, detail?.repo, detail?.baseBranch, detail?.headOid, detail?.mergeable, detail]);
 
   async function postComment() {
     if (!detail) return;
@@ -219,9 +276,26 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
     reload();
   }
 
+  async function doReRequest(login: string) {
+    if (!detail) return;
+    setReReqBusy(login);
+    const res = await reRequestReview(detail.repo, detail.number, [login]);
+    setReReqBusy(null);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(`Re-requested review from ${login}.`);
+    reload();
+  }
+
   const review = detail?.reviewDecision ? REVIEW_BADGE[detail.reviewDecision] : null;
   const checks = detail?.checksStatus ? CHECKS_BADGE[detail.checksStatus] : null;
   const state = detail ? stateMeta(detail) : null;
+  const merge = detail ? mergeStateMeta(detail.mergeable, detail.mergeStateStatus) : null;
+  const mergeTone = merge ? MERGE_TONE[merge.tone] : null;
+  const MergeIcon = mergeTone?.Icon;
+  const hasConflict = merge?.tone === "conflict";
   const reviewers = detail ? reviewerSummary(detail.reviews) : [];
   const diffTotal = detail ? detail.additions + detail.deletions : 0;
   const convos = detail ? detail.reviewThreads.filter((t) => t.comments.length > 0) : [];
@@ -340,11 +414,28 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                     <SectionLabel>Reviewers</SectionLabel>
                     {reviewers.map(([name, st]) => {
                       const mark = reviewMark(st);
+                      // Re-request only makes sense on an open PR, and never from yourself (422).
+                      const canReRequest = detail.state === "open" && !detail.merged && name !== detail.viewerLogin;
                       return (
                         <div key={name} className="flex items-center gap-2 text-sm">
                           <InitialAvatar name={name} />
                           <span className="min-w-0 flex-1 truncate">{name}</span>
                           <mark.Icon className={cn("size-4 shrink-0", mark.cls)} />
+                          {canReRequest ? (
+                            <button
+                              type="button"
+                              onClick={() => doReRequest(name)}
+                              disabled={reReqBusy !== null}
+                              title="Re-request review"
+                              className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                            >
+                              {reReqBusy === name ? (
+                                <Loader2 className="size-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="size-3.5" />
+                              )}
+                            </button>
+                          ) : null}
                         </div>
                       );
                     })}
@@ -397,6 +488,52 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                   </div>
                 ) : null}
 
+                {detail.state === "open" && !detail.merged && merge && mergeTone && MergeIcon ? (
+                  <div className={cn("space-y-2 rounded-lg border p-3", mergeTone.ring)}>
+                    <SectionLabel>Merge</SectionLabel>
+                    <div className="flex items-start gap-2">
+                      <MergeIcon
+                        className={cn("mt-0.5 size-4 shrink-0", mergeTone.text, merge.tone === "unknown" && "animate-spin")}
+                      />
+                      <div className="min-w-0 space-y-0.5">
+                        <p className={cn("text-sm font-medium", mergeTone.text)}>{merge.headline}</p>
+                        <p className="text-xs text-muted-foreground">{merge.detail}</p>
+                      </div>
+                    </div>
+                    {hasConflict ? (
+                      <div className="space-y-1 border-t border-destructive/20 pt-2">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                          <FileWarning className="size-3.5 shrink-0" />
+                          {conflictBusy
+                            ? "Finding conflicting files…"
+                            : conflictFiles && conflictFiles.length > 0
+                              ? `${conflictFiles.length} file${conflictFiles.length === 1 ? "" : "s"} to resolve`
+                              : "Conflicting files"}
+                        </div>
+                        {conflictBusy ? (
+                          <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                        ) : conflictFiles && conflictFiles.length > 0 ? (
+                          <ul className="max-h-40 space-y-0.5 overflow-y-auto">
+                            {conflictFiles.map((f) => (
+                              <li
+                                key={f}
+                                className="truncate rounded bg-destructive/5 px-1.5 py-0.5 font-mono text-[11px]"
+                                title={f}
+                              >
+                                {f}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground">
+                            Resolve the conflicts (locally or on GitHub), then Sync.
+                          </p>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {detail.state === "open" && !detail.merged ? (
                   <div className="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.03] p-3">
                     <SectionLabel>Actions</SectionLabel>
@@ -416,13 +553,13 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
                         <SelectItem value="rebase">Rebase &amp; merge</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Button size="sm" className="w-full" onClick={doMerge} disabled={prBusy !== null}>
+                    <Button size="sm" className="w-full" onClick={doMerge} disabled={prBusy !== null || hasConflict}>
                       {prBusy === "merge" ? (
                         <Loader2 className="size-4 animate-spin" />
                       ) : (
                         <GitMerge className="size-4" />
                       )}
-                      Merge
+                      {hasConflict ? "Resolve conflicts to merge" : "Merge"}
                     </Button>
                     <Button size="sm" variant="outline" className="w-full" onClick={doDraft} disabled={prBusy !== null}>
                       {prBusy === "draft" ? (

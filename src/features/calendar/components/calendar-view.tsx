@@ -193,7 +193,12 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
       ) : (
         <div className="rounded-xl border border-border/60">
           {dayEvents.length === 0 ? (
-            <p className="py-12 text-center text-sm text-muted-foreground">No meetings on this day.</p>
+            <div className="flex flex-col items-center justify-center gap-2.5 py-12 text-center">
+              <span className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
+                <Clock className="size-5" />
+              </span>
+              <p className="text-sm text-muted-foreground">No meetings on this day.</p>
+            </div>
           ) : (
             <div className="divide-y divide-border/50">
               {dayEvents.map((e) => (

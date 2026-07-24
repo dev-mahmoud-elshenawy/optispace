@@ -183,9 +183,12 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
 
   if (rows.length === 0) {
     return (
-      <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        No notifications yet.
-      </p>
+      <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/70 py-16 text-center">
+        <span className="grid size-12 place-items-center rounded-full bg-emerald-500/10 text-emerald-500">
+          <BellRing className="size-6" />
+        </span>
+        <p className="text-sm text-muted-foreground">No notifications yet — you&apos;re all caught up.</p>
+      </div>
     );
   }
 
@@ -310,9 +313,14 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          No {typeFilter === "all" ? "" : `${NOTIFICATION_LABELS[typeFilter].toLowerCase()} `}notifications.
-        </p>
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/70 py-14 text-center">
+          <span className="grid size-11 place-items-center rounded-full bg-muted text-muted-foreground">
+            <BellRing className="size-5" />
+          </span>
+          <p className="text-sm text-muted-foreground">
+            No {typeFilter === "all" ? "" : `${NOTIFICATION_LABELS[typeFilter].toLowerCase()} `}notifications.
+          </p>
+        </div>
       ) : null}
 
       {buckets

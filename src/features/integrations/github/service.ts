@@ -177,6 +177,8 @@ const PR_DETAIL_FIELDS = `
   baseRefName
   headRefName
   reviewDecision
+  mergeable
+  mergeStateStatus
   repository { nameWithOwner }
   headRepository { nameWithOwner }
   commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { nodes {
@@ -306,6 +308,8 @@ interface DetailNode {
   baseRefName: string;
   headRefName: string;
   reviewDecision: string | null;
+  mergeable: string | null;
+  mergeStateStatus: string | null;
   repository: { nameWithOwner: string } | null;
   headRepository: { nameWithOwner: string } | null;
   commits: { nodes: { commit: { statusCheckRollup: { state: string; contexts: { nodes: CheckContextNode[] } } | null } }[] };
@@ -374,6 +378,8 @@ function mapDetail(pr: DetailNode, repo: string, viewerLogin: string): PullReque
     headOid: pr.headRefOid,
     reviewDecision: pr.reviewDecision,
     checksStatus: rollup?.state ?? null,
+    mergeable: pr.mergeable ?? null,
+    mergeStateStatus: pr.mergeStateStatus ?? null,
     checks: mapChecks(rollup?.contexts.nodes),
     additions: pr.additions,
     deletions: pr.deletions,
@@ -593,6 +599,44 @@ export async function fetchCommitRangeFiles(
   return mapDiffFiles(res.data.files ?? []);
 }
 
+// The files most likely to conflict, for the "where exactly" merge panel. GitHub's API exposes
+// THAT a PR conflicts (mergeable=CONFLICTING) but not the exact hunks — so we return the honest,
+// achievable signal: files changed on BOTH sides since the merge base. `headOid` (a sha) is used
+// for the head side so this works for fork PRs too (the head commit is mirrored into the base repo).
+// Best-effort → [] on any failure.
+export async function fetchPullRequestConflicts(
+  token: string,
+  repo: string,
+  baseBranch: string,
+  headOid: string,
+): Promise<string[]> {
+  const p = splitRepo(repo);
+  if (!p) return [];
+  const octo = rest(token);
+  try {
+    const headCmp = await octo.repos.compareCommitsWithBasehead({
+      owner: p.owner,
+      repo: p.name,
+      basehead: `${baseBranch}...${headOid}`,
+    });
+    const mergeBase = headCmp.data.merge_base_commit.sha;
+    const headFiles = new Set((headCmp.data.files ?? []).map((f) => f.filename));
+    if (headFiles.size === 0) return [];
+    const baseCmp = await octo.repos.compareCommitsWithBasehead({
+      owner: p.owner,
+      repo: p.name,
+      basehead: `${mergeBase}...${baseBranch}`,
+    });
+    // Intersection = touched on both sides since the merge base → the likely-conflict set.
+    return (baseCmp.data.files ?? [])
+      .map((f) => f.filename)
+      .filter((name) => headFiles.has(name))
+      .slice(0, MAX_DIFF_FILES);
+  } catch {
+    return [];
+  }
+}
+
 // Parse a unified-diff patch into typed lines with old/new line numbers for the gutter.
 function parsePatch(patch: string): DiffLine[] {
   const out: DiffLine[] = [];
@@ -786,6 +830,49 @@ export async function fetchMentionableUsers(
   } catch {
     return [];
   }
+}
+
+// Issues + PRs in the repo for the `#`-reference autocomplete in composers. `query` filters by
+// title (or matches broadly when numeric); empty = most-recently-updated. Best-effort → [].
+export async function fetchIssueSuggestions(
+  token: string,
+  repo: string,
+  query: string,
+): Promise<{ number: number; title: string; kind: "issue" | "pr" }[]> {
+  const parts = splitRepo(repo);
+  if (!parts) return [];
+  const client = graphql.defaults({ headers: { authorization: `token ${token}` } });
+  const q = query.trim()
+    ? // Numeric → don't pin to title (search has no clean by-number match); text → title only.
+      /^\d+$/.test(query.trim())
+      ? `repo:${repo} ${query.trim()}`
+      : `repo:${repo} ${query.trim()} in:title`
+    : `repo:${repo} sort:updated-desc`;
+  try {
+    const res = await client<{
+      search: { nodes: ({ __typename: string; number: number; title: string } | Record<string, never>)[] };
+    }>(
+      `query ($q: String!) {
+        search(query: $q, type: ISSUE, first: 6) {
+          nodes { __typename ... on Issue { number title } ... on PullRequest { number title } }
+        }
+      }`,
+      { q },
+    );
+    return res.search.nodes
+      .filter((n): n is { __typename: string; number: number; title: string } => "number" in n)
+      .map((n) => ({ number: n.number, title: n.title, kind: n.__typename === "PullRequest" ? "pr" : "issue" }));
+  } catch {
+    return [];
+  }
+}
+
+// Re-request a review from one or more people who were previously reviewers (GitHub's
+// circular-arrow "re-request" affordance). Needs write access on the PR.
+export async function requestReviewers(token: string, repo: string, number: number, logins: string[]): Promise<void> {
+  const p = splitRepo(repo);
+  if (!p) throw new Error("Invalid repository.");
+  await rest(token).pulls.requestReviewers({ owner: p.owner, repo: p.name, pull_number: number, reviewers: logins });
 }
 
 // Add / remove one of the viewer's reactions on a comment (subjectId = the comment's node id).

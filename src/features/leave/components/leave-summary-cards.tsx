@@ -1,3 +1,5 @@
+import type { ComponentType, ReactNode } from "react";
+import { CalendarDays, CalendarCheck2, Plane, Scale } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { LEAVE_TYPES } from "@/types";
@@ -20,58 +22,61 @@ export function LeaveSummaryCards({ summary }: LeaveSummaryCardsProps) {
   const asOfLabel = now.toLocaleString("en-US", { month: "short" });
 
   return (
-    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm text-muted-foreground">Allowance</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-2xl font-semibold">{summary.allowanceDays}</p>
-          <p className="text-xs text-muted-foreground">days for the year</p>
-        </CardContent>
-      </Card>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <LeaveStat icon={CalendarDays} label="Allowance" value={summary.allowanceDays}>
+        days for the year
+      </LeaveStat>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm text-muted-foreground">Used</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-2xl font-semibold">{summary.usedDays}</p>
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {LEAVE_TYPES.map((type) => (
-              <span key={type}>
-                {LEAVE_TYPE_LABELS[type]}: {summary.byType[type]}
-              </span>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <LeaveStat icon={Plane} label="Used" value={summary.usedDays}>
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {LEAVE_TYPES.map((type) => (
+            <span key={type}>
+              {LEAVE_TYPE_LABELS[type]}: <span className="font-mono tabular-nums text-foreground/80">{summary.byType[type]}</span>
+            </span>
+          ))}
+        </div>
+      </LeaveStat>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm text-muted-foreground">Remaining</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className={cn("text-2xl font-semibold", summary.remainingDays < 0 && "text-destructive")}>
-            {summary.remainingDays}
-          </p>
-          <p className="text-xs text-muted-foreground">days left (year-end)</p>
-        </CardContent>
-      </Card>
+      <LeaveStat icon={CalendarCheck2} label="Remaining" value={summary.remainingDays} negative={summary.remainingDays < 0}>
+        days left (year-end)
+      </LeaveStat>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm text-muted-foreground">Current balance</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className={cn("text-2xl font-semibold", currentBalance < 0 && "text-destructive")}>
-            {currentBalance}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {monthlyRate.toFixed(2)} days/mo · {accruedDays} accrued by {asOfLabel}
-          </p>
-        </CardContent>
-      </Card>
+      <LeaveStat icon={Scale} label="Current balance" value={currentBalance} negative={currentBalance < 0}>
+        {monthlyRate.toFixed(2)} days/mo · {accruedDays} accrued by {asOfLabel}
+      </LeaveStat>
     </div>
+  );
+}
+
+function LeaveStat({
+  icon: Icon,
+  label,
+  value,
+  negative = false,
+  children,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  negative?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Card className="hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <span className="grid size-7 place-items-center rounded-lg bg-gradient-to-br from-primary/20 to-chart-2/10 text-primary ring-1 ring-inset ring-primary/15">
+            <Icon className="size-3.5" />
+          </span>
+          {label}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className={cn("font-mono text-3xl font-semibold tabular-nums tracking-tight", negative && "text-destructive")}>
+          {value}
+        </p>
+        <div className="mt-1.5 text-xs text-muted-foreground">{children}</div>
+      </CardContent>
+    </Card>
   );
 }

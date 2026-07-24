@@ -158,6 +158,8 @@ export interface PullRequestDetail {
   headOid: string; // head commit sha — the commit_id when posting review comments
   reviewDecision: string | null;
   checksStatus: string | null;
+  mergeable: string | null; // MERGEABLE | CONFLICTING | UNKNOWN (GitHub computes this async)
+  mergeStateStatus: string | null; // CLEAN | DIRTY | BLOCKED | BEHIND | UNSTABLE | HAS_HOOKS | DRAFT | UNKNOWN
   additions: number;
   deletions: number;
   changedFiles: number;
@@ -197,6 +199,42 @@ export const REVIEW_BADGE: Record<string, { label: string; className: string }> 
   CHANGES_REQUESTED: { label: "Changes requested", className: "bg-destructive/15 text-destructive" },
   REVIEW_REQUIRED: { label: "Review required", className: "bg-amber-500/15 text-amber-700 dark:text-amber-300" },
 };
+
+// Merge-box status → headline + tone (GitHub's mergeStateStatus, cross-checked with `mergeable`).
+// tone drives the icon/colour in the UI; `mergeable` = whether the Merge button is enabled.
+export type MergeTone = "clean" | "conflict" | "blocked" | "unknown";
+export interface MergeStateMeta {
+  tone: MergeTone;
+  headline: string;
+  detail: string;
+}
+
+export function mergeStateMeta(mergeable: string | null, status: string | null): MergeStateMeta {
+  // A confirmed conflict wins regardless of status — that's the "where exactly" case.
+  if (mergeable === "CONFLICTING" || status === "DIRTY") {
+    return { tone: "conflict", headline: "Merge conflicts", detail: "This branch has conflicts that must be resolved." };
+  }
+  switch (status) {
+    case "CLEAN":
+      return { tone: "clean", headline: "Ready to merge", detail: "No conflicts with the base branch." };
+    case "BEHIND":
+      return { tone: "blocked", headline: "Out of date", detail: "The base branch has moved on — update the branch first." };
+    case "BLOCKED":
+      return { tone: "blocked", headline: "Merge blocked", detail: "Required reviews or checks are not satisfied yet." };
+    case "UNSTABLE":
+      return { tone: "blocked", headline: "Checks not passing", detail: "Mergeable, but some checks are failing or pending." };
+    case "HAS_HOOKS":
+      return { tone: "clean", headline: "Ready to merge", detail: "Mergeable; pre-receive hooks will run on merge." };
+    case "DRAFT":
+      return { tone: "blocked", headline: "Draft", detail: "Mark the PR ready for review before merging." };
+    default:
+      // mergeable MERGEABLE but no status detail → treat as clean; otherwise still computing.
+      if (mergeable === "MERGEABLE") {
+        return { tone: "clean", headline: "Ready to merge", detail: "No conflicts with the base branch." };
+      }
+      return { tone: "unknown", headline: "Checking mergeability…", detail: "GitHub is still computing this." };
+  }
+}
 
 // CI rollup → badge tint.
 export const CHECKS_BADGE: Record<string, { label: string; className: string }> = {

@@ -5,17 +5,21 @@ import { Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-import { searchPrMentionUsers } from "./actions";
+import { searchPrIssueRefs, searchPrMentionUsers } from "./actions";
 
-interface MentionUser {
-  login: string;
-  name: string | null;
+type Trigger = "@" | "#";
+
+// A normalized autocomplete row: `value` is inserted after the trigger; primary/secondary are shown.
+interface Suggestion {
+  value: string; // login (for @) or issue/PR number (for #)
+  primary: string; // "@login" / "#123"
+  secondary: string | null; // display name / issue title
 }
 
 interface MentionTextareaProps {
   value: string;
   onChange: (value: string) => void;
-  repo: string; // owner/name — the mentionable-user source
+  repo: string; // owner/name — the mentionable-user / issue-ref source
   placeholder?: string;
   rows?: number;
   className?: string;
@@ -27,8 +31,24 @@ interface MentionTextareaProps {
 const TEXTAREA_CLASS =
   "flex field-sizing-content min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
 
-// A plaintext textarea (GitHub mentions are just `@login` text) with an @-autocomplete dropdown of
-// the repo's mentionable users. Inserting picks `@login ` at the caret; GitHub links + notifies.
+// Per-trigger copy for the dropdown states.
+const LABELS: Record<Trigger, { loading: string; empty: string }> = {
+  "@": { loading: "Searching people…", empty: "No people found" },
+  "#": { loading: "Searching issues…", empty: "No matches" },
+};
+
+async function fetchSuggestions(trigger: Trigger, repo: string, query: string): Promise<Suggestion[]> {
+  if (trigger === "@") {
+    const users = await searchPrMentionUsers(repo, query);
+    return users.map((u) => ({ value: u.login, primary: `@${u.login}`, secondary: u.name }));
+  }
+  const issues = await searchPrIssueRefs(repo, query);
+  return issues.map((i) => ({ value: String(i.number), primary: `#${i.number}`, secondary: i.title }));
+}
+
+// A plaintext textarea (GitHub mentions/refs are just `@login` / `#123` text) with an autocomplete
+// dropdown. `@` lists the repo's mentionable users; `#` lists issues/PRs. Inserting drops the token
+// at the caret; GitHub links + (for @) notifies.
 export function MentionTextarea({
   value,
   onChange,
@@ -40,14 +60,14 @@ export function MentionTextarea({
   autoFocus,
 }: MentionTextareaProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const [query, setQuery] = useState<string | null>(null);
-  const [results, setResults] = useState<MentionUser[]>([]);
+  const [token, setToken] = useState<{ trigger: Trigger; query: string } | null>(null);
+  const [results, setResults] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(0);
 
-  // Debounced mentionable-user search whenever an @query is active.
+  // Debounced suggestion search whenever a trigger token is active.
   useEffect(() => {
-    if (query === null) {
+    if (token === null) {
       setResults([]);
       setLoading(false);
       return;
@@ -55,7 +75,7 @@ export function MentionTextarea({
     let cancelled = false;
     setLoading(true);
     const timer = setTimeout(async () => {
-      const found = await searchPrMentionUsers(repo, query);
+      const found = await fetchSuggestions(token.trigger, repo, token.query);
       if (!cancelled) {
         setResults(found);
         setActive(0);
@@ -66,13 +86,22 @@ export function MentionTextarea({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, repo]);
+  }, [token, repo]);
 
-  // The @token immediately before the caret (start of line or after whitespace).
+  // The @/# token immediately before the caret (start of line or after whitespace).
   function detect(el: HTMLTextAreaElement) {
     const before = el.value.slice(0, el.selectionStart ?? 0);
-    const m = /(?:^|\s)@([\w-]*)$/.exec(before);
-    setQuery(m ? m[1] : null);
+    const at = /(?:^|\s)@([\w-]*)$/.exec(before);
+    if (at) {
+      setToken({ trigger: "@", query: at[1] });
+      return;
+    }
+    const hash = /(?:^|\s)#([\w-]*)$/.exec(before);
+    if (hash) {
+      setToken({ trigger: "#", query: hash[1] });
+      return;
+    }
+    setToken(null);
   }
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -80,18 +109,19 @@ export function MentionTextarea({
     detect(e.target);
   }
 
-  function insert(login: string) {
+  function insert(s: Suggestion) {
     const el = ref.current;
-    if (!el) return;
+    if (!el || token === null) return;
     const caret = el.selectionStart ?? value.length;
     const before = value.slice(0, caret);
-    const at = before.lastIndexOf("@");
+    const at = before.lastIndexOf(token.trigger);
     if (at === -1) return;
-    const next = `${before.slice(0, at)}@${login} ${value.slice(caret)}`;
+    const inserted = `${token.trigger}${s.value} `;
+    const next = `${before.slice(0, at)}${inserted}${value.slice(caret)}`;
     onChange(next);
-    setQuery(null);
+    setToken(null);
     setResults([]);
-    const pos = at + login.length + 2; // after "@login "
+    const pos = at + inserted.length;
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(pos, pos);
@@ -99,7 +129,7 @@ export function MentionTextarea({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (query === null || results.length === 0) return;
+    if (token === null || results.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActive((i) => (i + 1) % results.length);
@@ -108,9 +138,9 @@ export function MentionTextarea({
       setActive((i) => (i - 1 + results.length) % results.length);
     } else if (e.key === "Enter" || e.key === "Tab") {
       e.preventDefault();
-      insert(results[active].login);
+      insert(results[active]);
     } else if (e.key === "Escape") {
-      setQuery(null);
+      setToken(null);
       setResults([]);
     }
   }
@@ -123,36 +153,36 @@ export function MentionTextarea({
         value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        onBlur={() => setTimeout(() => setQuery(null), 150)}
+        onBlur={() => setTimeout(() => setToken(null), 150)}
         placeholder={placeholder}
         rows={rows}
         autoFocus={autoFocus}
         className={cn(TEXTAREA_CLASS, className)}
       />
-      {query !== null ? (
-        <ul className="absolute bottom-full z-50 mb-1 max-h-56 w-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-md">
+      {token !== null ? (
+        <ul className="absolute bottom-full z-50 mb-1 max-h-56 w-72 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-md">
           {loading ? (
             <li className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" /> Searching people…
+              <Loader2 className="size-3.5 animate-spin" /> {LABELS[token.trigger].loading}
             </li>
           ) : results.length === 0 ? (
-            <li className="px-2 py-1.5 text-sm text-muted-foreground">No people found</li>
+            <li className="px-2 py-1.5 text-sm text-muted-foreground">{LABELS[token.trigger].empty}</li>
           ) : (
             results.map((r, i) => (
-              <li key={r.login}>
+              <li key={r.value}>
                 <button
                   type="button"
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    insert(r.login);
+                    insert(r);
                   }}
                   className={cn(
                     "flex w-full flex-col items-start rounded-md px-2 py-1.5 text-left hover:bg-accent",
                     i === active && "bg-accent",
                   )}
                 >
-                  <span className="text-sm font-medium">@{r.login}</span>
-                  {r.name ? <span className="text-xs text-muted-foreground">{r.name}</span> : null}
+                  <span className="text-sm font-medium">{r.primary}</span>
+                  {r.secondary ? <span className="w-full truncate text-xs text-muted-foreground">{r.secondary}</span> : null}
                 </button>
               </li>
             ))

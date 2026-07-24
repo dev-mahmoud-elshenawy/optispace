@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { RotateCcw, Trash2 } from "lucide-react";
+import { Archive, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -64,7 +64,10 @@ export function ArchiveList({ items }: ArchiveListProps) {
 
   if (items.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-border py-16 text-center">
+      <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/70 py-16 text-center">
+        <span className="grid size-12 place-items-center rounded-full bg-primary/10 text-primary">
+          <Archive className="size-6" />
+        </span>
         <p className="text-sm text-muted-foreground">Nothing archived. Deleted items land here so you can restore them.</p>
       </div>
     );
@@ -86,7 +89,7 @@ export function ArchiveList({ items }: ArchiveListProps) {
       </div>
       <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-card">
       {items.map((item) => (
-        <div key={`${item.kind}-${item.id}`} className="flex items-center gap-3 px-4 py-3">
+        <div key={`${item.kind}-${item.id}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/40">
           <Badge variant="outline" className="shrink-0">
             {archiveKindLabel(item.kind)}
           </Badge>

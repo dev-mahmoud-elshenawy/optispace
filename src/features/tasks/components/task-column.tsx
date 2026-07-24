@@ -90,14 +90,15 @@ export function TaskColumn({ status, tasks, onCreated, onEdit, onDelete }: TaskC
           <span className={cn("size-2.5 rounded-full", STATUS_DOT_CLASS[status])} />
           <h2 className="text-sm font-semibold text-foreground">{STATUS_LABELS[status]}</h2>
         </div>
-        <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{tasks.length}</span>
+        <span className="rounded-full bg-muted px-1.5 font-mono text-xs tabular-nums text-muted-foreground">{tasks.length}</span>
       </div>
 
       <div
         ref={setNodeRef}
         className={cn(
           "flex min-h-24 flex-1 flex-col gap-2 rounded-md transition-colors",
-          isOver && "bg-accent/50"
+          isOver && "bg-accent/50 ring-1 ring-inset ring-primary/30",
+          tasks.length === 0 && !isOver && "items-center justify-center border border-dashed border-border/60",
         )}
       >
         <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
@@ -105,6 +106,9 @@ export function TaskColumn({ status, tasks, onCreated, onEdit, onDelete }: TaskC
             <TaskCard key={task.id} task={task} onEdit={() => onEdit(task)} onDelete={() => onDelete(task)} />
           ))}
         </SortableContext>
+        {tasks.length === 0 && !isOver ? (
+          <span className="pointer-events-none py-4 text-xs text-muted-foreground/50">Drop tasks here</span>
+        ) : null}
       </div>
 
       {adding ? (

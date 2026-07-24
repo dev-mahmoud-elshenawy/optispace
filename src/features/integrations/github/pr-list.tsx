@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import {
   ArrowRight,
@@ -45,7 +45,22 @@ function prAccent(pr: PullRequestView): { rail: string; icon: string } {
   }
   if (pr.reviewDecision === "APPROVED") return { rail: "border-l-emerald-500", icon: "text-emerald-500" };
   if (pr.checksStatus === "PENDING") return { rail: "border-l-amber-500", icon: "text-amber-500" };
-  return { rail: "border-l-indigo-500", icon: "text-indigo-500" };
+  return { rail: "border-l-primary", icon: "text-primary" };
+}
+
+// Deterministic avatar tint per author — same name always maps to the same colour.
+const AVATAR_COLORS = [
+  "bg-rose-500/15 text-rose-600 dark:text-rose-300",
+  "bg-amber-500/15 text-amber-600 dark:text-amber-300",
+  "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
+  "bg-sky-500/15 text-sky-600 dark:text-sky-300",
+  "bg-cyan-500/15 text-cyan-600 dark:text-cyan-300",
+  "bg-blue-500/15 text-blue-600 dark:text-blue-300",
+];
+function avatarColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
 export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
@@ -55,16 +70,19 @@ export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
   const [repoFilter, setRepoFilter] = useState("all");
 
   const repos = useMemo(() => [...new Set(prs.map((p) => p.repo))].sort(), [prs]);
+
   const filtered = useMemo(
-    () => prs.filter((pr) => matchesFilters(pr, query, repoFilter)),
+    () => prs.filter((pr) => matchesRepoAndText(pr, query, repoFilter)),
     [prs, query, repoFilter],
   );
+  const grouped = useMemo(() => groupByRepo(filtered), [filtered]);
   const filtering = query.trim() !== "" || repoFilter !== "all";
 
-  function openPr(pr: PullRequestView) {
+  // Stable so memoized rows don't re-render on every keystroke.
+  const openPr = useCallback((pr: PullRequestView) => {
     setSelected(pr);
     setOpen(true);
-  }
+  }, []);
 
   function clearFilters() {
     setQuery("");
@@ -73,7 +91,7 @@ export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
 
   return (
     <>
-      <div className="space-y-4">
+      <div className="space-y-5">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[12rem] flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -108,104 +126,34 @@ export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
           ) : null}
         </div>
 
-        {filtering ? (
-          <p className="text-xs text-muted-foreground">
-            {filtered.length} of {prs.length} pull request{prs.length === 1 ? "" : "s"}
-          </p>
-        ) : null}
-
         {filtered.length === 0 ? (
-          <p className="rounded-lg border border-dashed py-10 text-center text-sm text-muted-foreground">
-            No pull requests match your filters.
-          </p>
+          <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/70 py-16 text-center">
+            <span className="grid size-12 place-items-center rounded-full bg-emerald-500/10 text-emerald-500">
+              <GitPullRequest className="size-6" />
+            </span>
+            <p className="text-sm text-muted-foreground">
+              {prs.length === 0
+                ? "No open pull requests — you're all caught up."
+                : "No pull requests match your filters."}
+            </p>
+          </div>
         ) : (
-          <div className="space-y-5">
-        {groupByRepo(filtered).map(([repo, repoPrs]) => (
-          <details key={repo} open className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-1 py-1.5 hover:bg-muted/50 [&::-webkit-details-marker]:hidden">
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
-              <h2 className="text-sm font-semibold tracking-tight">{repoShortName(repo)}</h2>
-              <Badge variant="secondary" className="ml-1 rounded-full px-2 py-0 text-[11px] font-medium">
-                {repoPrs.length}
-              </Badge>
-            </summary>
-            <div className="mt-2 space-y-2 pl-1">
-              {repoPrs.map((pr) => {
-                const review = pr.reviewDecision ? REVIEW_BADGE[pr.reviewDecision] : null;
-                const checks = pr.checksStatus ? CHECKS_BADGE[pr.checksStatus] : null;
-                const accent = prAccent(pr);
-                return (
-                  <Card
-                    key={pr.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openPr(pr)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        openPr(pr);
-                      }
-                    }}
-                    className={cn(
-                      "group/card flex cursor-pointer items-start gap-3 border-l-4 p-3.5 transition-all",
-                      "hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      accent.rail,
-                    )}
-                  >
-                    <GitPullRequest className={cn("mt-0.5 size-4 shrink-0", accent.icon)} />
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="flex items-start gap-2">
-                        <span className="min-w-0 flex-1 font-medium leading-snug">
-                          {pr.title}{" "}
-                          <span className="font-normal text-muted-foreground">#{pr.number}</span>
-                        </span>
-                        <a
-                          href={pr.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="mt-0.5 inline-flex shrink-0 items-center rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-primary group-hover/card:opacity-100 focus:opacity-100"
-                          aria-label="Open on GitHub"
-                          title="Open on GitHub"
-                        >
-                          <ExternalLink className="size-3.5" />
-                        </a>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                        <span>{pr.author}</span>
-                        <span className="text-muted-foreground/40">·</span>
-                        <span className="inline-flex min-w-0 items-center gap-1 font-mono text-[11px]">
-                          <span className="truncate rounded bg-muted px-1 py-0.5">{pr.headBranch}</span>
-                          <ArrowRight className="size-3 shrink-0" />
-                          <span className="truncate rounded bg-muted px-1 py-0.5">{pr.baseBranch}</span>
-                        </span>
-                        <span className="text-muted-foreground/40">·</span>
-                        <span suppressHydrationWarning>
-                          {formatDistanceToNow(pr.updatedAtRemote, { addSuffix: true })}
-                        </span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                        {pr.draft ? (
-                          <Badge variant="outline" className="gap-1 font-normal">
-                            <CircleDot className="size-3" /> Draft
-                          </Badge>
-                        ) : null}
-                        {review && pr.reviewDecision ? (
-                          <StatusBadge k={pr.reviewDecision} label={review.label} className={review.className} />
-                        ) : null}
-                        {checks && pr.checksStatus ? (
-                          <StatusBadge k={pr.checksStatus} label={checks.label} className={checks.className} />
-                        ) : null}
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          </details>
-        ))}
+          <div className="space-y-6">
+            {grouped.map(([repo, repoPrs]) => (
+              <details key={repo} open className="group/repo">
+                <summary className="flex cursor-pointer list-none items-center gap-2.5 py-1.5 [&::-webkit-details-marker]:hidden">
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open/repo:rotate-90" />
+                  <h2 className="font-heading text-sm font-semibold tracking-tight">{repoShortName(repo)}</h2>
+                  <span className="font-mono text-xs tabular-nums text-muted-foreground">{repoPrs.length}</span>
+                  <span className="h-px flex-1 bg-gradient-to-r from-border to-transparent" />
+                </summary>
+                <div className="mt-3 space-y-2.5">
+                  {repoPrs.map((pr) => (
+                    <PrRow key={pr.id} pr={pr} onOpen={openPr} />
+                  ))}
+                </div>
+              </details>
+            ))}
           </div>
         )}
       </div>
@@ -224,6 +172,89 @@ export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
   );
 }
 
+// A row is memoized so typing in the search box / toggling a chip only re-renders the parent list,
+// not all ~N cards (their `pr` + `onOpen` props are referentially stable).
+const PrRow = memo(function PrRow({ pr, onOpen }: { pr: PullRequestView; onOpen: (pr: PullRequestView) => void }) {
+  const review = pr.reviewDecision ? REVIEW_BADGE[pr.reviewDecision] : null;
+  const checks = pr.checksStatus ? CHECKS_BADGE[pr.checksStatus] : null;
+  const accent = prAccent(pr);
+  return (
+    <Card
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(pr)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(pr);
+        }
+      }}
+      className={cn(
+        "group/card flex animate-in cursor-pointer items-start gap-3 border-l-4 p-3.5 fade-in duration-300 transition-all",
+        "hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        accent.rail,
+      )}
+    >
+      <GitPullRequest className={cn("mt-0.5 size-4 shrink-0 transition-transform group-hover/card:scale-110", accent.icon)} />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-start gap-2">
+          <span className="min-w-0 flex-1 font-medium leading-snug">
+            {pr.title} <span className="font-normal text-muted-foreground">#{pr.number}</span>
+          </span>
+          <a
+            href={pr.url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="mt-0.5 inline-flex shrink-0 items-center rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-primary group-hover/card:opacity-100 focus:opacity-100"
+            aria-label="Open on GitHub"
+            title="Open on GitHub"
+          >
+            <ExternalLink className="size-3.5" />
+          </a>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className={cn(
+                "inline-flex size-5 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-inset ring-black/5 dark:ring-white/10",
+                avatarColor(pr.author || "?"),
+              )}
+            >
+              {(pr.author?.[0] ?? "?").toUpperCase()}
+            </span>
+            {pr.author}
+          </span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="inline-flex min-w-0 items-center gap-1 font-mono text-[11px]">
+            <span className="truncate rounded bg-muted px-1 py-0.5">{pr.headBranch}</span>
+            <ArrowRight className="size-3 shrink-0" />
+            <span className="truncate rounded bg-muted px-1 py-0.5">{pr.baseBranch}</span>
+          </span>
+          <span className="text-muted-foreground/40">·</span>
+          <span suppressHydrationWarning>{formatDistanceToNow(pr.updatedAtRemote, { addSuffix: true })}</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+          {pr.draft ? (
+            <Badge variant="outline" className="gap-1 font-normal">
+              <CircleDot className="size-3" /> Draft
+            </Badge>
+          ) : null}
+          {review && pr.reviewDecision ? (
+            <StatusBadge k={pr.reviewDecision} label={review.label} className={review.className} />
+          ) : null}
+          {checks && pr.checksStatus ? (
+            <StatusBadge k={pr.checksStatus} label={checks.label} className={checks.className} />
+          ) : null}
+        </div>
+      </div>
+    </Card>
+  );
+});
+
 function StatusBadge({ k, label, className }: { k: string; label: string; className: string }) {
   const Icon = STATUS_ICON[k];
   return (
@@ -234,10 +265,9 @@ function StatusBadge({ k, label, className }: { k: string; label: string; classN
   );
 }
 
-// Client-side filter: repo + a free-text match across the fields on the card
-// (title, repo, author, branches, #number). Review/CI decision states aren't filterable
-// because they're mostly null for these repos (no required reviews) — see AGENTS.md.
-function matchesFilters(pr: PullRequestView, query: string, repo: string): boolean {
+// Repo + free-text match across the card's fields (title, repo, author, branches, #number).
+// Status is applied separately (via the chip categories) so chip counts can be computed pre-status.
+function matchesRepoAndText(pr: PullRequestView, query: string, repo: string): boolean {
   if (repo !== "all" && pr.repo !== repo) return false;
   const q = query.trim().toLowerCase();
   if (q) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Trash2Icon } from "lucide-react";
+import { ListChecks, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -220,9 +220,12 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete, onTasksChang
       ) : null}
 
       {rows.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          No tasks yet — add your first task to get started.
-        </p>
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/70 py-16 text-center">
+          <span className="grid size-12 place-items-center rounded-full bg-primary/10 text-primary">
+            <ListChecks className="size-6" />
+          </span>
+          <p className="text-sm text-muted-foreground">No tasks yet — add your first task to get started.</p>
+        </div>
       ) : (
         <TaskListTable
           tasks={rows}

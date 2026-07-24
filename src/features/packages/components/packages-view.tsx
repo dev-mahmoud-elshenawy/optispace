@@ -145,8 +145,10 @@ export function PackagesView({ packages, projectOptions }: PackagesViewProps) {
       </div>
 
       {packages.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border py-16 text-center">
-          <PackageIcon className="size-8 text-muted-foreground" />
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border/70 py-16 text-center">
+          <span className="grid size-12 place-items-center rounded-full bg-primary/10 text-primary">
+            <PackageIcon className="size-6" />
+          </span>
           <p className="text-sm text-muted-foreground">No packages yet — add your first one.</p>
           <Button size="sm" onClick={openCreate}>
             <Plus />
@@ -154,7 +156,12 @@ export function PackagesView({ packages, projectOptions }: PackagesViewProps) {
           </Button>
         </div>
       ) : filtered.length === 0 ? (
-        <p className="py-12 text-center text-sm text-muted-foreground">No packages match these filters.</p>
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border/70 py-16 text-center">
+          <span className="grid size-12 place-items-center rounded-full bg-muted text-muted-foreground">
+            <PackageIcon className="size-6" />
+          </span>
+          <p className="text-sm text-muted-foreground">No packages match these filters.</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((pkg) => (
