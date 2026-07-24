@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { DatabaseBackup, RefreshCw } from "lucide-react";
+import { DatabaseBackup, FolderPlus, ListPlus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { NAV_ITEMS } from "@/lib/nav";
@@ -123,6 +123,16 @@ export function CommandPalette() {
       <CommandInput placeholder="Search pages, tasks, projects, packages…" />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
+        <CommandGroup heading="Create">
+          <CommandItem value="new task create task add task" onSelect={() => go("/tasks?new=1")}>
+            <ListPlus />
+            New task
+          </CommandItem>
+          <CommandItem value="new project create project add project" onSelect={() => go("/projects?new=1")}>
+            <FolderPlus />
+            New project
+          </CommandItem>
+        </CommandGroup>
         <CommandGroup heading="Actions">
           <CommandItem value="sync all integrations azure devops github calendar" onSelect={syncAll}>
             <RefreshCw />

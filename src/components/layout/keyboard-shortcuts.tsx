@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 // Two-key "g <key>" navigation (GitHub/Linear style). Press g, then a letter within
 // the window below, to jump to that page. Skipped while typing in a field or when a
@@ -22,6 +22,12 @@ const GO_ROUTES: Record<string, string> = {
 
 const SEQUENCE_MS = 1000; // how long "g" stays armed for the second key
 
+// Bare "c" (not part of a "g c" sequence) opens the create flow on these pages via ?new=1.
+const CREATE_ROUTES: Record<string, string> = {
+  "/tasks": "/tasks?new=1",
+  "/projects": "/projects?new=1",
+};
+
 function isTypingTarget(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
   const tag = el.tagName;
@@ -30,6 +36,7 @@ function isTypingTarget(el: EventTarget | null): boolean {
 
 export function KeyboardShortcuts() {
   const router = useRouter();
+  const pathname = usePathname();
   const armedAt = useRef(0);
 
   useEffect(() => {
@@ -41,18 +48,30 @@ export function KeyboardShortcuts() {
         return;
       }
 
-      if (e.timeStamp - armedAt.current <= SEQUENCE_MS) {
+      const armed = armedAt.current !== 0 && e.timeStamp - armedAt.current <= SEQUENCE_MS;
+      armedAt.current = 0;
+
+      if (armed) {
         const href = GO_ROUTES[e.key.toLowerCase()];
         if (href) {
           e.preventDefault();
           router.push(href);
         }
+        return;
       }
-      armedAt.current = 0;
+
+      // Bare "c" — create on the current page.
+      if (e.key.toLowerCase() === "c") {
+        const createHref = CREATE_ROUTES[pathname];
+        if (createHref) {
+          e.preventDefault();
+          router.push(createHref);
+        }
+      }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [router]);
+  }, [router, pathname]);
 
   return null;
 }

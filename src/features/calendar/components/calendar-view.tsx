@@ -13,12 +13,14 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Clock, MapPin, Loader2, Users, Video } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, ListPlus, MapPin, Loader2, Search, Users, Video } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getCalendarRange } from "@/features/calendar/actions";
 import type { CalendarEventDTO } from "@/features/calendar/types";
+import { createTask } from "@/features/tasks/actions";
 
 type View = "month" | "day" | "agenda";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -43,6 +45,34 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
   const [events, setEvents] = useState<CalendarEventDTO[]>(initialEvents);
   const [loading, setLoading] = useState(false);
   const [agendaDays, setAgendaDays] = useState<number>(7);
+  const [search, setSearch] = useState("");
+  const [creatingPrep, setCreatingPrep] = useState<string | null>(null);
+
+  // One-way "prep task from a meeting" — no durable link back to the event, since ICS
+  // occurrences are re-synced/pruned each poll (an event id isn't a stable FK).
+  async function addPrepTask(e: CalendarEventDTO) {
+    setCreatingPrep(e.id);
+    try {
+      const res = await createTask({
+        title: `Prep: ${e.title}`,
+        status: "todo",
+        priority: "medium",
+        dueDate: e.start,
+      });
+      if (res.ok) {
+        toast.success("Prep task created.");
+      } else {
+        toast.error(res.error);
+      }
+    } finally {
+      setCreatingPrep(null);
+    }
+  }
+
+  const visibleEvents = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? events.filter((e) => e.title.toLowerCase().includes(q)) : events;
+  }, [events, search]);
 
   // Data arrives server-rendered (initialEvents) — no fetch on mount, so the page
   // renders instantly. Month/day navigation filters in-memory. Only re-read from the
@@ -75,8 +105,8 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
   }, [monthKey]);
 
   const dayEvents = useMemo(
-    () => eventsForDay(events, selectedDay).sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
-    [events, selectedDay],
+    () => eventsForDay(visibleEvents, selectedDay).sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
+    [visibleEvents, selectedDay],
   );
 
   // Flat "next N days" list, grouped by day (only days with events). Anchored on
@@ -85,7 +115,7 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
     const from = startOfDay(new Date());
     const to = endOfDay(addDays(from, agendaDays - 1));
     const groups = new Map<string, { day: Date; events: CalendarEventDTO[] }>();
-    events
+    visibleEvents
       .filter((e) => new Date(e.end) >= from && new Date(e.start) <= to)
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
       .forEach((e) => {
@@ -97,7 +127,7 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
         groups.set(key, group);
       });
     return [...groups.values()];
-  }, [events, agendaDays]);
+  }, [visibleEvents, agendaDays]);
 
   function goToday() {
     const today = new Date();
@@ -167,7 +197,18 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
           ) : null}
           {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
         </div>
-        <div className="flex overflow-hidden rounded-lg border border-border">
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search events…"
+              className="h-8 w-40 rounded-lg border border-border bg-transparent pl-8 pr-2 text-sm outline-none transition-colors focus:border-primary focus:w-52"
+            />
+          </div>
+          <div className="flex overflow-hidden rounded-lg border border-border">
           <button
             type="button"
             onClick={() => setView("month")}
@@ -189,6 +230,7 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
           >
             Agenda
           </button>
+          </div>
         </div>
       </div>
 
@@ -207,7 +249,7 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
           </div>
           <div className="grid grid-cols-7">
             {gridDays.map((day) => {
-              const evs = eventsForDay(events, day);
+              const evs = eventsForDay(visibleEvents, day);
               const inMonth = isSameMonth(day, cursor);
               const today = isToday(day);
               return (
@@ -257,7 +299,7 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
           ) : (
             <div className="divide-y divide-border/50">
               {dayEvents.map((e) => (
-                <EventRow key={e.id} e={e} />
+                <EventRow key={e.id} e={e} onAddTask={() => addPrepTask(e)} busy={creatingPrep === e.id} />
               ))}
             </div>
           )}
@@ -278,7 +320,7 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
                   </div>
                   <div className="divide-y divide-border/50">
                     {dayEvs.map((e) => (
-                      <EventRow key={e.id} e={e} />
+                      <EventRow key={e.id} e={e} onAddTask={() => addPrepTask(e)} busy={creatingPrep === e.id} />
                     ))}
                   </div>
                 </div>
@@ -303,9 +345,9 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-function EventRow({ e }: { e: CalendarEventDTO }) {
+function EventRow({ e, onAddTask, busy }: { e: CalendarEventDTO; onAddTask?: () => void; busy?: boolean }) {
   return (
-    <div className="flex items-start gap-3 px-4 py-3">
+    <div className="group flex items-start gap-3 px-4 py-3">
       <div className="flex w-16 shrink-0 items-center gap-1 pt-0.5 text-xs tabular-nums text-muted-foreground">
         <Clock className="h-3.5 w-3.5 text-primary" />
         {e.allDay ? "All day" : format(new Date(e.start), "h:mm a")}
@@ -344,6 +386,18 @@ function EventRow({ e }: { e: CalendarEventDTO }) {
           </p>
         ) : null}
       </div>
+      {onAddTask ? (
+        <button
+          type="button"
+          onClick={onAddTask}
+          disabled={busy}
+          title="Create a prep task for this meeting"
+          className="flex shrink-0 items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-xs text-muted-foreground opacity-0 transition-all hover:border-primary hover:text-primary focus:opacity-100 group-hover:opacity-100 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ListPlus className="h-3.5 w-3.5" />}
+          Task
+        </button>
+      ) : null}
     </div>
   );
 }

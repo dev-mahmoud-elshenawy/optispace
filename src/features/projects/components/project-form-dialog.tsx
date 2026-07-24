@@ -28,11 +28,13 @@ interface ProjectFormDialogProps {
   trigger: ReactNode;
   // Edit mode: lets the parent card update its own copy instantly (no full-page refresh).
   onSaved?: (values: ProjectInput) => void;
+  // Open on mount — used by ⌘K / "c" quick-create (?new=1).
+  autoOpen?: boolean;
 }
 
-export function ProjectFormDialog({ mode, project, trigger, onSaved }: ProjectFormDialogProps) {
+export function ProjectFormDialog({ mode, project, trigger, onSaved, autoOpen }: ProjectFormDialogProps) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen ?? false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [name, setName] = useState(project?.name ?? "");
   const [repoUrl, setRepoUrl] = useState(project?.repoUrl ?? "");

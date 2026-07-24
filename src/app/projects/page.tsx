@@ -24,7 +24,12 @@ function groupByProject<T extends { projectId: string }>(rows: T[]): Map<string,
   return map;
 }
 
-export default async function ProjectsPage() {
+export default async function ProjectsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ new?: string }>;
+}) {
+  const autoOpenCreate = (await searchParams).new === "1";
   const [projects, tasks, files, links, feedback] = await Promise.all([
     listProjects(),
     listProjectTasks(),
@@ -60,6 +65,7 @@ export default async function ProjectsPage() {
       actions={
         <ProjectFormDialog
           mode="create"
+          autoOpen={autoOpenCreate}
           trigger={
             <Button size="sm">
               <Plus />

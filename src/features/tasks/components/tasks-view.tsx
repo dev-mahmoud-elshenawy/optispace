@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PlusIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,16 @@ export function TasksView({ initialTasks, projectOptions, pullRequests }: TasksV
     window.addEventListener(OPEN_PR_EVENT, handler);
     return () => window.removeEventListener(OPEN_PR_EVENT, handler);
   }, []);
+
+  // ⌘K / "c" quick-create arrives as ?new=1 — open the form once, then consume the param.
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setEditingTask(null);
+      setFormOpen(true);
+      router.replace("/tasks");
+    }
+  }, [searchParams, router]);
 
   // Resolve each task's attached PR from the cache by "repo#number" (once per PR-set change).
   const prByKey = useMemo(() => {
