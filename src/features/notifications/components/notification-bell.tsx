@@ -14,6 +14,7 @@ import {
   type NotificationFeed,
 } from "@/features/notifications/actions";
 import { notificationActor, notificationTitle, type NotificationView } from "@/features/notifications/service";
+import { getPushPrefs, isPushEnabled } from "@/features/notifications/push-prefs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -74,7 +75,13 @@ export function NotificationBell() {
       // those rows notified — so nothing is silently consumed before the user
       // has allowed notifications.
       if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-        const fired = result.toPush.filter((row) => pushDesktopNotification(row)).map((row) => row.id);
+        // Honour per-type push prefs (localStorage): a silenced type is skipped and left
+        // un-notified so re-enabling it can still push. Read fresh each poll so a pref
+        // change on /notifications takes effect without remounting the bell.
+        const prefs = getPushPrefs();
+        const fired = result.toPush
+          .filter((row) => isPushEnabled(prefs, row.type) && pushDesktopNotification(row))
+          .map((row) => row.id);
         if (fired.length > 0) {
           await markNotificationsNotified(fired).catch(() => {});
         }

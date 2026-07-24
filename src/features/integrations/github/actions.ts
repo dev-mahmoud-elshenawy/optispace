@@ -55,7 +55,22 @@ function statusSignature(pr: { state: string; reviewDecision: string | null; che
 // Sync every open PR you're involved in into the local cache. Upserts by (repo, number);
 // soft-deletes rows that left the result set. Runs from the background poller — no-ops
 // gracefully until GitHub is connected in Settings.
+// Record sync health on the GithubAuth singleton (shown in Settings). updateMany no-ops when the
+// row is absent (not connected), so the "not connected" early-return never writes anything.
+async function recordGithubHealth(error: string | null): Promise<void> {
+  await db.githubAuth.updateMany({
+    where: { id: "singleton" },
+    data: error === null ? { lastSyncedAt: new Date(), lastError: null } : { lastError: error },
+  });
+}
+
 export async function syncGithubPullRequests(): Promise<GithubSyncResult> {
+  const result = await runGithubSync();
+  await recordGithubHealth(result.ok ? null : result.error);
+  return result;
+}
+
+async function runGithubSync(): Promise<GithubSyncResult> {
   const token = await resolveGithubToken();
   if (!token) return { ok: false, error: "GitHub is not connected. Connect it in Settings." };
 

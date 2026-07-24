@@ -3,16 +3,26 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow, isToday, isYesterday } from "date-fns";
-import { Trash2Icon } from "lucide-react";
+import { BellRing, ClockIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   dismissNotification,
   markAllNotificationsRead,
   markNotificationRead,
   pollNotificationFeed,
+  snoozeNotification,
 } from "@/features/notifications/actions";
 import {
   NOTIFICATION_LABELS,
@@ -21,9 +31,25 @@ import {
   type NotificationType,
   type NotificationView,
 } from "@/features/notifications/service";
+import { getPushPrefs, isPushEnabled, setPushPref, type PushPrefs } from "@/features/notifications/push-prefs";
 import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
 import { GithubPrDetail } from "@/features/integrations/github/pr-detail";
 import { cn } from "@/lib/utils";
+
+// Snooze presets → the Date the notification should resurface.
+const SNOOZE_OPTIONS: { label: string; until: () => Date }[] = [
+  { label: "1 hour", until: () => new Date(Date.now() + 60 * 60 * 1000) },
+  { label: "4 hours", until: () => new Date(Date.now() + 4 * 60 * 60 * 1000) },
+  {
+    label: "Tomorrow",
+    until: () => {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      d.setHours(9, 0, 0, 0);
+      return d;
+    },
+  },
+];
 
 const PAGE_SIZE = 20; // rows shown per page; "Load more" reveals another PAGE_SIZE
 
@@ -38,7 +64,20 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
   const [prTarget, setPrTarget] = useState<{ repo: string; number: number } | null>(null);
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [typeFilter, setTypeFilter] = useState<NotificationType | "all">("all");
+  const [pushPrefs, setPushPrefs] = useState<PushPrefs>({});
+  const [pushSupported, setPushSupported] = useState(false);
   const unreadCount = rows.filter((r) => !r.read).length;
+
+  // localStorage is client-only — load prefs after mount (and note whether the browser
+  // even supports desktop notifications, to decide whether to show the prefs menu).
+  useEffect(() => {
+    setPushSupported(typeof window !== "undefined" && "Notification" in window);
+    setPushPrefs(getPushPrefs());
+  }, []);
+
+  function togglePush(type: NotificationType, enabled: boolean) {
+    setPushPrefs(setPushPref(type, enabled));
+  }
   // Only offer type options that actually appear in the current rows.
   const presentTypes = Array.from(new Set(rows.map((r) => r.type)));
   const filtered = typeFilter === "all" ? rows : rows.filter((r) => r.type === typeFilter);
@@ -128,6 +167,20 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
     }
   }
 
+  async function handleSnooze(id: string, until: Date) {
+    const previous = rows;
+    setRows((prev) => prev.filter((r) => r.id !== id)); // vanishes until it resurfaces
+    const result = await snoozeNotification(id, until.toISOString());
+    if (!result.ok) {
+      toast.error(result.error);
+      setRows(previous);
+    } else {
+      toast.success(`Snoozed until ${until.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", hour12: true })}`);
+      notifyBell();
+      router.refresh();
+    }
+  }
+
   if (rows.length === 0) {
     return (
       <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
@@ -174,15 +227,29 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
             </p>
           ) : null}
         </button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-          onClick={() => handleDismiss(row.id)}
-        >
-          <Trash2Icon />
-          <span className="sr-only">Dismiss</span>
-        </Button>
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-xs">
+                <ClockIcon />
+                <span className="sr-only">Snooze</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Snooze until…</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {SNOOZE_OPTIONS.map((o) => (
+                <DropdownMenuItem key={o.label} onClick={() => handleSnooze(row.id, o.until())}>
+                  {o.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="ghost" size="icon-xs" onClick={() => handleDismiss(row.id)}>
+            <Trash2Icon />
+            <span className="sr-only">Dismiss</span>
+          </Button>
+        </div>
       </div>
     );
   }
@@ -195,6 +262,30 @@ export function NotificationsList({ notifications }: NotificationsListProps) {
           {unreadCount > 0 ? `${unreadCount} unread` : "You're all caught up."}
         </p>
         <div className="flex items-center gap-2">
+          {pushSupported ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <BellRing className="size-4" />
+                  Alerts
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Desktop push by type</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {(Object.keys(NOTIFICATION_LABELS) as NotificationType[]).map((t) => (
+                  <DropdownMenuCheckboxItem
+                    key={t}
+                    checked={isPushEnabled(pushPrefs, t)}
+                    onCheckedChange={(v) => togglePush(t, v)}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    {NOTIFICATION_LABELS[t]}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           {presentTypes.length > 1 ? (
             <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as NotificationType | "all")}>
               <SelectTrigger size="sm" className="w-44">

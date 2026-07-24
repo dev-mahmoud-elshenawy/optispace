@@ -17,7 +17,7 @@ export function CalendarConfigPanel({
   stats,
 }: {
   config: CalendarConfigView;
-  stats?: { count: number; latest: string | null };
+  stats?: { count: number; latest: string | null; lastError: string | null };
 }) {
   const router = useRouter();
   const [icsUrl, setIcsUrl] = useState(config.icsUrl);
@@ -66,9 +66,12 @@ export function CalendarConfigPanel({
       </CardHeader>
       <CardContent className="space-y-4">
         {connected && stats ? (
-          <p className="text-xs text-muted-foreground">
-            {stats.count} event{stats.count === 1 ? "" : "s"} cached{stats.latest ? ` · updated ${stats.latest}` : ""}
-          </p>
+          <div className="space-y-1 text-xs">
+            <p className="text-muted-foreground">
+              {stats.count} event{stats.count === 1 ? "" : "s"} cached{stats.latest ? ` · last synced ${stats.latest}` : ""}
+            </p>
+            {stats.lastError ? <p className="text-destructive">⚠ Last sync failed: {stats.lastError}</p> : null}
+          </div>
         ) : null}
         <div className="space-y-1.5">
           <Label htmlFor="cal-ics">ICS feed URL</Label>

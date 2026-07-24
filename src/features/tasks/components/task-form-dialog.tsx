@@ -18,15 +18,19 @@ import {
   searchAzureDevOpsIdentities,
 } from "@/features/integrations/azure-devops/actions";
 import type { AdoIdentity } from "@/features/integrations/azure-devops/types";
+import type { PullRequestView } from "@/features/integrations/github/types";
 import type { TaskView } from "@/features/tasks/service";
 
-import { NO_PROJECT, TaskFormFields, type TaskFormValues } from "./task-form-fields";
+import { NO_PR, NO_PROJECT, prKey, TaskFormFields, type TaskFormValues } from "./task-form-fields";
 import { SubtaskChecklist } from "./subtask-checklist";
 import { SubtaskDraftList } from "./subtask-draft-list";
 
 interface TaskFormDialogProps {
   task: TaskView | null;
   projectOptions: { id: string; name: string }[];
+  // Attach-PR options. Optional so surfaces without the PR cache (e.g. a project card's
+  // task dialog) still work — an already-linked PR stays visible via the prOptions fallback.
+  pullRequests?: PullRequestView[];
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }
@@ -43,12 +47,13 @@ function initialValues(task: TaskView | null): TaskFormValues {
     priority: task?.priority ?? "medium",
     dueDate: toDateInputValue(task?.dueDate),
     projectId: task?.projectId ?? NO_PROJECT,
+    linkedPr: task?.linkedPrRepo && task?.linkedPrNumber != null ? prKey(task.linkedPrRepo, task.linkedPrNumber) : NO_PR,
   };
 }
 
 type Mode = "normal" | "devops";
 
-export function TaskFormDialog({ task, projectOptions, onOpenChange, onSaved }: TaskFormDialogProps) {
+export function TaskFormDialog({ task, projectOptions, pullRequests = [], onOpenChange, onSaved }: TaskFormDialogProps) {
   const [isPending, startTransition] = useTransition();
   const [values, setValues] = useState<TaskFormValues>(() => initialValues(task));
   // Subtasks buffered while creating a new task (persisted with it on save).
@@ -163,6 +168,11 @@ export function TaskFormDialog({ task, projectOptions, onOpenChange, onSaved }: 
       return;
     }
 
+    // linkedPr = "owner/repo#number"; split on the last "#" (repo never contains one).
+    const hashAt = values.linkedPr.lastIndexOf("#");
+    const linkedPrRepo = values.linkedPr !== NO_PR && hashAt > 0 ? values.linkedPr.slice(0, hashAt) : undefined;
+    const linkedPrNumber = linkedPrRepo ? Number(values.linkedPr.slice(hashAt + 1)) || undefined : undefined;
+
     const input = {
       title: values.title,
       description: values.description,
@@ -170,6 +180,8 @@ export function TaskFormDialog({ task, projectOptions, onOpenChange, onSaved }: 
       priority: values.priority,
       dueDate: values.dueDate,
       projectId: values.projectId === NO_PROJECT ? undefined : values.projectId,
+      linkedPrRepo,
+      linkedPrNumber,
     };
 
     startTransition(async () => {
@@ -361,7 +373,7 @@ export function TaskFormDialog({ task, projectOptions, onOpenChange, onSaved }: 
             </div>
           ) : (
             <>
-              <TaskFormFields values={values} onChange={handleChange} projectOptions={projectOptions} />
+              <TaskFormFields values={values} onChange={handleChange} projectOptions={projectOptions} pullRequests={pullRequests} />
 
               <div className="border-t pt-4">
                 {task ? (

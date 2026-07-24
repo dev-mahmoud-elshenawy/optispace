@@ -1,4 +1,10 @@
-import type { Notification } from "@prisma/client";
+import type { Notification, Prisma } from "@prisma/client";
+
+// Prisma where fragment for "not currently snoozed" — never snoozed, or the snooze
+// has already passed. Merged into every feed read so snoozed rows disappear until due.
+export function notSnoozed(now: Date = new Date()): Prisma.NotificationWhereInput {
+  return { OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }] };
+}
 
 export type NotificationType =
   | "assigned"

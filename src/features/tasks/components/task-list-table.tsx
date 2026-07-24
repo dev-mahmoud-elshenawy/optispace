@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
+import { LinkedPrBadge } from "./linked-pr-badge";
 import { PriorityFlag } from "./priority-flag";
 
 export type SortKey = "dueDate" | "priority" | "createdAt" | "changedDate" | "effort";
@@ -51,6 +52,7 @@ export function TaskListTable({
           <SortableHead label="Due date" active={sortKey === "dueDate"} desc={sortDesc} onClick={() => onSort("dueDate")} />
           <SortableHead label="Effort" active={sortKey === "effort"} desc={sortDesc} onClick={() => onSort("effort")} />
           <SortableHead label="Changed" active={sortKey === "changedDate"} desc={sortDesc} onClick={() => onSort("changedDate")} />
+          <TableHead>PR</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
@@ -79,6 +81,7 @@ export function TaskListTable({
             <TableCell>{task.dueDate ? format(task.dueDate, "MMM d, yyyy") : "—"}</TableCell>
             <TableCell className="tabular-nums">{task.effort ?? "—"}</TableCell>
             <TableCell>{task.changedDate ? format(task.changedDate, "MMM d, yyyy") : "—"}</TableCell>
+            <TableCell>{task.linkedPr ? <LinkedPrBadge pr={task.linkedPr} /> : <span className="text-muted-foreground">—</span>}</TableCell>
             <TableCell className="text-right">
               {task.source !== "azure_devops" ? (
                 <Button variant="ghost" size="icon-xs" onClick={() => onDelete(task)}>

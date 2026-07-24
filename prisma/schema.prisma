@@ -101,6 +101,8 @@ model Task {
   iterationPath String? // ADO sprint path, e.g. "Canitude\Iteration 2" (source-owned)
   effort        Float? // ADO estimated effort / original estimate (source-owned; null = unestimated)
   changedDate   DateTime? // ADO System.ChangedDate — last change in the source (source-owned)
+  linkedPrRepo   String? // manually attached GitHub PR "owner/repo" (joins GithubPullRequest cache for inline status)
+  linkedPrNumber Int? // attached GitHub PR number
   order       Int       @default(0) // position within its Kanban column
   projectId   String?
   createdAt   DateTime  @default(now())
@@ -143,6 +145,7 @@ model Notification {
   dedupeKey  String    @unique // "assigned:{externalId}" | "mention:{externalId}:{commentId}"
   readAt     DateTime?
   notifiedAt DateTime? // set once the browser desktop popup has fired
+  snoozedUntil DateTime? // hidden from every feed until this time, then reappears (unread, re-armed for push)
   createdAt  DateTime  @default(now())
   deletedAt  DateTime?
 
@@ -205,6 +208,8 @@ model GithubAuth {
   accessToken String
   scope       String?
   login       String?
+  lastSyncedAt DateTime? // last SUCCESSFUL sync (Settings health)
+  lastError    String? // latest sync error message, cleared on the next success
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -217,6 +222,8 @@ model AdoConfig {
   email       String?
   projects    String   @default("") // "all" or a comma-separated list of project names
   includeDone Boolean  @default(false)
+  lastSyncedAt DateTime? // last SUCCESSFUL sync (Settings health)
+  lastError    String? // latest sync error message, cleared on the next success
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -226,6 +233,8 @@ model CalendarConfig {
   id              String   @id @default("singleton")
   icsUrl          String?
   reminderMinutes Int      @default(15)
+  lastSyncedAt    DateTime? // last SUCCESSFUL sync (Settings health)
+  lastError       String? // latest sync error message, cleared on the next success
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

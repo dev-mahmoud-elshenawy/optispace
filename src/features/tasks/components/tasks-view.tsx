@@ -9,10 +9,13 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
+import { GithubPrDetail } from "@/features/integrations/github/pr-detail";
+import type { PullRequestView } from "@/features/integrations/github/types";
 import { STATUS_LABELS, type TaskView } from "@/features/tasks/service";
 import { TASK_STATUSES, type TaskStatus } from "@/types";
 
 import { DeleteTaskDialog } from "./delete-task-dialog";
+import { OPEN_PR_EVENT } from "./linked-pr-badge";
 import { TaskBoard } from "./task-board";
 import { TaskFormDialog } from "./task-form-dialog";
 import { TaskList } from "./task-list";
@@ -22,12 +25,13 @@ import { TaskSprintGroups } from "./task-sprint-groups";
 interface TasksViewProps {
   initialTasks: TaskView[];
   projectOptions: { id: string; name: string }[];
+  pullRequests: PullRequestView[];
 }
 
 const ALL = "all";
 const NO_PROJECT = "none";
 
-export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
+export function TasksView({ initialTasks, projectOptions, pullRequests }: TasksViewProps) {
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
   const [search, setSearch] = useState("");
@@ -38,11 +42,26 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
   const [detailId, setDetailId] = useState<string | null>(null); // open DevOps popup for this externalId
   const [detailStatusOnly, setDetailStatusOnly] = useState(false); // drag-to-move opens a slim state picker
   const [statusFilter, setStatusFilter] = useState<TaskStatus | typeof ALL>(ALL);
-  const [sort, setSort] = useState<"manual" | "changed" | "added">("manual");
+  const [sort, setSort] = useState<"manual" | "changed" | "added">("changed");
   const [noEffort, setNoEffort] = useState(false); // show only tasks with no effort/estimate
+  const [openPr, setOpenPr] = useState<PullRequestView | null>(null); // in-app PR modal for a linked PR
 
   // Server actions revalidate the route; sync local state once fresh props arrive.
   useEffect(() => setTasks(initialTasks), [initialTasks]);
+
+  // A card/list PR badge fires optispace:open-pr → open the in-app PR modal here.
+  useEffect(() => {
+    const handler = (e: Event) => setOpenPr((e as CustomEvent<PullRequestView>).detail);
+    window.addEventListener(OPEN_PR_EVENT, handler);
+    return () => window.removeEventListener(OPEN_PR_EVENT, handler);
+  }, []);
+
+  // Resolve each task's attached PR from the cache by "repo#number" (once per PR-set change).
+  const prByKey = useMemo(() => {
+    const m = new Map<string, PullRequestView>();
+    for (const pr of pullRequests) m.set(`${pr.repo}#${pr.number}`, pr);
+    return m;
+  }, [pullRequests]);
 
   const hasProjectTasks = useMemo(() => tasks.some((t) => t.projectId), [tasks]);
   const hasSprintTasks = useMemo(() => tasks.some((t) => t.iterationPath), [tasks]);
@@ -69,16 +88,23 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
   // "changed" = most recently changed in ADO (falls back to local updatedAt);
   // "added" = newest first by creation. Sorting overrides board order by design.
   const viewTasks = useMemo(() => {
-    if (sort === "manual") return filteredTasks;
-    const arr = [...filteredTasks];
-    if (sort === "added") {
-      arr.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    } else {
-      const changed = (t: TaskView) => (t.changedDate ?? t.updatedAt).getTime();
-      arr.sort((a, b) => changed(b) - changed(a));
+    let arr = filteredTasks;
+    if (sort !== "manual") {
+      arr = [...filteredTasks];
+      if (sort === "added") {
+        arr.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      } else {
+        const changed = (t: TaskView) => (t.changedDate ?? t.updatedAt).getTime();
+        arr.sort((a, b) => changed(b) - changed(a));
+      }
     }
-    return arr;
-  }, [filteredTasks, sort]);
+    // Attach the resolved PR so the card/list badge renders (null once merged/pruned from cache).
+    return arr.map((t) =>
+      t.linkedPrRepo && t.linkedPrNumber != null
+        ? { ...t, linkedPr: prByKey.get(`${t.linkedPrRepo}#${t.linkedPrNumber}`) ?? null }
+        : t,
+    );
+  }, [filteredTasks, sort, prByKey]);
 
   // The board hands back only the tasks it was given (the filtered subset); merge
   // by id so tasks hidden by the filter are never dropped from the full state.
@@ -202,6 +228,7 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
         <TaskFormDialog
           task={editingTask}
           projectOptions={projectOptions}
+          pullRequests={pullRequests}
           onOpenChange={setFormOpen}
           onSaved={() => router.refresh()}
         />
@@ -226,6 +253,17 @@ export function TasksView({ initialTasks, projectOptions }: TasksViewProps) {
               setDetailStatusOnly(false);
             }
           }}
+        />
+      ) : null}
+
+      {openPr ? (
+        <GithubPrDetail
+          nodeId={openPr.nodeId}
+          repo={openPr.repo}
+          number={openPr.number}
+          title={openPr.title}
+          open
+          onOpenChange={(o) => !o && setOpenPr(null)}
         />
       ) : null}
     </div>

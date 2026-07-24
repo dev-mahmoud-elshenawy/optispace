@@ -72,7 +72,23 @@ export type CalendarSyncResult = { ok: true; changed: number } | { ok: false; er
 // Fetch the ICS feed and cache expanded occurrences in the DB, updating only rows
 // whose content changed (fingerprint) and soft-deleting occurrences that vanished
 // from the feed within the window. Idempotent — safe to run on every poll.
+// Record real sync health on the CalendarConfig singleton (shown in Settings): lastSyncedAt on
+// success (clears lastError); lastError on failure (keeps the last successful time). updateMany
+// no-ops when the row is absent (not configured), so it never throws.
+async function recordCalendarHealth(error: string | null): Promise<void> {
+  await db.calendarConfig.updateMany({
+    where: { id: "singleton" },
+    data: error === null ? { lastSyncedAt: new Date(), lastError: null } : { lastError: error },
+  });
+}
+
 export async function syncCalendar(): Promise<CalendarSyncResult> {
+  const result = await runCalendarSync();
+  await recordCalendarHealth(result.ok ? null : result.error);
+  return result;
+}
+
+async function runCalendarSync(): Promise<CalendarSyncResult> {
   const now = new Date();
   const from = new Date(now.getTime() - WINDOW_BACK_DAYS * 86_400_000);
   const to = new Date(now.getTime() + WINDOW_AHEAD_DAYS * 86_400_000);

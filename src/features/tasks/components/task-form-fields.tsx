@@ -5,9 +5,16 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { STATUS_LABELS } from "@/features/tasks/service";
+import type { PullRequestView } from "@/features/integrations/github/types";
 import { TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from "@/types";
 
 export const NO_PROJECT = "none";
+export const NO_PR = "none";
+
+// Select value for a PR = "owner/repo#number" (repo never contains "#", so lastIndexOf splits it).
+export function prKey(repo: string, number: number): string {
+  return `${repo}#${number}`;
+}
 
 export interface TaskFormValues {
   title: string;
@@ -16,15 +23,23 @@ export interface TaskFormValues {
   priority: TaskPriority;
   dueDate: string;
   projectId: string;
+  linkedPr: string; // prKey(repo, number) or NO_PR
 }
 
 interface TaskFormFieldsProps {
   values: TaskFormValues;
   onChange: <K extends keyof TaskFormValues>(key: K, value: TaskFormValues[K]) => void;
   projectOptions: { id: string; name: string }[];
+  pullRequests: PullRequestView[];
 }
 
-export function TaskFormFields({ values, onChange, projectOptions }: TaskFormFieldsProps) {
+export function TaskFormFields({ values, onChange, projectOptions, pullRequests }: TaskFormFieldsProps) {
+  // Keep the current selection visible even if its PR left the cache (merged/pruned).
+  const prOptions =
+    values.linkedPr !== NO_PR && !pullRequests.some((p) => prKey(p.repo, p.number) === values.linkedPr)
+      ? [{ key: values.linkedPr, label: values.linkedPr }, ...pullRequests.map((p) => ({ key: prKey(p.repo, p.number), label: `${p.repo} #${p.number} — ${p.title}` }))]
+      : pullRequests.map((p) => ({ key: prKey(p.repo, p.number), label: `${p.repo} #${p.number} — ${p.title}` }));
+
   return (
     <>
       <div className="space-y-2">
@@ -109,7 +124,25 @@ export function TaskFormFields({ values, onChange, projectOptions }: TaskFormFie
         </div>
       </div>
 
-
+      <div className="space-y-2">
+        <Label>Linked pull request</Label>
+        <Select value={values.linkedPr} onValueChange={(v) => onChange("linkedPr", v)}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="No pull request" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_PR}>No pull request</SelectItem>
+            {prOptions.map((o) => (
+              <SelectItem key={o.key} value={o.key}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {pullRequests.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Sync GitHub in Settings to attach a pull request.</p>
+        ) : null}
+      </div>
     </>
   );
 }

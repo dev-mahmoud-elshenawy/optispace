@@ -1,6 +1,7 @@
 import type { Task } from "@prisma/client";
 
 import type { NotificationEvent } from "@/features/notifications/service";
+import type { PullRequestView } from "@/features/integrations/github/types";
 import { type TaskPriority, type TaskStatus } from "@/types";
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -108,6 +109,10 @@ export interface TaskView {
   iterationPath: string | null;
   effort: number | null;
   changedDate: Date | null;
+  linkedPrRepo: string | null;
+  linkedPrNumber: number | null;
+  // Resolved from the GithubPullRequest cache client-side (tasks-view) — not set by toTaskView.
+  linkedPr?: PullRequestView | null;
   subtasks: SubtaskView[];
   createdAt: Date;
   updatedAt: Date;
@@ -138,6 +143,8 @@ export function toTaskView(row: TaskRow): TaskView {
     iterationPath: row.iterationPath,
     effort: row.effort,
     changedDate: row.changedDate,
+    linkedPrRepo: row.linkedPrRepo,
+    linkedPrNumber: row.linkedPrNumber,
     subtasks: (row.subtasks ?? []).map((s) => ({ id: s.id, title: s.title, done: s.done })),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

@@ -372,8 +372,6 @@ export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemD
   const project = fieldStr(f, "System.TeamProject");
   const type = fieldStr(f, "System.WorkItemType");
   const description = (f["System.Description"] as string | undefined) ?? null;
-  const allowedStates = (await fetchStates(project, type)).map((s) => s.name);
-
   const details = DETAIL_FIELDS.flatMap(({ key, label, format }) => {
     const v = f[key];
     if (v === undefined || v === null || v === "") return [];
@@ -388,41 +386,46 @@ export async function fetchWorkItemDetail(externalId: string): Promise<WorkItemD
       const name = (r.attributes?.name as string | undefined) ?? id;
       return { id, name, isImage: /\.(png|jpe?g|gif|webp|bmp)$/i.test(name) };
     });
-
-  let comments: WorkItemComment[] = [];
-  try {
-    const list = await wit.getComments(project, Number(externalId));
-    comments = (list.comments ?? []).map((x) => ({
-      author: x.createdBy?.displayName ?? "Unknown",
-      text: sanitizeHtml(x.text ?? ""),
-      date: toIso(x.createdDate) ?? "",
-    }));
-  } catch {
-    comments = [];
-  }
-
-  const iterations = await fetchIterations(project);
   const assignedTo = (f["System.AssignedTo"] as { uniqueName?: string } | undefined)?.uniqueName ?? "";
 
-  // Hierarchy links: Reverse = parent, Forward = children. Resolve their titles/types
-  // in one batch fetch so the popup can show the work-item tree.
+  // Hierarchy link ids (sync — from the item's relations). Reverse = parent, Forward = children.
   const relIdOf = (url: string | undefined) => (url ?? "").split("/").pop() ?? "";
   const parentUrl = relations.find((r) => r.rel === "System.LinkTypes.Hierarchy-Reverse")?.url ?? null;
   const childIds = relations.filter((r) => r.rel === "System.LinkTypes.Hierarchy-Forward").map((r) => relIdOf(r.url));
   const relIds = [...(parentUrl ? [relIdOf(parentUrl)] : []), ...childIds];
+
+  // These reads are independent — run them in parallel instead of sequentially (was ~5 serial
+  // ADO round-trips, which made "Loading from Azure DevOps…" slow). Each degrades to empty.
+  const [states, commentList, iterations, refItems] = await Promise.all([
+    fetchStates(project, type),
+    wit
+      .getComments(project, Number(externalId))
+      .then((l) => l.comments ?? [])
+      .catch(() => []),
+    fetchIterations(project),
+    relIds.length > 0
+      ? wit.getWorkItems(relIds.map(Number), ["System.Title", "System.WorkItemType", "System.State"]).catch(() => [])
+      : Promise.resolve([]),
+  ]);
+
+  const allowedStates = states.map((s) => s.name);
+  const comments: WorkItemComment[] = commentList.map((x) => ({
+    author: x.createdBy?.displayName ?? "Unknown",
+    text: sanitizeHtml(x.text ?? ""),
+    date: toIso(x.createdDate) ?? "",
+  }));
+
+  // Resolve parent/children titles from the one batched fetch above.
   const refById = new Map<string, WorkItemRef>();
-  if (relIds.length > 0) {
-    const refItems = await wit.getWorkItems(relIds.map(Number), ["System.Title", "System.WorkItemType", "System.State"]);
-    for (const w of refItems) {
-      const wf = w.fields ?? {};
-      refById.set(String(w.id), {
-        id: String(w.id),
-        title: fieldStr(wf, "System.Title") || `Work item ${w.id}`,
-        type: fieldStr(wf, "System.WorkItemType"),
-        state: fieldStr(wf, "System.State"),
-        url: itemUrl(config.orgUrl, project, w.id ?? 0),
-      });
-    }
+  for (const w of refItems) {
+    const wf = w.fields ?? {};
+    refById.set(String(w.id), {
+      id: String(w.id),
+      title: fieldStr(wf, "System.Title") || `Work item ${w.id}`,
+      type: fieldStr(wf, "System.WorkItemType"),
+      state: fieldStr(wf, "System.State"),
+      url: itemUrl(config.orgUrl, project, w.id ?? 0),
+    });
   }
   const parent = parentUrl ? refById.get(relIdOf(parentUrl)) ?? null : null;
   const children = childIds.map((id) => refById.get(id)).filter((r): r is WorkItemRef => Boolean(r));
@@ -479,7 +482,7 @@ export async function statusForState(project: string, type: string, state: strin
 
 // PATCH arbitrary fields (ADO field key → value) with optimistic concurrency
 // (rev test → 412 if changed upstream). Empty-string values clear the field.
-export async function updateWorkItem(externalId: string, rev: number, fields: Record<string, unknown>): Promise<void> {
+export async function updateWorkItem(externalId: string, rev: number, fields: Record<string, unknown>): Promise<number> {
   const c = await apis();
   if (!c) throw new Error("Azure DevOps is not configured.");
   const document: JsonPatchDocument = [
@@ -487,12 +490,98 @@ export async function updateWorkItem(externalId: string, rev: number, fields: Re
     ...Object.entries(fields).map(([key, value]) => ({ op: Operation.Add, path: `/fields/${key}`, value })),
   ];
   try {
-    await (await c.wit).updateWorkItem({}, document, Number(externalId));
+    // Return the new rev so callers can refresh in place instead of a full re-fetch.
+    const updated = await (await c.wit).updateWorkItem({}, document, Number(externalId));
+    return updated.rev ?? rev + 1;
   } catch (e) {
     if ((e as { statusCode?: number }).statusCode === 412) {
       throw new Error("This work item changed in Azure DevOps — reopen it and try again.");
     }
     throw new Error(`Azure DevOps update failed: ${e instanceof Error ? e.message : "unknown error"}.`);
+  }
+}
+
+// ── Work item history (revisions) ────────────────────────────────────────────
+// Only the fields worth showing in a DevOps-style History feed; everything else
+// (Rev, ChangedDate, Watermark, board columns…) is noise and skipped.
+const HISTORY_FIELD_LABELS: Record<string, string> = {
+  "System.State": "State",
+  "System.Title": "Title",
+  "System.AssignedTo": "Assigned To",
+  "Microsoft.VSTS.Common.Priority": "Priority",
+  "Microsoft.VSTS.Scheduling.Effort": "Effort",
+  "Microsoft.VSTS.Scheduling.OriginalEstimate": "Original Estimate",
+  "Microsoft.VSTS.Scheduling.RemainingWork": "Remaining",
+  "Microsoft.VSTS.Scheduling.CompletedWork": "Completed Work",
+  "System.IterationPath": "Iteration",
+  "System.Description": "Description",
+  "System.Tags": "Tags",
+};
+
+export interface WorkItemChange {
+  field: string;
+  from: string;
+  to: string;
+}
+
+export interface WorkItemUpdateView {
+  rev: number;
+  by: string;
+  date: string | null; // ISO
+  comment: string | null; // System.History entry (a discussion comment)
+  changes: WorkItemChange[];
+}
+
+// ADO returns 9999-01-01 as a "no date" sentinel (e.g. the current/last revision) — treat as null
+// so the UI doesn't render "01/01/9999".
+function revisedIso(v: unknown): string | null {
+  if (!v) return null;
+  const d = new Date(v as string);
+  return Number.isNaN(d.getTime()) || d.getUTCFullYear() >= 9999 ? null : d.toISOString();
+}
+
+// Identity objects → displayName; HTML (description/comment) → clamped plain text.
+function historyValue(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "object") {
+    return (v as { displayName?: string }).displayName ?? "";
+  }
+  const text = String(v).replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+  return text.length > 140 ? `${text.slice(0, 137)}…` : text;
+}
+
+// The DevOps "History" tab: each revision's field diffs + any discussion comment,
+// newest first. Revisions that only touched noise fields are dropped.
+export async function fetchWorkItemUpdates(externalId: string): Promise<WorkItemUpdateView[]> {
+  const c = await apis();
+  if (!c) return [];
+  try {
+    const updates = await (await c.wit).getUpdates(Number(externalId));
+    const views: WorkItemUpdateView[] = [];
+    for (const u of updates) {
+      const fields = (u.fields ?? {}) as Record<string, { oldValue?: unknown; newValue?: unknown }>;
+      const changes: WorkItemChange[] = [];
+      for (const [ref, label] of Object.entries(HISTORY_FIELD_LABELS)) {
+        const change = fields[ref];
+        if (!change) continue;
+        const from = historyValue(change.oldValue);
+        const to = historyValue(change.newValue);
+        if (from === to) continue;
+        changes.push({ field: label, from, to });
+      }
+      const comment = fields["System.History"]?.newValue ? historyValue(fields["System.History"].newValue) : null;
+      if (changes.length === 0 && !comment) continue; // skip noise-only revisions
+      views.push({
+        rev: u.rev ?? 0,
+        by: (u.revisedBy as { displayName?: string } | undefined)?.displayName ?? "Unknown",
+        date: u.revisedDate ? new Date(u.revisedDate).toISOString() : null,
+        comment,
+        changes,
+      });
+    }
+    return views.reverse(); // getUpdates is oldest-first; show newest first
+  } catch {
+    return [];
   }
 }
 

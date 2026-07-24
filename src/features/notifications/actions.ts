@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
 
-import { byDisplayTime, toNotificationView, type NotificationEvent, type NotificationView } from "./service";
+import { byDisplayTime, notSnoozed, toNotificationView, type NotificationEvent, type NotificationView } from "./service";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -62,6 +62,17 @@ export async function dismissNotification(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
+// Hide a notification until `untilIso`, then let it resurface. Reset notifiedAt so the
+// desktop push re-arms when it returns ("remind me later" should ping again, not go quiet).
+export async function snoozeNotification(id: string, untilIso: string): Promise<ActionResult> {
+  const until = new Date(untilIso);
+  if (Number.isNaN(until.getTime())) return { ok: false, error: "Invalid snooze time." };
+  await db.notification.update({ where: { id }, data: { snoozedUntil: until, notifiedAt: null } });
+  revalidatePath("/notifications");
+  revalidatePath("/");
+  return { ok: true };
+}
+
 // Client feed for the bell + desktop push. Returns unread count, recent list, and the
 // rows whose desktop popup hasn't fired yet (then marks them notified in the same call).
 export interface NotificationFeed {
@@ -72,9 +83,9 @@ export interface NotificationFeed {
 
 export async function pollNotificationFeed(): Promise<NotificationFeed> {
   const [unread, recentRows, pushRows] = await Promise.all([
-    db.notification.count({ where: { deletedAt: null, readAt: null } }),
-    db.notification.findMany({ where: { deletedAt: null }, orderBy: { createdAt: "desc" }, take: 8 }),
-    db.notification.findMany({ where: { deletedAt: null, notifiedAt: null, readAt: null }, orderBy: { createdAt: "desc" }, take: 10 }),
+    db.notification.count({ where: { deletedAt: null, readAt: null, ...notSnoozed() } }),
+    db.notification.findMany({ where: { deletedAt: null, ...notSnoozed() }, orderBy: { createdAt: "desc" }, take: 8 }),
+    db.notification.findMany({ where: { deletedAt: null, notifiedAt: null, readAt: null, ...notSnoozed() }, orderBy: { createdAt: "desc" }, take: 10 }),
   ]);
   // Do NOT mark notified here — the client marks only after the browser popup
   // actually fires (and only when permission is granted), so a poll before the

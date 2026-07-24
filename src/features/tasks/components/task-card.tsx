@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { type TaskView } from "@/features/tasks/service";
 import { adoPriorityMeta, workItemTypeColor } from "@/features/integrations/azure-devops/types";
+import { LinkedPrBadge } from "./linked-pr-badge";
 import { PriorityFlag } from "./priority-flag";
 
 interface TaskCardProps {
@@ -95,6 +96,7 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
             {task.subtasks.filter((s) => s.done).length}/{task.subtasks.length}
           </span>
         ) : null}
+        {task.linkedPr ? <LinkedPrBadge pr={task.linkedPr} /> : null}
       </div>
 
 

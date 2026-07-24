@@ -19,7 +19,7 @@ export function AzureDevOpsConfigPanel({
   stats,
 }: {
   config: AdoConfigView;
-  stats?: { count: number; latest: string | null };
+  stats?: { count: number; latest: string | null; lastError: string | null };
 }) {
   const router = useRouter();
   const [orgUrl, setOrgUrl] = useState(config.orgUrl);
@@ -87,9 +87,12 @@ export function AzureDevOpsConfigPanel({
       </CardHeader>
       <CardContent className="space-y-4">
         {config.configured && stats ? (
-          <p className="text-xs text-muted-foreground">
-            {stats.count} task{stats.count === 1 ? "" : "s"} synced{stats.latest ? ` · updated ${stats.latest}` : ""}
-          </p>
+          <div className="space-y-1 text-xs">
+            <p className="text-muted-foreground">
+              {stats.count} task{stats.count === 1 ? "" : "s"} synced{stats.latest ? ` · last synced ${stats.latest}` : ""}
+            </p>
+            {stats.lastError ? <p className="text-destructive">⚠ Last sync failed: {stats.lastError}</p> : null}
+          </div>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5 sm:col-span-2">

@@ -24,7 +24,9 @@ import {
   resolveMe,
   searchIdentities,
   statusForState,
+  fetchWorkItemUpdates,
   updateWorkItem,
+  type WorkItemUpdateView,
   type WorkItemDetail,
 } from "./service";
 import type { AdoIdentity } from "./types";
@@ -124,7 +126,22 @@ export type SyncResult =
 // project; the task is linked via projectId. Sync owns title/description/status/
 // externalUrl/projectId; user-owned fields (priority, tags, dueDate) are left untouched
 // on update. Never deletes local tasks.
+// Record sync health on the AdoConfig singleton (shown in Settings): lastSyncedAt on success
+// (clears lastError); lastError on failure. updateMany no-ops when unconfigured (no row).
+async function recordAdoHealth(error: string | null): Promise<void> {
+  await db.adoConfig.updateMany({
+    where: { id: "singleton" },
+    data: error === null ? { lastSyncedAt: new Date(), lastError: null } : { lastError: error },
+  });
+}
+
 export async function syncAzureDevOps(): Promise<SyncResult> {
+  const result = await runAzureDevOpsSync();
+  await recordAdoHealth(result.ok ? null : result.error);
+  return result;
+}
+
+async function runAzureDevOpsSync(): Promise<SyncResult> {
   const config = await getAzureDevOpsConfig();
   if (!config) {
     return { ok: false, error: "Azure DevOps is not configured. Set AZURE_DEVOPS_ORG_URL and AZURE_DEVOPS_PAT in .env." };
@@ -495,7 +512,7 @@ export async function createAzureDevOpsTask(input: CreateWorkItemInput): Promise
   }
 }
 
-export type WriteResult = { ok: true } | { ok: false; error: string };
+export type WriteResult = { ok: true; rev?: number } | { ok: false; error: string };
 
 export type WorkItemPatch = {
   title?: string;
@@ -540,8 +557,9 @@ export async function updateAzureDevOpsWorkItem(
       if (value === undefined) continue;
       fields[FIELD_MAP[key]] = NUMERIC_KEYS.has(key) ? (value === "" ? null : Number(value)) : value;
     }
+    let newRev = rev;
     if (Object.keys(fields).length > 0) {
-      await updateWorkItem(externalId, rev, fields);
+      newRev = await updateWorkItem(externalId, rev, fields);
     }
 
     const data: { title?: string; description?: string | null; status?: TaskStatus; adoState?: string; iterationPath?: string | null } = {};
@@ -566,9 +584,20 @@ export async function updateAzureDevOpsWorkItem(
 
     revalidatePath("/tasks");
     revalidatePath("/");
-    return { ok: true };
+    return { ok: true, rev: newRev };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Update failed." };
+  }
+}
+
+// DevOps-style History: field-change revisions + discussion comments, newest first.
+// Config-gated (empty when ADO isn't set up). Lazy-loaded by the detail modal.
+export async function getAzureDevOpsWorkItemUpdates(externalId: string): Promise<WorkItemUpdateView[]> {
+  if (!(await getAzureDevOpsConfig())) return [];
+  try {
+    return await fetchWorkItemUpdates(externalId);
+  } catch {
+    return [];
   }
 }
 

@@ -3,21 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ExternalLink, FileText, GitBranch, Loader2, Paperclip, Save, Send } from "lucide-react";
+import { ExternalLink, FileText, GitBranch, History, Loader2, Paperclip, Save, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   addAzureDevOpsComment,
   getAzureDevOpsTaskDetail,
+  getAzureDevOpsWorkItemUpdates,
   searchAzureDevOpsIdentities,
   updateAzureDevOpsWorkItem,
   type WorkItemPatch,
 } from "@/features/integrations/azure-devops/actions";
-import type { WorkItemDetail } from "@/features/integrations/azure-devops/service";
+import type { WorkItemDetail, WorkItemUpdateView } from "@/features/integrations/azure-devops/service";
 import { workItemStateColor, workItemTypeColor, type AdoIdentity } from "@/features/integrations/azure-devops/types";
 import { MentionInput } from "@/features/integrations/azure-devops/mention-input";
 
@@ -30,6 +32,8 @@ interface AzureDevOpsTaskDetailProps {
 }
 
 const htmlBox = "max-w-none text-sm leading-relaxed [&_a]:text-primary [&_a]:underline [&_img]:max-w-full [&_img]:rounded";
+// 12-hour (AM/PM) date+time for all timestamps in this modal.
+const DATETIME_FMT: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short", hour12: true };
 const PRIORITIES = ["1", "2", "3", "4"];
 // ADO priority is numeric (1 = highest … 4 = lowest); show a readable label but
 // keep the number as the stored value so write-back to ADO is unchanged.
@@ -86,6 +90,9 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
   const [assigneeResults, setAssigneeResults] = useState<AdoIdentity[]>([]);
   const [searchingAssignee, setSearchingAssignee] = useState(false);
   const [assigneePicked, setAssigneePicked] = useState(true);
+  // Work item history (lazy — fetched only when the History section is first expanded).
+  const [updates, setUpdates] = useState<WorkItemUpdateView[] | null>(null);
+  const [loadingUpdates, setLoadingUpdates] = useState(false);
   // Guards against a slow, superseded fetch overwriting a newer one's result. The
   // resync-then-fetch effects below run a render apart, so closing and reopening
   // with a different item can fire two overlapping loads (stale id, then correct
@@ -127,9 +134,22 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     if (!open) return;
     setDetail(null);
     setForm(null);
+    setUpdates(null); // reset history when switching items
     void load(currentId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, currentId]);
+
+  async function loadHistory() {
+    if (updates !== null || loadingUpdates) return; // already loaded / loading
+    setLoadingUpdates(true);
+    try {
+      setUpdates(await getAzureDevOpsWorkItemUpdates(currentId));
+    } catch {
+      setUpdates([]);
+    } finally {
+      setLoadingUpdates(false);
+    }
+  }
 
   // Debounced identity search for the assignee picker. Same stale-response guard and
   // "searching" flag as the create dialog; only runs while the user is typing a new
@@ -194,7 +214,29 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     setSaving(false);
     if (result.ok) {
       toast.success("Saved to Azure DevOps.");
-      await load(currentId); // refetch fresh rev + values
+      // Refresh in place from what we just saved (+ the new rev) instead of re-fetching the
+      // whole item (~6 sequential ADO calls) — makes Save near-instant. The /rev test still
+      // guards concurrent edits, and the next open re-fetches the canonical server copy.
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              rev: result.rev ?? prev.rev,
+              title: form.title,
+              state: form.state,
+              assignedTo: form.assignedTo,
+              iterationPath: form.iterationPath,
+              priority: form.priority,
+              effort: form.effort,
+              originalEstimate: form.originalEstimate,
+              remainingWork: form.remainingWork,
+              completedWork: form.completedWork,
+              descriptionRaw: form.description,
+              descriptionHtml: form.description || null,
+            }
+          : prev,
+      );
+      setUpdates(null); // history now stale — reload on next expand
       router.refresh();
     } else {
       toast.error(result.error);
@@ -251,6 +293,21 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              {/* Some ADO process rules require Effort before a state transition (TF401320
+                  "Rule Error for field Effort … Required"). Optional here — save() only patches
+                  changed fields, so a blank value isn't sent and Effort-less types are unaffected. */}
+              <div className="space-y-1.5">
+                <Label htmlFor="wi-effort-slim">Effort</Label>
+                <Input
+                  id="wi-effort-slim"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={form.effort}
+                  onChange={(e) => set("effort", e.target.value)}
+                  placeholder="Set only if the new state requires it"
+                />
               </div>
               <Button onClick={save} disabled={saving || !dirty} size="sm">
                 <Save /> Save to Azure DevOps
@@ -381,14 +438,24 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="wi-effort">Estimated effort</Label>
-                <Input id="wi-effort" type="number" min="0" step="0.1" value={form.effort} onChange={(e) => set("effort", e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="wi-cw">Actual effort</Label>
-                <Input id="wi-cw" type="number" min="0" step="0.1" value={form.completedWork} onChange={(e) => set("completedWork", e.target.value)} />
+            {/* Effort (Hours) section — mirrors ADO's layout. Exact field names so the close-rule's
+                required `Effort` field is unambiguous. Only *changed* fields are patched, so a field
+                absent on this work-item type is never sent unless the user edits it. */}
+            <div className="space-y-2 rounded-lg border border-border/60 p-3">
+              <p className="text-xs font-semibold text-primary">Effort (Hours)</p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="wi-oe">Original Estimate</Label>
+                  <Input id="wi-oe" type="number" min="0" step="0.1" value={form.originalEstimate} onChange={(e) => set("originalEstimate", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="wi-rw">Remaining</Label>
+                  <Input id="wi-rw" type="number" min="0" step="0.1" value={form.remainingWork} onChange={(e) => set("remainingWork", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="wi-effort">Effort</Label>
+                  <Input id="wi-effort" type="number" min="0" step="0.1" value={form.effort} onChange={(e) => set("effort", e.target.value)} />
+                </div>
               </div>
             </div>
 
@@ -469,40 +536,92 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
               </section>
             ) : null}
 
-            <section>
-              <h4 className="mb-2 flex items-center gap-1.5 font-medium">
-                <FileText className="size-4" /> Comments ({detail.comments.length})
-              </h4>
-              {detail.comments.length > 0 ? (
-                <ul className="mb-3 space-y-3">
-                  {detail.comments.map((c, i) => (
-                    <li key={i} className="rounded-lg border border-border p-3">
-                      <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                        <span className="font-medium text-foreground">{c.author}</span>
-                        {c.date ? <span>{new Date(c.date).toLocaleString()}</span> : null}
-                      </div>
-                      <div className={htmlBox} dangerouslySetInnerHTML={{ __html: c.text }} />
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mb-3 text-muted-foreground">No comments.</p>
-              )}
-              <MentionInput
-                key={`comment-${commentKey}`}
-                onChange={setComment}
-                placeholder="Add a comment… use @ to mention"
-                className="min-h-[80px]"
-              />
-              <Button
-                onClick={submitComment}
-                disabled={saving || comment.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length === 0}
-                size="sm"
-                className="mt-2"
-              >
-                <Send /> Comment
-              </Button>
-            </section>
+            <Tabs
+              defaultValue="comments"
+              onValueChange={(v) => {
+                if (v === "history") void loadHistory();
+              }}
+            >
+              <TabsList>
+                <TabsTrigger value="comments">
+                  <FileText className="size-3.5" /> Comments ({detail.comments.length})
+                </TabsTrigger>
+                <TabsTrigger value="history">
+                  <History className="size-3.5" /> History
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="comments" className="mt-4">
+                {detail.comments.length > 0 ? (
+                  <ul className="mb-3 space-y-3">
+                    {detail.comments.map((c, i) => (
+                      <li key={i} className="rounded-lg border border-border p-3">
+                        <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                          <span className="font-medium text-foreground">{c.author}</span>
+                          {c.date ? <span>{new Date(c.date).toLocaleString(undefined, DATETIME_FMT)}</span> : null}
+                        </div>
+                        <div className={htmlBox} dangerouslySetInnerHTML={{ __html: c.text }} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mb-3 text-muted-foreground">No comments.</p>
+                )}
+                <MentionInput
+                  key={`comment-${commentKey}`}
+                  onChange={setComment}
+                  placeholder="Add a comment… use @ to mention"
+                  className="min-h-[80px]"
+                />
+                <Button
+                  onClick={submitComment}
+                  disabled={saving || comment.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length === 0}
+                  size="sm"
+                  className="mt-2"
+                >
+                  <Send /> Comment
+                </Button>
+              </TabsContent>
+
+              <TabsContent value="history" className="mt-4 space-y-2">
+                {loadingUpdates ? (
+                  <p className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="size-3.5 animate-spin" /> Loading history…
+                  </p>
+                ) : updates && updates.length > 0 ? (
+                  <ol className="relative space-y-4 border-l border-border pl-5">
+                    {updates.map((u) => (
+                      <li key={u.rev} className="relative">
+                        <span className="absolute -left-[1.55rem] top-1 size-2.5 rounded-full border-2 border-background bg-primary" />
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+                          <span className="text-sm font-medium text-foreground">{u.by}</span>
+                          {u.date ? (
+                            <span className="text-xs text-muted-foreground">{new Date(u.date).toLocaleString(undefined, DATETIME_FMT)}</span>
+                          ) : null}
+                        </div>
+                        {u.changes.length > 0 ? (
+                          <ul className="mt-1 space-y-0.5 text-xs">
+                            {u.changes.map((c, i) => (
+                              <li key={i}>
+                                <span className="font-medium text-foreground/70">{c.field}:</span>{" "}
+                                {c.from ? <span className="text-muted-foreground line-through">{c.from}</span> : null}
+                                {c.from ? <span className="text-muted-foreground"> → </span> : null}
+                                <span className="text-foreground">{c.to || "—"}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        {u.comment ? (
+                          <p className="mt-1.5 whitespace-pre-wrap rounded-md bg-muted/50 px-2 py-1 text-xs text-foreground/80">{u.comment}</p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="text-muted-foreground">No history.</p>
+                )}
+              </TabsContent>
+            </Tabs>
           </div>
           )
         ) : null}

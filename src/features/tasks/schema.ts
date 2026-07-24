@@ -9,6 +9,8 @@ export const taskInputSchema = z.object({
   priority: z.enum(TASK_PRIORITIES),
   dueDate: z.string().trim().optional(),
   projectId: z.string().trim().optional(),
+  linkedPrRepo: z.string().trim().optional(), // "owner/repo" of an attached GitHub PR
+  linkedPrNumber: z.number().int().positive().optional(),
 });
 
 export type TaskInput = z.infer<typeof taskInputSchema>;

@@ -47,6 +47,8 @@ export async function createTask(input: TaskInput, subtaskTitles: string[] = [])
         dueDate: toDueDate(data.dueDate),
         order: (last?.order ?? -1) + 1,
         projectId: data.projectId || null,
+        linkedPrRepo: data.linkedPrRepo || null,
+        linkedPrNumber: data.linkedPrNumber ?? null,
       },
       select: { id: true },
     });
@@ -76,6 +78,8 @@ export async function updateTask(id: string, input: TaskInput): Promise<ActionRe
       priority: data.priority,
       dueDate: toDueDate(data.dueDate),
       projectId: data.projectId || null,
+      linkedPrRepo: data.linkedPrRepo || null,
+      linkedPrNumber: data.linkedPrNumber ?? null,
     },
   });
 

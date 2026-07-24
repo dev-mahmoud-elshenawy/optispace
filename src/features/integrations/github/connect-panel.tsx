@@ -32,7 +32,7 @@ export function GithubConnectPanel({
   stats,
 }: {
   status: GithubAuthStatus;
-  stats?: { count: number; latest: string | null };
+  stats?: { count: number; latest: string | null; lastError: string | null };
 }) {
   const router = useRouter();
   const [clientId, setClientId] = useState("");
@@ -165,10 +165,13 @@ export function GithubConnectPanel({
         {status.connected ? (
           <div className="space-y-3">
             {stats ? (
-              <p className="text-xs text-muted-foreground">
-                {stats.count} pull request{stats.count === 1 ? "" : "s"}
-                {stats.latest ? ` · updated ${stats.latest}` : ""}
-              </p>
+              <>
+                <p className="text-xs text-muted-foreground">
+                  {stats.count} pull request{stats.count === 1 ? "" : "s"}
+                  {stats.latest ? ` · last synced ${stats.latest}` : ""}
+                </p>
+                {stats.lastError ? <p className="text-xs text-destructive">⚠ Last sync failed: {stats.lastError}</p> : null}
+              </>
             ) : null}
             <Button variant="outline" onClick={handleDisconnect}>
               Disconnect
