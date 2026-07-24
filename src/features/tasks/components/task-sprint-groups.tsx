@@ -3,7 +3,8 @@
 import { ChevronRight } from "lucide-react";
 
 import { type TaskView } from "@/features/tasks/service";
-import { PROJECT_STATUS_ORDER } from "@/features/projects/service";
+import { PROJECT_STATUS_BADGE_CLASS, PROJECT_STATUS_LABELS, PROJECT_STATUS_ORDER } from "@/features/projects/service";
+import { cn } from "@/lib/utils";
 import type { ProjectStatus } from "@/types";
 
 import { TaskSprintSubGroups } from "./task-sprint-subgroups";
@@ -55,6 +56,11 @@ export function TaskSprintGroups({ tasks, onEdit, onDelete }: TaskSprintGroupsPr
             <span className="flex items-center gap-2 font-medium">
               <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
               {project.name}
+              {project.status ? (
+                <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-medium", PROJECT_STATUS_BADGE_CLASS[project.status])}>
+                  {PROJECT_STATUS_LABELS[project.status]}
+                </span>
+              ) : null}
             </span>
             <span className="text-xs tabular-nums text-muted-foreground">
               {sprintCount(project.tasks)} sprint{sprintCount(project.tasks) === 1 ? "" : "s"} · {project.tasks.length} task

@@ -6,7 +6,7 @@ import { ChevronRight, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { STATUS_DOT_CLASS, taskDaySpan, type TaskView } from "@/features/tasks/service";
-import { PROJECT_STATUS_ORDER } from "@/features/projects/service";
+import { PROJECT_STATUS_BADGE_CLASS, PROJECT_STATUS_LABELS, PROJECT_STATUS_ORDER } from "@/features/projects/service";
 import type { ProjectStatus } from "@/types";
 
 import { PriorityFlag } from "./priority-flag";
@@ -108,6 +108,11 @@ export function TaskProjectGroups({ tasks, onTasksChange, onEdit, onDelete, onSt
               <span className="flex items-center gap-2 font-medium">
                 <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
                 {group.name}
+                {group.status ? (
+                  <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-medium", PROJECT_STATUS_BADGE_CLASS[group.status])}>
+                    {PROJECT_STATUS_LABELS[group.status]}
+                  </span>
+                ) : null}
               </span>
               <span className="text-xs tabular-nums text-muted-foreground">
                 {group.tasks.length} task{group.tasks.length === 1 ? "" : "s"}

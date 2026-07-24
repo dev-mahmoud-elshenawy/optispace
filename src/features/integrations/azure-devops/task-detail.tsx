@@ -63,6 +63,12 @@ function avatarColor(name: string): string {
 // revision — cache per externalId so reopening the same item shows history instantly.
 const historyCache = new Map<string, WorkItemUpdateView[]>();
 
+// Full work-item detail (description + comments + attachments + allowed states + rev) is
+// ~6 ADO calls. Cache it per externalId for stale-while-revalidate: a reopened item renders
+// instantly from cache while a fresh fetch refreshes it in the background — no blocking
+// spinner on the common path (mirrors the GitHub PR detail cache).
+const detailCache = new Map<string, WorkItemDetail>();
+
 // Editable form values, seeded from the fetched work item.
 interface Form {
   title: string;
@@ -130,16 +136,20 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
 
   async function load(id: string) {
     const requestId = ++requestIdRef.current;
-    setLoading(true);
+    const cached = detailCache.get(id);
+    setLoading(!cached); // full-screen spinner only when there's nothing cached to show yet
     setError(null);
     const result = await getAzureDevOpsTaskDetail(id);
     if (requestIdRef.current !== requestId) return; // superseded by a newer load() — ignore this stale response
     if (result.ok) {
+      detailCache.set(id, result.detail);
       setDetail(result.detail);
       setForm(toForm(result.detail));
       setAssigneeQuery(result.detail.assignedTo ?? "");
       setAssigneePicked(true); // seeded value is already the current person — don't auto-open the dropdown
-    } else {
+    } else if (!cached) {
+      // A failed background revalidate keeps the cached view — only surface the error
+      // when we had nothing to show.
       setError(result.error);
     }
     setLoading(false);
@@ -151,8 +161,15 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
 
   useEffect(() => {
     if (!open) return;
-    setDetail(null);
-    setForm(null);
+    const cachedDetail = detailCache.get(currentId);
+    setDetail(cachedDetail ?? null); // instant render from cache; load() revalidates in the background
+    setForm(cachedDetail ? toForm(cachedDetail) : null);
+    if (cachedDetail) {
+      // Seed the assignee picker from cache too, or it falls back to the search path and
+      // shows a spinner until the background fetch resolves.
+      setAssigneeQuery(cachedDetail.assignedTo ?? "");
+      setAssigneePicked(true);
+    }
     setUpdates(historyCache.get(currentId) ?? null); // instant if cached, else lazy-load on tab open
     void load(currentId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -238,26 +255,25 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
       // Refresh in place from what we just saved (+ the new rev) instead of re-fetching the
       // whole item (~6 sequential ADO calls) — makes Save near-instant. The /rev test still
       // guards concurrent edits, and the next open re-fetches the canonical server copy.
-      setDetail((prev) =>
-        prev
-          ? {
-              ...prev,
-              rev: result.rev ?? prev.rev,
-              title: form.title,
-              state: form.state,
-              assignedTo: form.assignedTo,
-              iterationPath: form.iterationPath,
-              priority: form.priority,
-              effort: form.effort,
-              originalEstimate: form.originalEstimate,
-              remainingWork: form.remainingWork,
-              completedWork: form.completedWork,
-              descriptionRaw: form.description,
-              descriptionHtml: form.description || null,
-            }
-          : prev,
-      );
-      setUpdates(null); // history now stale — reload on next expand
+      const next: WorkItemDetail = {
+        ...detail,
+        rev: result.rev ?? detail.rev,
+        title: form.title,
+        state: form.state,
+        assignedTo: form.assignedTo,
+        iterationPath: form.iterationPath,
+        priority: form.priority,
+        effort: form.effort,
+        originalEstimate: form.originalEstimate,
+        remainingWork: form.remainingWork,
+        completedWork: form.completedWork,
+        descriptionRaw: form.description,
+        descriptionHtml: form.description || null,
+      };
+      detailCache.set(currentId, next); // keep the cache coherent so a reopen shows the saved values
+      setDetail(next);
+      historyCache.delete(currentId); // history now stale — drop cache so it reloads on next expand
+      setUpdates(null);
       router.refresh();
     } else {
       toast.error(result.error);

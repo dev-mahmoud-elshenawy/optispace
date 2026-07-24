@@ -16,3 +16,4 @@
 [2026-07-24T17:36:58.762Z] [INFO] Worker backup deferred: Memory too low: 2.3% free
 [2026-07-24T17:38:58.767Z] [INFO] Worker harness deferred: CPU load too high: 11.22
 [2026-07-24T17:38:58.770Z] [INFO] Worker audit deferred: CPU load too high: 11.22
+[2026-07-24T17:41:58.764Z] [INFO] Worker map deferred: Memory too low: 0.7% free

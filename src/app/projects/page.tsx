@@ -10,6 +10,7 @@ import {
   listProjects,
 } from "@/features/projects/queries";
 import type { ProjectFeedbackItem, ProjectFileMeta, ProjectLinkItem } from "@/features/projects/service";
+import { PROJECT_STATUS_ORDER } from "@/features/projects/service";
 import { listProjectTasks } from "@/features/tasks/queries";
 import type { TaskView } from "@/features/tasks/service";
 
@@ -48,12 +49,11 @@ export default async function ProjectsPage() {
   // Development shows only projects with open work: at least one task that isn't
   // done (all synced tasks are assigned to me). Then order by status so same-status
   // projects cluster instead of intermixing.
-  const STATUS_ORDER: Record<string, number> = { active: 0, production: 1, paused: 2, planning: 3, completed: 4 };
   const visibleProjects = projects
     .filter((p) => (tasksByProject.get(p.id) ?? []).some((t) => t.status !== "done"))
     .sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1; // bookmarked projects first
-      const byStatus = (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
+      const byStatus = (PROJECT_STATUS_ORDER[a.status] ?? 99) - (PROJECT_STATUS_ORDER[b.status] ?? 99);
       return byStatus !== 0 ? byStatus : a.name.localeCompare(b.name); // then status, then A→Z
     });
 
