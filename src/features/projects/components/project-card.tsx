@@ -40,9 +40,11 @@ interface ProjectCardProps {
   links: ProjectLinkItem[];
   feedback: ProjectFeedbackItem[];
   projectOptions: { id: string; name: string }[];
+  // Notify the parent list so it can re-sort/re-filter (e.g. a status change reorders cards).
+  onProjectSaved?: (vals: Partial<ProjectView>) => void;
 }
 
-export function ProjectCard({ project: initialProject, tasks, files, links, feedback, projectOptions }: ProjectCardProps) {
+export function ProjectCard({ project: initialProject, tasks, files, links, feedback, projectOptions, onProjectSaved }: ProjectCardProps) {
   const router = useRouter();
   // Local copy so an edit updates this card instantly (status is cache-only, no sync).
   const [project, setProject] = useState(initialProject);
@@ -172,7 +174,10 @@ export function ProjectCard({ project: initialProject, tasks, files, links, feed
           <ProjectFormDialog
             mode="edit"
             project={project}
-            onSaved={(vals) => setProject((p) => ({ ...p, ...vals }))}
+            onSaved={(vals) => {
+            setProject((p) => ({ ...p, ...vals }));
+            onProjectSaved?.(vals);
+          }}
             trigger={
               <Button variant="ghost" size="icon-sm">
                 <Pencil />

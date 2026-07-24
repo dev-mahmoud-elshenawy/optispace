@@ -8,6 +8,7 @@ import { GitBranch, ListChecks, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { type TaskView } from "@/features/tasks/service";
+import { PROJECT_STATUS_BADGE_CLASS, PROJECT_STATUS_LABELS } from "@/features/projects/service";
 import { adoPriorityMeta, workItemTypeColor } from "@/features/integrations/azure-devops/types";
 import { LinkedPrBadge } from "./linked-pr-badge";
 import { PriorityFlag } from "./priority-flag";
@@ -36,10 +37,17 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
       onClick={onEdit}
     >
       {task.projectName ? (
-        <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-          <GitBranch className="size-3 shrink-0" />
-          <span className="truncate">{task.projectName}</span>
-        </span>
+        <div className="flex max-w-full flex-wrap items-center gap-1">
+          <span className="inline-flex min-w-0 items-center gap-1 truncate rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+            <GitBranch className="size-3 shrink-0" />
+            <span className="truncate">{task.projectName}</span>
+          </span>
+          {task.projectStatus ? (
+            <span className={cn("shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium", PROJECT_STATUS_BADGE_CLASS[task.projectStatus])}>
+              {PROJECT_STATUS_LABELS[task.projectStatus]}
+            </span>
+          ) : null}
+        </div>
       ) : null}
       <div className="flex items-start justify-between gap-2">
         <p className="min-w-0 flex-1 font-medium text-foreground">{task.title}</p>
