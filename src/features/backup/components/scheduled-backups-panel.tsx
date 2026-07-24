@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { format } from "date-fns";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -28,7 +29,8 @@ function dayLabel(name: string): string {
   const diff = Math.round((today.getTime() - d.getTime()) / 86_400_000);
   if (diff === 0) return "Today";
   if (diff === 1) return "Yesterday";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  // Deterministic format (locale-independent) so SSR and client agree — no hydration mismatch.
+  return format(d, "MMM d, yyyy");
 }
 
 const COLLAPSED_COUNT = 4;
