@@ -2,7 +2,7 @@ import type { Task } from "@prisma/client";
 
 import type { NotificationEvent } from "@/features/notifications/service";
 import type { PullRequestView } from "@/features/integrations/github/types";
-import { type TaskPriority, type TaskStatus } from "@/types";
+import { type ProjectStatus, type TaskPriority, type TaskStatus } from "@/types";
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "To Do",
@@ -100,6 +100,7 @@ export interface TaskView {
   order: number;
   projectId: string | null;
   projectName: string | null;
+  projectStatus: ProjectStatus | null;
   source: string | null;
   externalId: string | null;
   externalUrl: string | null;
@@ -119,7 +120,7 @@ export interface TaskView {
 }
 
 type TaskRow = Task & {
-  project?: { name: string } | null;
+  project?: { name: string; status: string } | null;
   subtasks?: { id: string; title: string; done: boolean }[];
 };
 
@@ -134,6 +135,7 @@ export function toTaskView(row: TaskRow): TaskView {
     order: row.order,
     projectId: row.projectId,
     projectName: row.project?.name ?? null,
+    projectStatus: (row.project?.status as ProjectStatus) ?? null,
     source: row.source,
     externalId: row.externalId,
     externalUrl: row.externalUrl,

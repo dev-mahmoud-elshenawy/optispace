@@ -202,21 +202,28 @@ async function runAzureDevOpsSync(): Promise<SyncResult> {
   // and to make sure my own name never shows as the actor.
   const me = await resolveMe().catch(() => null);
 
+  // Pre-load all existing synced tasks in ONE query (was a per-item findUnique — N reads).
+  const existingList = await db.task.findMany({
+    where: { source: SOURCE, externalId: { in: items.map((i) => i.externalId) } },
+    select: { id: true, externalId: true, deletedAt: true, status: true, changedDate: true },
+  });
+  const existingByExternalId = new Map(existingList.map((t) => [t.externalId, t] as const));
+  const lookbackCutoff = Date.now() - MENTION_LOOKBACK_DAYS * 86_400_000;
+  // Assignment-info needs a per-item ADO getUpdates call — collect candidates here and
+  // fetch them in parallel (chunked) after the write loop instead of one serial call each.
+  const assignmentCandidates: typeof items = [];
+
   let imported = 0;
   let updated = 0;
   for (const item of items) {
     const projectId = await resolveProjectId(item.project);
-    const existing = await db.task.findUnique({
-      where: { source_externalId: { source: SOURCE, externalId: item.externalId } },
-      select: { id: true, deletedAt: true, status: true, changedDate: true },
-    });
+    const existing = existingByExternalId.get(item.externalId) ?? null;
     // A previously pruned (soft-deleted) task that's back in the @Me set is a
     // reassignment, not a routine update — restore it and notify like a new import.
     // Without this, `existing` still matches by (source, externalId), the code fell
     // into the update branch, deletedAt was never cleared, and no notification fired.
     const reassigned = existing?.deletedAt != null;
     const changedMs = item.changedDate ? new Date(item.changedDate).getTime() : 0;
-    const lookbackCutoff = Date.now() - MENTION_LOOKBACK_DAYS * 86_400_000;
     const storedChangedMs = existing?.changedDate ? new Date(existing.changedDate).getTime() : 0;
     if (existing && !reassigned) {
       // Only a bucket-crossing change (todo/in_progress/done) is visible to the user
@@ -295,23 +302,36 @@ async function runAzureDevOpsSync(): Promise<SyncResult> {
     const isNewToLocal = !existing || reassigned;
     const changedSinceStored = changedMs > storedChangedMs;
     if (me && changedMs >= lookbackCutoff && (isNewToLocal || changedSinceStored)) {
-      const info = await fetchAssignmentInfo(item.externalId, me).catch(() => null);
-      const assignedMs = info ? new Date(info.assignedAt).getTime() : 0;
-      if (info && assignedMs >= lookbackCutoff) {
+      assignmentCandidates.push(item);
+    }
+  }
+
+  // Fetch assignment history for all candidates in parallel, in bounded chunks so a busy
+  // sync never fires hundreds of ADO getUpdates calls at once (was one serial call per item).
+  if (me) {
+    const ASSIGN_CHUNK = 8;
+    for (let i = 0; i < assignmentCandidates.length; i += ASSIGN_CHUNK) {
+      const chunk = assignmentCandidates.slice(i, i + ASSIGN_CHUNK);
+      const infos = await Promise.all(chunk.map((it) => fetchAssignmentInfo(it.externalId, me).catch(() => null)));
+      infos.forEach((info, j) => {
+        if (!info) return;
+        const it = chunk[j];
+        const assignedMs = new Date(info.assignedAt).getTime();
+        if (assignedMs < lookbackCutoff) return;
         events.push({
           type: "assigned",
-          externalId: item.externalId,
-          title: item.title,
-          url: item.url,
+          externalId: it.externalId,
+          title: it.title,
+          url: it.url,
           message: "Assigned to you",
-          project: item.project,
+          project: it.project,
           actor: info.assignedBy,
           occurredAt: info.assignedAt,
           // Keyed by the real assignment time, so a genuine reassign-away-then-back
           // cycle isn't deduped against the original assignment.
-          dedupeKey: `assigned:${item.externalId}:${assignedMs}`,
+          dedupeKey: `assigned:${it.externalId}:${assignedMs}`,
         });
-      }
+      });
     }
   }
 

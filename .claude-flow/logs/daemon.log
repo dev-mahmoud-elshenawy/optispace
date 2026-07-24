@@ -10,3 +10,9 @@
 [2026-07-24T17:26:58.775Z] [INFO] Claude Code headless mode available - AI workers enabled
 [2026-07-24T17:26:58.776Z] [INFO] Worker map deferred: Memory too low: 1.0% free
 [2026-07-24T17:28:58.763Z] [INFO] Worker audit deferred: CPU load too high: 11.89
+[2026-07-24T17:30:58.762Z] [INFO] Worker optimize deferred: CPU load too high: 10.55
+[2026-07-24T17:32:58.761Z] [INFO] Worker consolidate deferred: Memory too low: 1.9% free
+[2026-07-24T17:34:58.762Z] [INFO] Worker testgaps deferred: CPU load too high: 8.23
+[2026-07-24T17:36:58.762Z] [INFO] Worker backup deferred: Memory too low: 2.3% free
+[2026-07-24T17:38:58.767Z] [INFO] Worker harness deferred: CPU load too high: 11.22
+[2026-07-24T17:38:58.770Z] [INFO] Worker audit deferred: CPU load too high: 11.22

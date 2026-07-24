@@ -3,12 +3,15 @@
 import { ChevronRight } from "lucide-react";
 
 import { type TaskView } from "@/features/tasks/service";
+import { PROJECT_STATUS_ORDER } from "@/features/projects/service";
+import type { ProjectStatus } from "@/types";
 
 import { TaskSprintSubGroups } from "./task-sprint-subgroups";
 
 interface ProjectGroup {
   key: string;
   name: string;
+  status: ProjectStatus | null;
   tasks: TaskView[];
 }
 
@@ -19,11 +22,12 @@ function groupByProject(tasks: TaskView[]): ProjectGroup[] {
     const key = task.projectId ?? "none";
     const existing = map.get(key);
     if (existing) existing.tasks.push(task);
-    else map.set(key, { key, name: task.projectName ?? "No project", tasks: [task] });
+    else map.set(key, { key, name: task.projectName ?? "No project", status: task.projectStatus, tasks: [task] });
   }
-  return [...map.values()].sort(
-    (a, b) => (a.key === "none" ? 1 : 0) - (b.key === "none" ? 1 : 0) || a.name.localeCompare(b.name),
-  );
+  // Prioritize by project status (active first, done last, no-project last) — same as
+  // the Development page and the "By project" view; alphabetical within a status.
+  const rank = (g: ProjectGroup) => (g.key === "none" ? 99 : g.status ? PROJECT_STATUS_ORDER[g.status] : 98);
+  return [...map.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
 
 function sprintCount(tasks: TaskView[]): number {

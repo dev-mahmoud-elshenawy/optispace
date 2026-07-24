@@ -59,6 +59,10 @@ function avatarColor(name: string): string {
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
+// Work-item history is a slow ADO getUpdates round-trip that never changes for a given
+// revision — cache per externalId so reopening the same item shows history instantly.
+const historyCache = new Map<string, WorkItemUpdateView[]>();
+
 // Editable form values, seeded from the fetched work item.
 interface Form {
   title: string;
@@ -149,7 +153,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     if (!open) return;
     setDetail(null);
     setForm(null);
-    setUpdates(null); // reset history when switching items
+    setUpdates(historyCache.get(currentId) ?? null); // instant if cached, else lazy-load on tab open
     void load(currentId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, currentId]);
@@ -158,7 +162,9 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     if (updates !== null || loadingUpdates) return; // already loaded / loading
     setLoadingUpdates(true);
     try {
-      setUpdates(await getAzureDevOpsWorkItemUpdates(currentId));
+      const rows = await getAzureDevOpsWorkItemUpdates(currentId);
+      historyCache.set(currentId, rows);
+      setUpdates(rows);
     } catch {
       setUpdates([]);
     } finally {

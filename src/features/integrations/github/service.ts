@@ -109,12 +109,18 @@ export async function fetchMyPullRequests(token: string): Promise<PullRequestDTO
     { q: "is:pr is:open assignee:@me", relation: "assignee" },
   ];
 
+  // The 4 involvement queries are independent — run them in parallel (was serial,
+  // ~4× the round-trip latency on every poll). Merge order is irrelevant: dedup keeps
+  // the strongest relation by RELATION_RANK comparison, not by arrival order.
+  const results = await Promise.all(
+    queries.map(({ q }) =>
+      client<{ search: { nodes: (SearchNode | Record<string, never>)[] } }>(SEARCH_QUERY, { q, limit: SEARCH_LIMIT }),
+    ),
+  );
+
   const seen = new Map<string, PullRequestDTO>();
-  for (const { q, relation } of queries) {
-    const res = await client<{ search: { nodes: (SearchNode | Record<string, never>)[] } }>(SEARCH_QUERY, {
-      q,
-      limit: SEARCH_LIMIT,
-    });
+  results.forEach((res, i) => {
+    const relation = queries[i].relation;
     for (const node of res.search.nodes) {
       if (!("number" in node) || !node.repository) continue;
       const pr = toDto(node as SearchNode, relation);
@@ -124,7 +130,7 @@ export async function fetchMyPullRequests(token: string): Promise<PullRequestDTO
       if (prev && RELATION_RANK[prev.relation] >= RELATION_RANK[relation]) continue;
       seen.set(key, prev ? { ...prev, relation } : pr);
     }
-  }
+  });
   return [...seen.values()];
 }
 

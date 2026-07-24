@@ -86,6 +86,16 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
   production: "Production",
 };
 
+// Priority order for surfacing projects (and their tasks): active work first, done last.
+// Single source of truth for the Development page and the Tasks project grouping/sort.
+export const PROJECT_STATUS_ORDER: Record<ProjectStatus, number> = {
+  active: 0,
+  production: 1,
+  paused: 2,
+  planning: 3,
+  completed: 4,
+};
+
 // Status-matched badge colors (subtle tint, readable in light + dark).
 // production = shipped & live, still open for hotfix/support — distinct violet vs completed green.
 export const PROJECT_STATUS_BADGE_CLASS: Record<ProjectStatus, string> = {
