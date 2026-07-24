@@ -134,7 +134,7 @@ export function ProjectsView({ items: initialItems, projectOptions }: ProjectsVi
         </span>
       </div>
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext id="projects-grid" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={filtered.map((it) => it.project.id)} strategy={rectSortingStrategy}>
           <div className="grid gap-6 sm:grid-cols-2">
             {filtered.map((it) => (
