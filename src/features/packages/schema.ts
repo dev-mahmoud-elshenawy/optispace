@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PACKAGE_REGISTRIES, PACKAGE_LANGUAGES, PACKAGE_STATUSES } from "@/types";
+import { PACKAGE_LANGUAGES, PACKAGE_STATUSES } from "@/types";
 
 // Empty string from an optional URL input should pass validation as "not provided",
 // not fail the .url() check.
@@ -11,7 +11,7 @@ const optionalUrl = z.preprocess(
 export const packageSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   description: z.string().trim().optional(),
-  registry: z.enum(PACKAGE_REGISTRIES),
+  registry: z.string().trim().min(1, "Registry is required"),
   registryUrl: optionalUrl,
   githubUrl: optionalUrl,
   language: z.enum(PACKAGE_LANGUAGES),

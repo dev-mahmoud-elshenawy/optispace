@@ -1,6 +1,6 @@
 // Pure registry API client — no db, no Next.js imports. Called only from actions.ts,
 // and only on explicit user action (never on page load).
-import type { PackageRegistry } from "@/types";
+import { registryProvider } from "./service";
 
 export interface RegistryStats {
   latestVersion?: string;
@@ -10,7 +10,7 @@ export interface RegistryStats {
 }
 
 interface FetchRegistryStatsInput {
-  registry: PackageRegistry;
+  registry: string;
   name: string;
 }
 
@@ -65,7 +65,11 @@ async function fetchPubDevStats(name: string): Promise<RegistryStats> {
 }
 
 export async function fetchRegistryStats(input: FetchRegistryStatsInput): Promise<RegistryStats> {
-  return input.registry === "npm" ? fetchNpmStats(input.name) : fetchPubDevStats(input.name);
+  const provider = registryProvider(input.registry);
+  if (provider === "npm") return fetchNpmStats(input.name);
+  if (provider === "pubdev") return fetchPubDevStats(input.name);
+  // Custom registry — no live-stats API wired; tracked manually.
+  return {};
 }
 
 export interface VulnerabilityCheck {
@@ -73,18 +77,19 @@ export interface VulnerabilityCheck {
   advisoryUrl: string | null;
 }
 
-const OSV_ECOSYSTEM: Record<PackageRegistry, string> = { npm: "npm", pubdev: "Pub" };
+const OSV_ECOSYSTEM: Record<"npm" | "pubdev", string> = { npm: "npm", pubdev: "Pub" };
 
-// OSV.dev — free, no API key, covers both npm and Pub (Dart/Flutter) ecosystems.
-// Only meaningful once a version is known; a package with no currentVersion can't
-// be checked against a specific advisory range.
+// OSV.dev — free, no API key, covers the npm and Pub (Dart/Flutter) ecosystems.
+// Only meaningful once a version is known, and only for registries with a known OSV
+// ecosystem mapping; custom registries skip the check (reported as not vulnerable).
 export async function checkVulnerabilities(input: FetchRegistryStatsInput, version: string | null): Promise<VulnerabilityCheck> {
-  if (!version) return { vulnerable: false, advisoryUrl: null };
+  const provider = registryProvider(input.registry);
+  if (!version || provider === null) return { vulnerable: false, advisoryUrl: null };
   try {
     const res = await fetch("https://api.osv.dev/v1/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ package: { name: input.name, ecosystem: OSV_ECOSYSTEM[input.registry] }, version }),
+      body: JSON.stringify({ package: { name: input.name, ecosystem: OSV_ECOSYSTEM[provider] }, version }),
       cache: "no-store",
     });
     if (!res.ok) return { vulnerable: false, advisoryUrl: null };

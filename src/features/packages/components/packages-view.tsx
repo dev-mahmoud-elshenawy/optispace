@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { PACKAGE_REGISTRIES, PACKAGE_LANGUAGES } from "@/types";
-import type { PackageRegistry, PackageLanguage } from "@/types";
-import type { PackageView } from "../service";
+import { PACKAGE_LANGUAGES } from "@/types";
+import type { PackageLanguage } from "@/types";
+import { registryLabel, type PackageView } from "../service";
 import { refreshAllStats } from "../actions";
 import { PackageCard } from "./package-card";
 import { PackageFormDialog } from "./package-form-dialog";
@@ -20,7 +20,6 @@ interface PackagesViewProps {
   projectOptions: { id: string; name: string }[];
 }
 
-const REGISTRY_LABELS: Record<PackageRegistry, string> = { npm: "npm", pubdev: "pub.dev" };
 const LANGUAGE_LABELS: Record<PackageLanguage, string> = {
   dart_flutter: "Dart / Flutter",
   js_react: "JS / React",
@@ -30,7 +29,7 @@ const LANGUAGE_LABELS: Record<PackageLanguage, string> = {
 export function PackagesView({ packages, projectOptions }: PackagesViewProps) {
   const router = useRouter();
   const [isRefreshingAll, startRefreshAll] = useTransition();
-  const [registryFilter, setRegistryFilter] = useState<PackageRegistry | "all">("all");
+  const [registryFilter, setRegistryFilter] = useState<string>("all");
   const [languageFilter, setLanguageFilter] = useState<PackageLanguage | "all">("all");
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -39,6 +38,13 @@ export function PackagesView({ packages, projectOptions }: PackagesViewProps) {
 
   const allTags = useMemo(
     () => Array.from(new Set(packages.flatMap((pkg) => pkg.tags))).sort((a, b) => a.localeCompare(b)),
+    [packages],
+  );
+
+  // Registries actually in use — drives the filter dropdown + the form's datalist,
+  // so the list stays short and reflects only what the user tracks.
+  const allRegistries = useMemo(
+    () => Array.from(new Set(packages.map((pkg) => pkg.registry))).sort((a, b) => a.localeCompare(b)),
     [packages],
   );
 
@@ -82,19 +88,21 @@ export function PackagesView({ packages, projectOptions }: PackagesViewProps) {
             placeholder="Search by name…"
             className="h-8 w-44"
           />
-          <Select value={registryFilter} onValueChange={(v) => setRegistryFilter(v as PackageRegistry | "all")}>
-            <SelectTrigger size="sm">
-              <SelectValue placeholder="Source" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All sources</SelectItem>
-              {PACKAGE_REGISTRIES.map((r) => (
-                <SelectItem key={r} value={r}>
-                  {REGISTRY_LABELS[r]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {allRegistries.length > 0 ? (
+            <Select value={registryFilter} onValueChange={setRegistryFilter}>
+              <SelectTrigger size="sm">
+                <SelectValue placeholder="Registry" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All registries</SelectItem>
+                {allRegistries.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {registryLabel(r)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
           <Select value={languageFilter} onValueChange={(v) => setLanguageFilter(v as PackageLanguage | "all")}>
             <SelectTrigger size="sm">
               <SelectValue placeholder="Language" />
@@ -155,7 +163,13 @@ export function PackagesView({ packages, projectOptions }: PackagesViewProps) {
         </div>
       )}
 
-      <PackageFormDialog open={formOpen} onOpenChange={setFormOpen} editing={editing} projectOptions={projectOptions} />
+      <PackageFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        editing={editing}
+        projectOptions={projectOptions}
+        registrySuggestions={allRegistries}
+      />
     </div>
   );
 }

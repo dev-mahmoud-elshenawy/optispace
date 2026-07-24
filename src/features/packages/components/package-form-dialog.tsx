@@ -9,8 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PACKAGE_REGISTRIES, PACKAGE_LANGUAGES, PACKAGE_STATUSES } from "@/types";
-import type { PackageRegistry, PackageLanguage, PackageStatus } from "@/types";
+import { PACKAGE_LANGUAGES, PACKAGE_STATUSES, COMMON_REGISTRIES } from "@/types";
+import type { PackageLanguage, PackageStatus } from "@/types";
 import type { PackageView } from "../service";
 import { createPackage, updatePackage } from "../actions";
 
@@ -19,9 +19,10 @@ interface PackageFormDialogProps {
   onOpenChange: (open: boolean) => void;
   editing: PackageView | null;
   projectOptions: { id: string; name: string }[];
+  // registries already in use — merged with common defaults for the datalist
+  registrySuggestions?: string[];
 }
 
-const REGISTRY_LABELS: Record<PackageRegistry, string> = { npm: "npm", pubdev: "pub.dev" };
 const LANGUAGE_LABELS: Record<PackageLanguage, string> = {
   dart_flutter: "Dart / Flutter",
   js_react: "JS / React",
@@ -31,7 +32,7 @@ const LANGUAGE_LABELS: Record<PackageLanguage, string> = {
 const EMPTY_FORM = {
   name: "",
   description: "",
-  registry: "npm" as PackageRegistry,
+  registry: "npm",
   registryUrl: "",
   githubUrl: "",
   language: "js_react" as PackageLanguage,
@@ -67,10 +68,17 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-export function PackageFormDialog({ open, onOpenChange, editing, projectOptions }: PackageFormDialogProps) {
+export function PackageFormDialog({
+  open,
+  onOpenChange,
+  editing,
+  projectOptions,
+  registrySuggestions = [],
+}: PackageFormDialogProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const registryOptions = Array.from(new Set([...registrySuggestions, ...COMMON_REGISTRIES]));
 
   useEffect(() => {
     if (open) setForm(editing ? formFromPackage(editing) : EMPTY_FORM);
@@ -124,19 +132,19 @@ export function PackageFormDialog({ open, onOpenChange, editing, projectOptions 
             <Textarea value={form.description} onChange={(e) => set("description", e.target.value)} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Source">
-              <Select value={form.registry} onValueChange={(v) => set("registry", v as PackageRegistry)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PACKAGE_REGISTRIES.map((r) => (
-                    <SelectItem key={r} value={r}>
-                      {REGISTRY_LABELS[r]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <Field label="Registry">
+              <Input
+                value={form.registry}
+                onChange={(e) => set("registry", e.target.value)}
+                list="registry-suggestions"
+                placeholder="e.g. npm, crates.io"
+                required
+              />
+              <datalist id="registry-suggestions">
+                {registryOptions.map((r) => (
+                  <option key={r} value={r} />
+                ))}
+              </datalist>
             </Field>
             <Field label="Language">
               <Select value={form.language} onValueChange={(v) => set("language", v as PackageLanguage)}>

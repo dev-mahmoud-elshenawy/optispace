@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { serializeTags, type PackageRegistry } from "@/types";
+import { serializeTags } from "@/types";
 import { packageSchema, type PackageInput } from "./schema";
 import { checkVulnerabilities, fetchRegistryStats } from "./registry";
 
@@ -78,7 +78,7 @@ export async function refreshPackageStats(id: string): Promise<ActionResult> {
   }
 
   try {
-    const registry = pkg.registry as PackageRegistry;
+    const registry = pkg.registry;
     const [stats, vuln] = await Promise.all([
       fetchRegistryStats({ registry, name: pkg.name }),
       checkVulnerabilities({ registry, name: pkg.name }, pkg.currentVersion),

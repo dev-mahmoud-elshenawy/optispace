@@ -1,11 +1,28 @@
 import type { Package } from "@prisma/client";
-import { parseTags, type PackageRegistry, type PackageLanguage, type PackageStatus } from "@/types";
+import { parseTags, type PackageLanguage, type PackageStatus } from "@/types";
+
+// Legacy stored registry keys → pretty labels; free-text registries show as typed.
+const LEGACY_REGISTRY_LABEL: Record<string, string> = { npm: "npm", pubdev: "pub.dev" };
+
+export function registryLabel(registry: string): string {
+  return LEGACY_REGISTRY_LABEL[registry] ?? registry;
+}
+
+// Which built-in live-stats provider (if any) backs this registry name. npm & pub.dev
+// have free public APIs; everything else is tracked manually. Case/punctuation-insensitive
+// so "pub.dev", "pubdev", "PyPI" etc. normalise consistently.
+export function registryProvider(registry: string): "npm" | "pubdev" | null {
+  const key = registry.toLowerCase().replace(/[^a-z]/g, "");
+  if (key === "npm") return "npm";
+  if (key === "pubdev") return "pubdev";
+  return null;
+}
 
 export interface PackageView {
   id: string;
   name: string;
   description: string | null;
-  registry: PackageRegistry;
+  registry: string;
   registryUrl: string | null;
   githubUrl: string | null;
   language: PackageLanguage;
@@ -29,7 +46,7 @@ export function toPackageView(row: Package): PackageView {
     id: row.id,
     name: row.name,
     description: row.description,
-    registry: row.registry as PackageRegistry,
+    registry: row.registry,
     registryUrl: row.registryUrl,
     githubUrl: row.githubUrl,
     language: row.language as PackageLanguage,

@@ -6,7 +6,7 @@ export default async function PackagesPage() {
   const [packages, projectOptions] = await Promise.all([listPackages(), listProjectOptions()]);
 
   return (
-    <PageShell title="Packages" description="Track the npm and pub.dev packages you maintain.">
+    <PageShell title="Packages" description="Track the packages you publish across any registry.">
       <PackagesView packages={packages} projectOptions={projectOptions} />
     </PageShell>
   );

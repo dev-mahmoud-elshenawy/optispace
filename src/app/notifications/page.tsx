@@ -5,7 +5,7 @@ import { NotificationsList } from "@/features/notifications/components/notificat
 export default async function NotificationsPage() {
   const notifications = await listNotifications();
   return (
-    <PageShell title="Notifications" description="Azure DevOps assignments & mentions">
+    <PageShell title="Notifications" description="Assignments, mentions, pull requests & meeting reminders">
       <NotificationsList notifications={notifications} />
     </PageShell>
   );

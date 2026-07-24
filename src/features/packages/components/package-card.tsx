@@ -11,10 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { PackageStatus } from "@/types";
-import type { PackageView } from "../service";
+import { registryLabel, registryProvider, type PackageView } from "../service";
 import { deletePackage, refreshPackageStats } from "../actions";
 
-const REGISTRY_LABEL: Record<string, string> = { npm: "npm", pubdev: "pub.dev" };
 const LANGUAGE_LABEL: Record<string, string> = {
   dart_flutter: "Dart / Flutter",
   js_react: "React",
@@ -66,7 +65,7 @@ export function PackageCard({ pkg, onEdit }: PackageCardProps) {
           <div className="min-w-0">
             <CardTitle className="truncate">{pkg.name}</CardTitle>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline">{REGISTRY_LABEL[pkg.registry]}</Badge>
+              <Badge variant="outline">{registryLabel(pkg.registry)}</Badge>
               <Badge variant="secondary">{LANGUAGE_LABEL[pkg.language]}</Badge>
               <Badge variant={STATUS_VARIANT[pkg.status]}>{pkg.status}</Badge>
             </div>
@@ -102,13 +101,15 @@ export function PackageCard({ pkg, onEdit }: PackageCardProps) {
           </div>
         ) : null}
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-          {pkg.registry === "npm" ? (
+          {registryProvider(pkg.registry) === "npm" ? (
             <span>{pkg.weeklyDownloads !== null ? `${pkg.weeklyDownloads.toLocaleString()} downloads/wk` : "No download stats yet"}</span>
-          ) : (
+          ) : registryProvider(pkg.registry) === "pubdev" ? (
             <>
               <span>{pkg.likes !== null ? `${pkg.likes} likes` : "No likes yet"}</span>
               <span>{pkg.pubPoints !== null ? `${pkg.pubPoints} pub points` : "No pub points yet"}</span>
             </>
+          ) : (
+            <span className="italic">Tracked manually · no live stats</span>
           )}
         </div>
         <p className="text-xs text-muted-foreground">

@@ -17,8 +17,21 @@ export type ProjectPlatform = (typeof PROJECT_PLATFORMS)[number];
 export const PROJECT_STATUSES = ["planning", "active", "paused", "completed", "production"] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
-export const PACKAGE_REGISTRIES = ["npm", "pubdev"] as const;
-export type PackageRegistry = (typeof PACKAGE_REGISTRIES)[number];
+// Registry is free-text (any engineer, any ecosystem). These are only autocomplete
+// suggestions for the datalist — not a closed list. npm / pub.dev get live stats
+// automatically (see packages/registry.ts); anything else is tracked manually.
+export const COMMON_REGISTRIES = [
+  "npm",
+  "pub.dev",
+  "crates.io",
+  "PyPI",
+  "NuGet",
+  "RubyGems",
+  "Packagist",
+  "Go",
+  "Maven",
+  "Hex",
+] as const;
 
 export const PACKAGE_LANGUAGES = ["dart_flutter", "js_react", "js_react_native"] as const;
 export type PackageLanguage = (typeof PACKAGE_LANGUAGES)[number];

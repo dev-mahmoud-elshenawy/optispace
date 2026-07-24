@@ -42,7 +42,8 @@ export default async function DashboardPage() {
     listPullRequests(),
     todayCalendarEvents(startWeek, endWeek),
   ]);
-  const topPullRequests = pullRequests.slice(0, 5);
+  const topPullRequests = pullRequests.slice(0, 12);
+  const hasPRs = topPullRequests.length > 0;
   const weekTasksDone = tasks.filter((t) => t.status === "done" && t.updatedAt >= startWeek).length;
   // Approx: counts a leave's full length if it overlaps the week at all (ponytail: good enough for a digest).
   const weekLeaveDays = leaves
@@ -98,8 +99,6 @@ export default async function DashboardPage() {
   const enter = "animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both";
 
   const focusCount = upcomingMeetings.length + dueTodayOrOverdue.length + prsToReview + unreadCount;
-
-  const prIndexOffset = topPullRequests.length > 0 ? 1 : 0;
 
   return (
     <div className="min-h-full pb-16">
@@ -209,52 +208,52 @@ export default async function DashboardPage() {
           </div>
         </section>
 
-        {/* ─── 02 Agenda ─── */}
+        {/* ─── 02 Focus — bento grid of scrollable panels ─── */}
         <section className="space-y-5">
-          <SectionLabel index="02" title="Agenda" />
-          <DayPreviewCard today={todayData} tomorrow={tomorrowData} />
-        </section>
+          <SectionLabel index="02" title="Focus" />
+          <div className={cn("grid gap-5", hasPRs ? "lg:grid-cols-2 xl:grid-cols-3" : "lg:grid-cols-2")}>
+            <div className={`h-[440px] ${enter}`} style={{ animationDelay: "0ms" }}>
+              <DayPreviewCard today={todayData} tomorrow={tomorrowData} />
+            </div>
 
-        {/* ─── 03 Notifications ─── */}
-        <section className="space-y-5">
-          <SectionLabel index="03" title="Notifications" href="/notifications" badge={unreadCount} />
-          <Card className="border-border/60 bg-card/50 backdrop-blur transition-colors hover:border-border">
-            <CardContent className="space-y-0.5 pt-6">
-              {notifications.length === 0 ? (
-                <p className="py-2 text-sm text-muted-foreground">You&rsquo;re all caught up.</p>
-              ) : (
-                notifications.map((n) => <NotificationRow key={n.id} notification={n} />)
-              )}
-            </CardContent>
-          </Card>
-        </section>
+            <div className={enter} style={{ animationDelay: "80ms" }}>
+              <Panel icon={Bell} title="Notifications" href="/notifications" badge={unreadCount}>
+                {notifications.length === 0 ? (
+                  <EmptyPanel icon={Bell} message="You're all caught up." />
+                ) : (
+                  notifications.map((n, i) => <NotificationRow key={n.id} notification={n} index={i} />)
+                )}
+              </Panel>
+            </div>
 
-        {/* ─── 04 Pull requests (only when GitHub has open PRs) ─── */}
-        {topPullRequests.length > 0 ? (
-          <section className="space-y-5">
-            <SectionLabel index="04" title="Pull requests" href="/pull-requests" />
-            <Card className="border-border/60 bg-card/50 backdrop-blur transition-colors hover:border-border">
-              <CardContent className="space-y-0.5 pt-6">
-                {topPullRequests.map((pr) => (
-                  <Link
-                    key={pr.id}
-                    href="/pull-requests"
-                    className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors hover:bg-accent/50"
-                  >
-                    <span className="truncate">
-                      {pr.title} <span className="font-mono text-xs text-muted-foreground">#{pr.number}</span>
-                    </span>
-                    <span className="shrink-0 font-mono text-xs text-muted-foreground">{pr.repo}</span>
-                  </Link>
-                ))}
-              </CardContent>
-            </Card>
-          </section>
-        ) : null}
+            {hasPRs ? (
+              <div className={enter} style={{ animationDelay: "160ms" }}>
+                <Panel icon={GitPullRequest} title="Pull requests" href="/pull-requests" badge={prsToReview}>
+                  {topPullRequests.map((pr, i) => (
+                    <Link
+                      key={pr.id}
+                      href="/pull-requests"
+                      style={{ animationDelay: `${Math.min(i, 12) * 45}ms` }}
+                      className="group/row flex animate-in fade-in slide-in-from-bottom-2 items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm fill-mode-both transition-colors duration-300 hover:bg-accent/50"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <GitPullRequest className="size-3.5 shrink-0 text-primary transition-transform group-hover/row:scale-110" />
+                        <span className="truncate">
+                          {pr.title} <span className="font-mono text-xs text-muted-foreground">#{pr.number}</span>
+                        </span>
+                      </span>
+                      <span className="shrink-0 font-mono text-xs text-muted-foreground">{pr.repo}</span>
+                    </Link>
+                  ))}
+                </Panel>
+              </div>
+            ) : null}
+          </div>
+        </section>
 
         {/* ─── Analytics: Tasks by status + Leave (one row) ─── */}
         <section className="space-y-5">
-          <SectionLabel index={`0${4 + prIndexOffset}`} title="Analytics" />
+          <SectionLabel index="03" title="Analytics" />
           <div className="grid gap-5 lg:grid-cols-2">
             <Card className="border-border/60 bg-card/50 backdrop-blur transition-colors hover:border-border">
               <CardHeader>
@@ -275,7 +274,7 @@ export default async function DashboardPage() {
 
         {/* ─── Profiles ─── */}
         <section className="space-y-5">
-          <SectionLabel index={`0${5 + prIndexOffset}`} title="Profiles" />
+          <SectionLabel index="04" title="Profiles" />
           <Card className="border-border/60 bg-card/50 backdrop-blur transition-colors hover:border-border">
             <CardContent className="flex flex-wrap gap-2 pt-6">
               {profiles.length === 0 ? (
@@ -399,16 +398,69 @@ function StatCard({
 
 
 
-function NotificationRow({ notification }: { notification: NotificationView }) {
+// Reusable scrollable bento panel — a header with icon + title + optional badge/view-all,
+// and a masked, custom-scrollbar body. Shared shape with the Agenda panel.
+function Panel({
+  icon: Icon,
+  title,
+  href,
+  badge,
+  children,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  title: string;
+  href?: string;
+  badge?: number;
+  children: ReactNode;
+}) {
+  return (
+    <div className="group relative flex h-[440px] flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/50 backdrop-blur transition-all duration-300 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10">
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-px overflow-hidden">
+        <span className="block h-full w-1/3 bg-gradient-to-r from-transparent via-primary to-transparent opacity-0 group-hover:opacity-100 group-hover:animate-sheen" />
+      </span>
+      <div className="flex items-center gap-2 border-b border-border/50 px-5 py-4">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-primary/20 to-chart-2/10 text-primary ring-1 ring-inset ring-primary/20">
+          <Icon className="size-4" />
+        </span>
+        <span className="font-heading text-sm font-semibold">{title}</span>
+        {badge && badge > 0 ? (
+          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[11px] font-semibold text-destructive-foreground">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        ) : null}
+        {href ? (
+          <span className="ml-auto">
+            <ViewAllLink href={href} />
+          </span>
+        ) : null}
+      </div>
+      <div className="panel-scroll scroll-mask flex-1 space-y-0.5 overflow-y-auto px-4 py-3">{children}</div>
+    </div>
+  );
+}
+
+function EmptyPanel({ icon: Icon, message }: { icon: ComponentType<{ className?: string }>; message: string }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 py-6 text-center">
+      <span className="grid size-10 place-items-center rounded-full bg-emerald-500/10 text-emerald-500">
+        <Icon className="size-5" />
+      </span>
+      <p className="text-sm text-muted-foreground">{message}</p>
+    </div>
+  );
+}
+
+function NotificationRow({ notification, index = 0 }: { notification: NotificationView; index?: number }) {
   return (
     <a
       href={notification.url}
       target="_blank"
       rel="noreferrer"
-      className="block rounded-md px-2 py-1.5 transition-colors hover:bg-accent/50"
+      style={{ animationDelay: `${Math.min(index, 12) * 45}ms` }}
+      className="group/row block animate-in fade-in slide-in-from-bottom-2 rounded-lg px-2.5 py-2 fill-mode-both transition-colors duration-300 hover:bg-accent/50"
     >
       <div className="flex items-center gap-2">
-        <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+        <span className="size-1.5 shrink-0 rounded-full bg-primary transition-transform group-hover/row:scale-125" />
         <span className="truncate text-sm">{notification.title}</span>
       </div>
       <div className="ml-3.5 truncate text-xs text-muted-foreground">
