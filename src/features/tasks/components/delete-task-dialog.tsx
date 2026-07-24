@@ -18,7 +18,7 @@ import type { TaskView } from "@/features/tasks/service";
 interface DeleteTaskDialogProps {
   task: TaskView;
   onOpenChange: (open: boolean) => void;
-  onDeleted: () => void;
+  onDeleted: (id: string) => void;
 }
 
 export function DeleteTaskDialog({ task, onOpenChange, onDeleted }: DeleteTaskDialogProps) {
@@ -32,7 +32,7 @@ export function DeleteTaskDialog({ task, onOpenChange, onDeleted }: DeleteTaskDi
         return;
       }
       toast.success("Task deleted");
-      onDeleted();
+      onDeleted(task.id);
       onOpenChange(false);
     });
   }

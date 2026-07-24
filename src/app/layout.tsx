@@ -6,7 +6,6 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import { Toaster } from "@/components/ui/sonner";
-import { getSearchIndex } from "@/features/search/queries";
 import { AzureDevOpsAutoSync } from "@/features/integrations/azure-devops/auto-sync";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
@@ -18,8 +17,7 @@ export const metadata: Metadata = {
   description: "Local-first personal workspace",
 };
 
-export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const searchIndex = await getSearchIndex();
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
       lang="en"
@@ -41,7 +39,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <Sidebar />
             <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
           </div>
-          <CommandPalette items={searchIndex} />
+          <CommandPalette />
           <KeyboardShortcuts />
           {/* Always on — due-date reminders have no external dependency, and ADO/Calendar
               syncs already no-op gracefully when their own config is missing. */}

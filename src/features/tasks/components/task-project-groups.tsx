@@ -96,13 +96,14 @@ export function TaskMiniRow({
 interface TaskProjectGroupsProps {
   tasks: TaskView[];
   onTasksChange: (tasks: TaskView[]) => void;
+  onCreated?: (task: TaskView) => void;
   onEdit: (task: TaskView) => void;
   onDelete: (task: TaskView) => void;
   onStatusPick?: (task: TaskView) => void;
   sorted?: boolean;
 }
 
-export function TaskProjectGroups({ tasks, onTasksChange, onEdit, onDelete, onStatusPick, sorted }: TaskProjectGroupsProps) {
+export function TaskProjectGroups({ tasks, onTasksChange, onCreated, onEdit, onDelete, onStatusPick, sorted }: TaskProjectGroupsProps) {
   const groups = groupByProject(tasks);
 
   if (groups.length === 0) {
@@ -142,6 +143,7 @@ export function TaskProjectGroups({ tasks, onTasksChange, onEdit, onDelete, onSt
                 id={`board-${group.key}`}
                 tasks={group.tasks}
                 onTasksChange={handleGroupChange}
+                onCreated={onCreated}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onStatusPick={onStatusPick}

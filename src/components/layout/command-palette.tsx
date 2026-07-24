@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { NAV_ITEMS } from "@/lib/nav";
 import type { SearchItem, SearchItemType } from "@/features/search/types";
+import { loadSearchIndex } from "@/features/search/actions";
 import { runScheduledBackup } from "@/features/backup/actions";
 import { syncCalendar } from "@/features/calendar/actions";
 import { syncAzureDevOps } from "@/features/integrations/azure-devops/actions";
@@ -49,9 +50,31 @@ const GROUP_HEADINGS: Record<SearchItemType, string> = {
   File: "Files",
 };
 
-export function CommandPalette({ items = [] }: { items?: SearchItem[] }) {
+// Module-level cache: the index survives palette open/close within a session,
+// so only the first ⌘K pays for the query; later opens are instant and
+// revalidate in the background (stale-while-revalidate).
+let indexCache: SearchItem[] | null = null;
+
+export function CommandPalette() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<SearchItem[]>(() => indexCache ?? []);
+
+  // Load the index only when the palette opens — never on page render.
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    loadSearchIndex()
+      .then((idx) => {
+        if (!active) return;
+        indexCache = idx;
+        setItems(idx);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [open]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {

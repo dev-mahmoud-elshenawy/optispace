@@ -64,23 +64,34 @@ function nodeTint(it: TimelineItem): string {
   }
 }
 
+// Cache the timeline per PR so reopening is instant (stale-while-revalidate),
+// mirroring pr-detail's detailCache — the cold "Loading activity…" spinner only
+// shows on a first-ever open.
+const timelineCache = new Map<string, TimelineItem[]>();
+
 export function PrTimeline({ nodeId, repo, number }: { nodeId: string | null; repo: string; number: number }) {
-  const [items, setItems] = useState<TimelineItem[] | null>(null);
+  const key = `${repo}#${number}`;
+  const [items, setItems] = useState<TimelineItem[] | null>(() => timelineCache.get(key) ?? null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    setItems(null);
+    const cached = timelineCache.get(key);
+    setItems(cached ?? null); // show cached instantly; spinner only when nothing cached
     setError(null);
     getPullRequestTimeline(nodeId, repo, number).then((res) => {
       if (!active) return;
-      if (res.ok) setItems(res.timeline);
-      else setError(res.error);
+      if (res.ok) {
+        timelineCache.set(key, res.timeline);
+        setItems(res.timeline);
+      } else if (!cached) {
+        setError(res.error); // keep the cached view if a revalidate fails
+      }
     });
     return () => {
       active = false;
     };
-  }, [nodeId, repo, number]);
+  }, [nodeId, repo, number, key]);
 
   if (error) {
     return <p className="py-6 text-sm text-destructive">{error}</p>;

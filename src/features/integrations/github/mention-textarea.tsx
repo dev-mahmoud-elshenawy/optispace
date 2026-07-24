@@ -130,7 +130,7 @@ export function MentionTextarea({
         className={cn(TEXTAREA_CLASS, className)}
       />
       {query !== null ? (
-        <ul className="absolute z-50 mt-1 max-h-56 w-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-md">
+        <ul className="absolute bottom-full z-50 mb-1 max-h-56 w-64 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-md">
           {loading ? (
             <li className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" /> Searching people…

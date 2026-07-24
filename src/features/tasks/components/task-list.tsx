@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,10 +21,12 @@ interface TaskListProps {
   projectOptions: { id: string; name: string }[];
   onEdit: (task: TaskView) => void;
   onDelete: (task: TaskView) => void;
+  // Optimistic bulk updates — merge changed rows / drop removed ones without a refetch.
+  onTasksChange: (tasks: TaskView[]) => void;
+  onRemove: (ids: string[]) => void;
 }
 
-export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListProps) {
-  const router = useRouter();
+export function TaskList({ tasks, projectOptions, onEdit, onDelete, onTasksChange, onRemove }: TaskListProps) {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | typeof ALL>(ALL);
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | typeof ALL>(ALL);
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
@@ -79,13 +80,16 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListPr
   function move() {
     if (selected.size === 0 || moveTarget === "") return;
     const projectId = moveTarget === NO_PROJECT ? null : moveTarget;
-    const count = selected.size;
+    const projectName = projectId ? (projectOptions.find((p) => p.id === projectId)?.name ?? null) : null;
+    const ids = [...selected];
+    const count = ids.length;
     startMove(async () => {
-      const result = await moveTasksToProject([...selected], projectId);
+      const result = await moveTasksToProject(ids, projectId);
       if (result.ok) {
         toast.success(`Moved ${count} task${count === 1 ? "" : "s"}.`);
+        const idset = new Set(ids);
+        onTasksChange(tasks.filter((t) => idset.has(t.id)).map((t) => ({ ...t, projectId, projectName })));
         setSelected(new Set());
-        router.refresh();
       } else {
         toast.error(result.error);
       }
@@ -103,12 +107,14 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListPr
   function setStatus(status: TaskStatus) {
     if (localSelectedIds.length === 0) return;
     const count = localSelectedIds.length;
+    const ids = localSelectedIds;
     startBulk(async () => {
-      const result = await setTasksStatus(localSelectedIds, status);
+      const result = await setTasksStatus(ids, status);
       if (result.ok) {
         toast.success(`Set ${count} task${count === 1 ? "" : "s"} to ${STATUS_LABELS[status]}.`);
+        const idset = new Set(ids);
+        onTasksChange(tasks.filter((t) => idset.has(t.id)).map((t) => ({ ...t, status })));
         setSelected(new Set());
-        router.refresh();
       } else {
         toast.error(result.error);
       }
@@ -118,12 +124,13 @@ export function TaskList({ tasks, projectOptions, onEdit, onDelete }: TaskListPr
   function removeSelected() {
     if (localSelectedIds.length === 0) return;
     const count = localSelectedIds.length;
+    const ids = localSelectedIds;
     startBulk(async () => {
-      const result = await deleteTasks(localSelectedIds);
+      const result = await deleteTasks(ids);
       if (result.ok) {
         toast.success(`Deleted ${count} task${count === 1 ? "" : "s"}.`);
+        onRemove(ids);
         setSelected(new Set());
-        router.refresh();
       } else {
         toast.error(result.error);
       }

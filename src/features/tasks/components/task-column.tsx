@@ -22,11 +22,12 @@ export function columnDroppableId(status: TaskStatus): string {
 interface TaskColumnProps {
   status: TaskStatus;
   tasks: TaskView[];
+  onCreated?: (task: TaskView) => void;
   onEdit: (task: TaskView) => void;
   onDelete: (task: TaskView) => void;
 }
 
-export function TaskColumn({ status, tasks, onEdit, onDelete }: TaskColumnProps) {
+export function TaskColumn({ status, tasks, onCreated, onEdit, onDelete }: TaskColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: columnDroppableId(status) });
   const router = useRouter();
   const [adding, setAdding] = useState(false);
@@ -43,7 +44,39 @@ export function TaskColumn({ status, tasks, onEdit, onDelete }: TaskColumnProps)
       const result = await createTask({ title: trimmed, status, priority: "medium" });
       if (result.ok) {
         setTitle(""); // keep the input open for rapid entry, Notion-style
-        router.refresh();
+        if (onCreated) {
+          // Add the new card optimistically — no refetch, so rapid entry never flashes.
+          onCreated({
+            id: result.id,
+            title: trimmed,
+            description: null,
+            status,
+            priority: "medium",
+            dueDate: null,
+            order: Number.MAX_SAFE_INTEGER,
+            projectId: null,
+            projectName: null,
+            projectStatus: null,
+            projectPinned: false,
+            projectSortWeight: 0,
+            source: null,
+            externalId: null,
+            externalUrl: null,
+            workItemType: null,
+            adoState: null,
+            adoPriority: null,
+            iterationPath: null,
+            effort: null,
+            changedDate: null,
+            linkedPrRepo: null,
+            linkedPrNumber: null,
+            subtasks: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        } else {
+          router.refresh();
+        }
       } else {
         toast.error(result.error);
       }

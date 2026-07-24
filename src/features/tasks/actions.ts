@@ -10,6 +10,7 @@ import { moveTaskSchema, subtaskTitleSchema, taskInputSchema, type TaskInput } f
 import { dueDateNotificationEvents, type DueTaskInput } from "./service";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+export type CreateTaskResult = { ok: true; id: string } | { ok: false; error: string };
 
 function toDueDate(value?: string): Date | null {
   if (!value) return null;
@@ -21,7 +22,7 @@ function firstError(error: { issues: { message: string }[] }): string {
   return error.issues[0]?.message ?? "Invalid task data";
 }
 
-export async function createTask(input: TaskInput, subtaskTitles: string[] = []): Promise<ActionResult> {
+export async function createTask(input: TaskInput, subtaskTitles: string[] = []): Promise<CreateTaskResult> {
   const parsed = taskInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
   const data = parsed.data;
@@ -37,7 +38,7 @@ export async function createTask(input: TaskInput, subtaskTitles: string[] = [])
 
   // Task + its subtasks are created atomically so a partial failure can't leave a
   // task with half its checklist.
-  await db.$transaction(async (tx) => {
+  const id = await db.$transaction(async (tx) => {
     const created = await tx.task.create({
       data: {
         title: data.title,
@@ -57,11 +58,12 @@ export async function createTask(input: TaskInput, subtaskTitles: string[] = [])
         data: titles.map((title, i) => ({ taskId: created.id, title, order: i })),
       });
     }
+    return created.id;
   });
 
   revalidatePath("/tasks");
   revalidatePath("/");
-  return { ok: true };
+  return { ok: true, id };
 }
 
 export async function updateTask(id: string, input: TaskInput): Promise<ActionResult> {

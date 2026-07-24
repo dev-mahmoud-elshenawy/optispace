@@ -113,6 +113,22 @@ export function TasksView({ initialTasks, projectOptions, pullRequests }: TasksV
     setTasks((prev) => prev.map((t) => byId.get(t.id) ?? t));
   }
 
+  // Optimistic add-or-replace (create/edit) and remove (delete) — no refetch.
+  function upsertTask(task: TaskView) {
+    setTasks((prev) => {
+      const i = prev.findIndex((t) => t.id === task.id);
+      if (i === -1) return [task, ...prev];
+      const next = [...prev];
+      next[i] = task;
+      return next;
+    });
+  }
+
+  function removeTasks(ids: string[]) {
+    const set = new Set(ids);
+    setTasks((prev) => prev.filter((t) => !set.has(t.id)));
+  }
+
   function openCreate() {
     setEditingTask(null);
     setFormOpen(true);
@@ -206,15 +222,15 @@ export function TasksView({ initialTasks, projectOptions, pullRequests }: TasksV
         </div>
 
         <TabsContent value="board" className="mt-4">
-          <TaskBoard tasks={viewTasks} sorted={sort !== "manual"} onTasksChange={handleTasksChange} onEdit={openEdit} onDelete={setDeletingTask} onStatusPick={openStatusPick} />
+          <TaskBoard tasks={viewTasks} sorted={sort !== "manual"} onTasksChange={handleTasksChange} onCreated={upsertTask} onEdit={openEdit} onDelete={setDeletingTask} onStatusPick={openStatusPick} />
         </TabsContent>
 
         <TabsContent value="list" className="mt-4">
-          <TaskList tasks={viewTasks} projectOptions={projectOptions} onEdit={openEdit} onDelete={setDeletingTask} />
+          <TaskList tasks={viewTasks} projectOptions={projectOptions} onEdit={openEdit} onDelete={setDeletingTask} onTasksChange={handleTasksChange} onRemove={removeTasks} />
         </TabsContent>
 
         <TabsContent value="project" className="mt-4">
-          <TaskProjectGroups tasks={viewTasks} sorted={sort !== "manual"} onTasksChange={handleTasksChange} onEdit={openEdit} onDelete={setDeletingTask} onStatusPick={openStatusPick} />
+          <TaskProjectGroups tasks={viewTasks} sorted={sort !== "manual"} onTasksChange={handleTasksChange} onCreated={upsertTask} onEdit={openEdit} onDelete={setDeletingTask} onStatusPick={openStatusPick} />
         </TabsContent>
 
         {hasSprintTasks ? (
@@ -230,7 +246,7 @@ export function TasksView({ initialTasks, projectOptions, pullRequests }: TasksV
           projectOptions={projectOptions}
           pullRequests={pullRequests}
           onOpenChange={setFormOpen}
-          onSaved={() => router.refresh()}
+          onSaved={(t) => (t ? upsertTask(t) : router.refresh())}
         />
       ) : null}
 
@@ -238,7 +254,7 @@ export function TasksView({ initialTasks, projectOptions, pullRequests }: TasksV
         <DeleteTaskDialog
           task={deletingTask}
           onOpenChange={(open) => !open && setDeletingTask(null)}
-          onDeleted={() => router.refresh()}
+          onDeleted={(id) => removeTasks([id])}
         />
       ) : null}
 

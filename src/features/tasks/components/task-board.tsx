@@ -13,6 +13,8 @@ import { TaskColumn } from "./task-column";
 interface TaskBoardProps {
   tasks: TaskView[];
   onTasksChange: (tasks: TaskView[]) => void;
+  // Quick-add hands the new (optimistic) task up so the parent can add it to state.
+  onCreated?: (task: TaskView) => void;
   onEdit: (task: TaskView) => void;
   onDelete: (task: TaskView) => void;
   // Cross-column drag of a DevOps task calls this (slim state picker) if given.
@@ -27,7 +29,7 @@ function statusOf(id: string, tasks: TaskView[]): TaskStatus | null {
   return tasks.find((t) => t.id === id)?.status ?? null;
 }
 
-export function TaskBoard({ tasks, onTasksChange, onEdit, onDelete, onStatusPick, sorted = false, id = "task-board" }: TaskBoardProps) {
+export function TaskBoard({ tasks, onTasksChange, onCreated, onEdit, onDelete, onStatusPick, sorted = false, id = "task-board" }: TaskBoardProps) {
   const [, startTransition] = useTransition();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -91,6 +93,7 @@ export function TaskBoard({ tasks, onTasksChange, onEdit, onDelete, onStatusPick
                 ? tasks.filter((t) => t.status === status)
                 : tasks.filter((t) => t.status === status).sort((a, b) => a.order - b.order)
             }
+            onCreated={onCreated}
             onEdit={onEdit}
             onDelete={onDelete}
           />

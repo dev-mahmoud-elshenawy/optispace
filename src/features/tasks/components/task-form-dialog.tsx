@@ -32,7 +32,10 @@ interface TaskFormDialogProps {
   // task dialog) still work — an already-linked PR stays visible via the prOptions fallback.
   pullRequests?: PullRequestView[];
   onOpenChange: (open: boolean) => void;
-  onSaved: () => void;
+  // Receives the optimistic task on normal create/edit so the caller can update
+  // state without a refetch. Called with no arg for DevOps create (server owns
+  // the synced fields — caller should refresh instead).
+  onSaved: (task?: TaskView) => void;
 }
 
 function toDateInputValue(date: Date | null | undefined): string {
@@ -162,7 +165,7 @@ export function TaskFormDialog({ task, projectOptions, pullRequests = [], onOpen
           return;
         }
         toast.success("Work item created in Azure DevOps");
-        onSaved();
+        onSaved(); // no optimistic row — the synced task appears on the next poll/refresh
         onOpenChange(false);
       });
       return;
@@ -184,14 +187,75 @@ export function TaskFormDialog({ task, projectOptions, pullRequests = [], onOpen
       linkedPrNumber,
     };
 
+    const projectName = input.projectId
+      ? (projectOptions.find((p) => p.id === input.projectId)?.name ?? null)
+      : null;
+    const dueDate = input.dueDate ? new Date(input.dueDate) : null;
+
     startTransition(async () => {
-      const result = task ? await updateTask(task.id, input) : await createTask(input, pendingSubtasks);
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
+      let saved: TaskView;
+      if (task) {
+        const result = await updateTask(task.id, input);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
+        // Merge the edited fields onto the existing row (keeps ADO/order/subtasks).
+        saved = {
+          ...task,
+          title: input.title,
+          description: input.description || null,
+          status: input.status,
+          priority: input.priority,
+          dueDate,
+          projectId: input.projectId ?? null,
+          projectName,
+          linkedPrRepo: linkedPrRepo ?? null,
+          linkedPrNumber: linkedPrNumber ?? null,
+          updatedAt: new Date(),
+        };
+      } else {
+        const result = await createTask(input, pendingSubtasks);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
+        // Build the new row locally so it appears instantly (linkedPr is resolved
+        // by tasks-view from the PR cache once linkedPrRepo/Number are set).
+        saved = {
+          id: result.id,
+          title: input.title,
+          description: input.description || null,
+          status: input.status,
+          priority: input.priority,
+          dueDate,
+          order: Number.MAX_SAFE_INTEGER, // appended within its column until next fetch
+          projectId: input.projectId ?? null,
+          projectName,
+          projectStatus: null,
+          projectPinned: false,
+          projectSortWeight: 0,
+          source: null,
+          externalId: null,
+          externalUrl: null,
+          workItemType: null,
+          adoState: null,
+          adoPriority: null,
+          iterationPath: null,
+          effort: null,
+          changedDate: null,
+          linkedPrRepo: linkedPrRepo ?? null,
+          linkedPrNumber: linkedPrNumber ?? null,
+          subtasks: pendingSubtasks
+            .map((t) => t.trim())
+            .filter(Boolean)
+            .map((title) => ({ id: crypto.randomUUID(), title, done: false })),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
       }
       toast.success(task ? "Task updated" : "Task created");
-      onSaved();
+      onSaved(saved);
       onOpenChange(false);
     });
   }

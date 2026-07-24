@@ -99,13 +99,25 @@ interface ActiveLine {
   side: "LEFT" | "RIGHT";
 }
 
+// Cache the parsed diff per (PR, commit-plan) so reopening the Code tab is instant
+// (stale-while-revalidate) — the cold "Loading diff…" spinner only shows on a
+// first-ever open. Keyed by repo#number#planKey ("all" = whole PR).
+const filesCache = new Map<string, DiffFile[]>();
+function collapsedFor(files: DiffFile[]): Set<string> {
+  // Huge / empty files start collapsed so the diff opens light.
+  return new Set(files.filter((f) => f.lines.length === 0 || f.lines.length >= 400).map((f) => f.path));
+}
+
 export function PrCode({ repo, number, headOid, headBranch, headRepo, threads, viewerLogin, onChanged }: PrCodeProps) {
-  const [files, setFiles] = useState<DiffFile[] | null>(null);
+  const [files, setFiles] = useState<DiffFile[] | null>(() => filesCache.get(`${repo}#${number}#all`) ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reviewBody, setReviewBody] = useState("");
   const [reviewBusy, setReviewBusy] = useState<null | string>(null);
   const [pending, setPending] = useState<PendingReviewComment[]>([]); // queued into a batched review
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set()); // controlled per-file open/closed
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    const c = filesCache.get(`${repo}#${number}#all`);
+    return c ? collapsedFor(c) : new Set();
+  }); // controlled per-file open/closed
   const [viewed, setViewed] = useState<Set<string>>(new Set()); // GitHub-style "Viewed" toggle
   const [commits, setCommits] = useState<PrCommit[]>([]); // for the "filter by commit" picker
   const [selectedShas, setSelectedShas] = useState<string[]>([]); // [] = whole PR; else selected commits
@@ -129,7 +141,15 @@ export function PrCode({ repo, number, headOid, headBranch, headRepo, threads, v
   // initial open fast, then swaps to a single commit / range diff on selection.
   useEffect(() => {
     let active = true;
-    setFiles(null);
+    const cacheKey = `${repo}#${number}#${planKey}`;
+    const cached = filesCache.get(cacheKey);
+    if (cached) {
+      // Show the cached diff instantly; revalidate below without a spinner flash.
+      setFiles(cached);
+      setCollapsed(collapsedFor(cached));
+    } else {
+      setFiles(null);
+    }
     setLoadError(null);
     const req =
       plan.kind === "all"
@@ -140,12 +160,12 @@ export function PrCode({ repo, number, headOid, headBranch, headRepo, threads, v
     req.then((res) => {
       if (!active) return;
       if (res.ok) {
+        filesCache.set(cacheKey, res.files);
         setFiles(res.files);
-        // Start with huge / empty files collapsed so the diff opens light.
-        setCollapsed(new Set(res.files.filter((f) => f.lines.length === 0 || f.lines.length >= 400).map((f) => f.path)));
+        setCollapsed(collapsedFor(res.files));
         setViewed(new Set());
-      } else {
-        setLoadError(res.error);
+      } else if (!cached) {
+        setLoadError(res.error); // keep the cached diff if a revalidate fails
       }
     });
     return () => {
