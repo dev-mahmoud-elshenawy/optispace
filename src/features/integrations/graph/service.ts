@@ -1,98 +1,57 @@
 import "server-only";
 
-import { db } from "@/lib/db";
+import { PublicClientApplication, type AccountInfo } from "@azure/msal-node";
 
-// Microsoft Graph via OAuth2 device flow (public client — the client id is not a secret).
-// "common" lets both work and personal Microsoft accounts sign in; an org can pin its tenant
-// id here if it restricts multi-tenant apps. offline_access yields a refresh token because
-// Graph access tokens live only ~1h.
-const TENANT = "common";
-export const GRAPH_DEVICE_CODE_URL = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/devicecode`;
-export const GRAPH_TOKEN_URL = `https://login.microsoftonline.com/${TENANT}/oauth2/v2.0/token`;
-export const GRAPH_SCOPES = "openid profile offline_access User.Read Calendars.ReadWrite";
+import { db } from "@/lib/db";
+import type { CalendarEventInput } from "@/features/calendar/sync-core";
+
+// Microsoft Graph via MSAL device-code flow (public client — no secret). "common" allows work
+// and personal Microsoft accounts. MSAL implicitly requests offline_access, so its token cache
+// holds a refresh token and acquireTokenSilent renews the ~1h access token transparently.
+const AUTHORITY = "https://login.microsoftonline.com/common";
+export const GRAPH_SCOPES = ["User.Read", "Calendars.ReadWrite"];
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
-// Microsoft's OAuth endpoints require application/x-www-form-urlencoded bodies (unlike
-// GitHub's JSON) — this is the single most common wiring mistake, so it's centralized here.
-export function graphForm(fields: Record<string, string>): string {
-  return new URLSearchParams(fields).toString();
+export function buildPca(clientId: string): PublicClientApplication {
+  return new PublicClientApplication({ auth: { clientId, authority: AUTHORITY } });
 }
 
-export interface GraphTokenResponse {
-  access_token: string;
-  refresh_token?: string;
-  expires_in: number; // seconds
-  scope?: string;
-}
-
-// Persist a fresh token set. expiresAt is computed from expires_in with a small safety skew.
-export async function storeGraphToken(token: GraphTokenResponse, clientId: string, account: string | null): Promise<void> {
-  const expiresAt = new Date(Date.now() + token.expires_in * 1000);
+// Persist MSAL's serialized token cache (+ account identity) to the singleton row. Called
+// after every acquire so refreshed tokens survive a restart.
+export async function persistGraphCache(
+  pca: PublicClientApplication,
+  clientId: string,
+  account: AccountInfo | null,
+): Promise<void> {
+  const cache = pca.getTokenCache().serialize();
+  const identity = account ? { account: account.username, homeAccountId: account.homeAccountId } : {};
   await db.graphAuth.upsert({
     where: { id: "singleton" },
-    update: {
-      clientId,
-      accessToken: token.access_token,
-      // A refresh response may omit refresh_token — keep the existing one when so.
-      ...(token.refresh_token ? { refreshToken: token.refresh_token } : {}),
-      expiresAt,
-      scope: token.scope ?? null,
-      account,
-    },
-    create: {
-      id: "singleton",
-      clientId,
-      accessToken: token.access_token,
-      refreshToken: token.refresh_token ?? null,
-      expiresAt,
-      scope: token.scope ?? null,
-      account,
-    },
+    update: { clientId, cache, ...identity },
+    create: { id: "singleton", clientId, cache, account: account?.username ?? null, homeAccountId: account?.homeAccountId ?? null },
   });
 }
 
-export async function fetchGraphAccount(accessToken: string): Promise<string | null> {
-  try {
-    const res = await fetch(`${GRAPH_BASE}/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return (data.userPrincipalName as string) || (data.mail as string) || null;
-  } catch {
-    return null;
-  }
-}
-
-// A usable access token, refreshing via the stored refresh_token when the current one is
-// (about to be) expired. Returns null when not connected or the refresh fails — callers
-// treat null as "not connected" and no-op, mirroring resolveGithubToken.
+// A usable access token via MSAL silent acquisition (refreshes from the cache when expired).
+// null = not connected or silent auth failed (caller no-ops), mirroring resolveGithubToken.
 export async function resolveGraphToken(): Promise<string | null> {
   const row = await db.graphAuth.findUnique({ where: { id: "singleton" } });
-  if (!row) return null;
-  // 60s skew so we renew slightly before expiry rather than mid-request.
-  if (row.expiresAt.getTime() - 60_000 > Date.now()) return row.accessToken;
-  if (!row.refreshToken || !row.clientId) return null;
-
+  if (!row?.clientId || !row.homeAccountId || !row.cache) return null;
   try {
-    const res = await fetch(GRAPH_TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-      body: graphForm({
-        client_id: row.clientId,
-        grant_type: "refresh_token",
-        refresh_token: row.refreshToken,
-        scope: GRAPH_SCOPES,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) return null;
-    await storeGraphToken(data as GraphTokenResponse, row.clientId, row.account);
-    return (data as GraphTokenResponse).access_token;
+    const pca = buildPca(row.clientId);
+    pca.getTokenCache().deserialize(row.cache);
+    const account = await pca.getTokenCache().getAccountByHomeId(row.homeAccountId);
+    if (!account) return null;
+    const result = await pca.acquireTokenSilent({ account, scopes: GRAPH_SCOPES });
+    // acquireTokenSilent may have refreshed the cache — persist it back.
+    await persistGraphCache(pca, row.clientId, account);
+    return result?.accessToken ?? null;
   } catch {
     return null;
   }
 }
 
-// Authenticated Graph request helper (used by the calendar read/write in later phases).
+// Authenticated Graph request helper. Returns null when not connected so callers can no-op.
 export async function graphFetch(path: string, init?: RequestInit): Promise<Response | null> {
   const token = await resolveGraphToken();
   if (!token) return null;
@@ -104,4 +63,81 @@ export async function graphFetch(path: string, init?: RequestInit): Promise<Resp
       ...(init?.headers ?? {}),
     },
   });
+}
+
+// Raw Graph event shape (only the fields we map).
+interface GraphEvent {
+  id: string;
+  subject?: string;
+  isAllDay?: boolean;
+  isCancelled?: boolean;
+  start?: { dateTime?: string; timeZone?: string };
+  end?: { dateTime?: string; timeZone?: string };
+  location?: { displayName?: string };
+  onlineMeeting?: { joinUrl?: string } | null;
+  onlineMeetingUrl?: string | null;
+  organizer?: { emailAddress?: { name?: string; address?: string } };
+  attendees?: Array<{ emailAddress?: { name?: string; address?: string } }>;
+}
+
+// With `Prefer: outlook.timezone="UTC"` Graph returns dateTime as a zoneless UTC wall-clock
+// string ("2026-07-25T09:00:00.0000000") — append Z to parse it as UTC.
+function parseGraphDate(dt?: string): Date {
+  if (!dt) return new Date(NaN);
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(dt) ? dt : `${dt}Z`);
+}
+
+function personName(p?: { name?: string; address?: string }): string | null {
+  if (!p) return null;
+  return p.name?.trim() || p.address?.trim() || null;
+}
+
+function toCalendarInput(ev: GraphEvent): CalendarEventInput {
+  return {
+    id: ev.id,
+    externalId: ev.id,
+    title: (ev.subject ?? "(no title)").trim() || "(no title)",
+    start: parseGraphDate(ev.start?.dateTime),
+    end: parseGraphDate(ev.end?.dateTime),
+    location: ev.location?.displayName?.trim() || null,
+    meetingUrl: ev.onlineMeeting?.joinUrl?.trim() || ev.onlineMeetingUrl?.trim() || null,
+    organizer: personName(ev.organizer?.emailAddress),
+    attendees: (ev.attendees ?? []).map((a) => personName(a.emailAddress)).filter((x): x is string => !!x),
+    allDay: ev.isAllDay === true,
+  };
+}
+
+// calendarView expands recurring events server-side over [from, to] (no client RRULE handling).
+// Returns null when not connected; throws on an API error so the sync can record health; []
+// means genuinely no events. Follows @odata.nextLink pagination.
+export async function fetchGraphEvents(from: Date, to: Date): Promise<CalendarEventInput[] | null> {
+  const select = "id,subject,start,end,location,isAllDay,isCancelled,onlineMeeting,onlineMeetingUrl,organizer,attendees";
+  const params = new URLSearchParams({
+    startDateTime: from.toISOString(),
+    endDateTime: to.toISOString(),
+    $select: select,
+    $orderby: "start/dateTime",
+    $top: "100",
+  });
+  let url: string | null = `/me/calendarView?${params.toString()}`;
+  const out: CalendarEventInput[] = [];
+
+  while (url) {
+    const res = await graphFetch(url, { headers: { Prefer: 'outlook.timezone="UTC"' } });
+    if (res === null) return null; // not connected
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Graph calendarView failed (${res.status}): ${body.slice(0, 200)}`);
+    }
+    const data = (await res.json()) as { value?: GraphEvent[]; "@odata.nextLink"?: string };
+    for (const ev of data.value ?? []) {
+      if (ev.isCancelled) continue;
+      const mapped = toCalendarInput(ev);
+      if (Number.isNaN(mapped.start.getTime())) continue;
+      out.push(mapped);
+    }
+    url = data["@odata.nextLink"] ?? null;
+  }
+
+  return out;
 }

@@ -9,7 +9,7 @@ import { NAV_ITEMS } from "@/lib/nav";
 import type { SearchItem, SearchItemType } from "@/features/search/types";
 import { loadSearchIndex } from "@/features/search/actions";
 import { runScheduledBackup } from "@/features/backup/actions";
-import { syncCalendar } from "@/features/calendar/actions";
+import { syncGraphCalendar } from "@/features/integrations/graph/actions";
 import { syncAzureDevOps } from "@/features/integrations/azure-devops/actions";
 import { syncGithubPullRequests } from "@/features/integrations/github/actions";
 import {
@@ -102,7 +102,7 @@ export function CommandPalette() {
   async function syncAll() {
     setOpen(false);
     toast.info("Syncing integrations…");
-    await Promise.allSettled([syncAzureDevOps(), syncGithubPullRequests(), syncCalendar()]);
+    await Promise.allSettled([syncAzureDevOps(), syncGithubPullRequests(), syncGraphCalendar()]);
     toast.success("Synced all integrations.");
     router.refresh();
   }

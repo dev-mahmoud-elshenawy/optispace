@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { graphDeviceStart, graphDevicePoll, graphDisconnect, type GraphAuthStatus } from "./actions";
+import { graphConnectStart, graphConnectPoll, graphDisconnect, type GraphAuthStatus } from "./actions";
 
 // Public-client device flow: the Client ID is not a secret, so it lives on this device in
 // localStorage (entered once). It's also persisted server-side on connect so the background
@@ -44,37 +44,32 @@ export function GraphConnectPanel({
     }
   }, []);
 
-  const pollUntilAuthorized = useCallback(
-    async (deviceCode: string, id: string, intervalSec: number, expiresInSec: number) => {
-      const deadline = Date.now() + expiresInSec * 1000;
-      let wait = Math.max(intervalSec, 5) * 1000;
-      while (Date.now() < deadline && !cancelled.current) {
-        await new Promise((r) => setTimeout(r, wait));
-        if (cancelled.current) return;
-        const res = await graphDevicePoll(deviceCode, id);
-        if (res.ok) {
-          toast.success(res.account ? `Connected as ${res.account}.` : "Microsoft calendar connected.");
-          setPrompt(null);
-          setBusy(false);
-          router.refresh();
-          return;
-        }
-        if (!res.pending) {
-          toast.error(res.error || "Microsoft authorization failed.");
-          setPrompt(null);
-          setBusy(false);
-          return;
-        }
-        if (res.error === "slow_down") wait += 5000;
-      }
-      if (!cancelled.current) {
-        toast.error("The code expired. Try connecting again.");
+  const pollUntilAuthorized = useCallback(async () => {
+    const deadline = Date.now() + 15 * 60 * 1000; // device codes live ~15 min
+    while (Date.now() < deadline && !cancelled.current) {
+      await new Promise((r) => setTimeout(r, 5000));
+      if (cancelled.current) return;
+      const res = await graphConnectPoll();
+      if (res.status === "done") {
+        toast.success("Microsoft calendar connected.");
         setPrompt(null);
         setBusy(false);
+        router.refresh();
+        return;
       }
-    },
-    [router],
-  );
+      if (res.status === "error") {
+        toast.error(res.error || "Microsoft authorization failed.");
+        setPrompt(null);
+        setBusy(false);
+        return;
+      }
+    }
+    if (!cancelled.current) {
+      toast.error("The code expired. Try connecting again.");
+      setPrompt(null);
+      setBusy(false);
+    }
+  }, [router]);
 
   async function handleConnect() {
     const id = clientId.trim();
@@ -86,7 +81,7 @@ export function GraphConnectPanel({
     setEditing(false);
     cancelled.current = false;
     setBusy(true);
-    const start = await graphDeviceStart(id);
+    const start = await graphConnectStart(id);
     if (!start.ok) {
       toast.error(start.error);
       setBusy(false);
@@ -94,7 +89,7 @@ export function GraphConnectPanel({
     }
     setPrompt({ userCode: start.userCode, verificationUri: start.verificationUri });
     window.open(start.verificationUri, "_blank", "noopener");
-    void pollUntilAuthorized(start.deviceCode, id, start.interval, start.expiresIn);
+    void pollUntilAuthorized();
   }
 
   async function handleDisconnect() {

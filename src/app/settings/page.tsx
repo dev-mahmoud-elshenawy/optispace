@@ -2,8 +2,6 @@ import { formatDistanceToNow } from "date-fns";
 
 import { PageShell } from "@/components/layout/page-shell";
 import { db } from "@/lib/db";
-import { getCalendarConfig } from "@/features/calendar/actions";
-import { CalendarConfigPanel } from "@/features/calendar/config-panel";
 import { BackupPanel } from "@/features/backup/components/backup-panel";
 import { ExportPanel } from "@/features/backup/components/export-panel";
 import { ScheduledBackupsPanel } from "@/features/backup/components/scheduled-backups-panel";
@@ -42,13 +40,10 @@ export default async function SettingsPage() {
     githubStatus,
     graphStatus,
     adoConfig,
-    calendarConfig,
     adoAgg,
-    calAgg,
     ghAgg,
     graphAgg,
     adoHealth,
-    calHealth,
     ghHealth,
     graphHealth,
   ] = await Promise.all([
@@ -56,13 +51,10 @@ export default async function SettingsPage() {
     getGithubAuthStatus(),
     getGraphAuthStatus(),
     getAdoConfig(),
-    getCalendarConfig(),
     db.task.aggregate({ where: { source: "azure_devops", deletedAt: null }, _count: true, _max: { updatedAt: true } }),
-    db.calendarEvent.aggregate({ where: { deletedAt: null }, _count: true, _max: { updatedAt: true } }),
     db.githubPullRequest.aggregate({ where: { deletedAt: null }, _count: true, _max: { updatedAtRemote: true } }),
     db.calendarEvent.aggregate({ where: { source: "graph", deletedAt: null }, _count: true, _max: { updatedAt: true } }),
     db.adoConfig.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
-    db.calendarConfig.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
     db.githubAuth.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
     db.graphAuth.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
   ]);
@@ -73,7 +65,6 @@ export default async function SettingsPage() {
         <section className="space-y-4">
           <SectionHeading>Integrations</SectionHeading>
           <AzureDevOpsConfigPanel config={adoConfig} stats={stat(adoAgg._count, adoAgg._max.updatedAt, adoHealth)} />
-          <CalendarConfigPanel config={calendarConfig} stats={stat(calAgg._count, calAgg._max.updatedAt, calHealth)} />
           <GraphConnectPanel status={graphStatus} stats={stat(graphAgg._count, graphAgg._max.updatedAt, graphHealth)} />
           <GithubConnectPanel status={githubStatus} stats={stat(ghAgg._count, ghAgg._max.updatedAtRemote, ghHealth)} />
         </section>

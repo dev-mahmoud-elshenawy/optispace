@@ -4,7 +4,8 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { syncAzureDevOps } from "@/features/integrations/azure-devops/actions";
-import { syncCalendar, checkMeetingReminders } from "@/features/calendar/actions";
+import { checkMeetingReminders } from "@/features/calendar/actions";
+import { syncGraphCalendar } from "@/features/integrations/graph/actions";
 import { checkTaskDueDates } from "@/features/tasks/actions";
 import { runScheduledBackup } from "@/features/backup/actions";
 import { refreshStalePackageStats } from "@/features/packages/actions";
@@ -50,7 +51,7 @@ export function AzureDevOpsAutoSync({ enabled }: { enabled: boolean }) {
         // no-op after the first successful run each calendar day.
         const [ado, cal, due, backup, packages, github, meetings] = await Promise.all([
           syncAzureDevOps(),
-          syncCalendar(),
+          syncGraphCalendar(),
           checkTaskDueDates(),
           runScheduledBackup(),
           refreshStalePackageStats(),

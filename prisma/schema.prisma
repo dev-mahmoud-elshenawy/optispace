@@ -218,21 +218,20 @@ model GithubAuth {
   updatedAt   DateTime @updatedAt
 }
 
-// Microsoft Graph OAuth (device flow) token — single row (id="singleton"). When present,
-// Graph becomes the calendar source (read-write); ICS is the fallback when this is absent.
-// refreshToken (offline_access) renews the short-lived accessToken; expiresAt drives refresh.
+// Microsoft Graph OAuth (MSAL device flow) — single row (id="singleton"). When present, Graph
+// is the calendar source (read-write). MSAL owns the token lifecycle: `cache` is its serialized
+// token cache (access + refresh tokens), `homeAccountId` identifies the account for silent
+// refresh (acquireTokenSilent). clientId is the public Entra app id (not a secret).
 model GraphAuth {
-  id           String    @id @default("singleton")
-  clientId     String? // Entra app (public) client id — not secret; needed server-side to refresh
-  accessToken  String
-  refreshToken String?
-  expiresAt    DateTime // access-token expiry (UTC)
-  scope        String?
-  account      String? // userPrincipalName / email, shown in Settings
-  lastSyncedAt DateTime? // last SUCCESSFUL sync (Settings health)
-  lastError    String? // latest sync error message, cleared on the next success
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id            String    @id @default("singleton")
+  clientId      String? // Entra app (public) client id — not secret
+  homeAccountId String? // MSAL account id, for acquireTokenSilent
+  account       String? // userPrincipalName / email, shown in Settings
+  cache         String? // MSAL serialized token cache (access + refresh tokens)
+  lastSyncedAt  DateTime? // last SUCCESSFUL sync (Settings health)
+  lastError     String? // latest sync error message, cleared on the next success
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 // Azure DevOps connection config — set in Settings (no .env). Single row (id="singleton").
