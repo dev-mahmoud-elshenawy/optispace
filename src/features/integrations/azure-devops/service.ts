@@ -574,7 +574,7 @@ export async function fetchWorkItemUpdates(externalId: string): Promise<WorkItem
       views.push({
         rev: u.rev ?? 0,
         by: (u.revisedBy as { displayName?: string } | undefined)?.displayName ?? "Unknown",
-        date: u.revisedDate ? new Date(u.revisedDate).toISOString() : null,
+        date: revisedIso(u.revisedDate),
         comment,
         changes,
       });

@@ -44,6 +44,21 @@ const PRIORITY_LABELS: Record<string, string> = {
   "4": "4 · Low",
 };
 
+// Deterministic per-name avatar tint (mirrors the GitHub PR reviewers styling).
+const AVATAR_COLORS = [
+  "bg-rose-500/15 text-rose-600 dark:text-rose-300",
+  "bg-amber-500/15 text-amber-600 dark:text-amber-300",
+  "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
+  "bg-sky-500/15 text-sky-600 dark:text-sky-300",
+  "bg-violet-500/15 text-violet-600 dark:text-violet-300",
+  "bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-300",
+];
+function avatarColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
 // Editable form values, seeded from the fetched work item.
 interface Form {
   title: string;
@@ -589,31 +604,38 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
                     <Loader2 className="size-3.5 animate-spin" /> Loading history…
                   </p>
                 ) : updates && updates.length > 0 ? (
-                  <ol className="relative space-y-4 border-l border-border pl-5">
+                  <ol className="relative space-y-5 before:absolute before:bottom-2 before:left-[13px] before:top-2 before:w-px before:bg-border">
                     {updates.map((u) => (
-                      <li key={u.rev} className="relative">
-                        <span className="absolute -left-[1.55rem] top-1 size-2.5 rounded-full border-2 border-background bg-primary" />
-                        <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                          <span className="text-sm font-medium text-foreground">{u.by}</span>
-                          {u.date ? (
-                            <span className="text-xs text-muted-foreground">{new Date(u.date).toLocaleString(undefined, DATETIME_FMT)}</span>
+                      <li key={u.rev} className="relative flex gap-3">
+                        <span
+                          className={`z-10 mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ring-4 ring-background ${avatarColor(u.by)}`}
+                          title={u.by}
+                        >
+                          {(u.by?.[0] ?? "?").toUpperCase()}
+                        </span>
+                        <div className="min-w-0 flex-1 pb-0.5">
+                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                            <span className="text-sm font-medium text-foreground">{u.by}</span>
+                            {u.date ? (
+                              <span className="text-xs text-muted-foreground">{new Date(u.date).toLocaleString(undefined, DATETIME_FMT)}</span>
+                            ) : null}
+                          </div>
+                          {u.changes.length > 0 ? (
+                            <ul className="mt-1.5 space-y-1 text-xs">
+                              {u.changes.map((c, i) => (
+                                <li key={i} className="flex flex-wrap items-center gap-1.5">
+                                  <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-muted-foreground">{c.field}</span>
+                                  {c.from ? <span className="text-muted-foreground/70 line-through">{c.from}</span> : null}
+                                  {c.from ? <span className="text-muted-foreground">→</span> : null}
+                                  <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-foreground">{c.to || "—"}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          {u.comment ? (
+                            <p className="mt-2 whitespace-pre-wrap rounded-md border-l-2 border-primary/40 bg-muted/50 px-2.5 py-1.5 text-xs text-foreground/80">{u.comment}</p>
                           ) : null}
                         </div>
-                        {u.changes.length > 0 ? (
-                          <ul className="mt-1 space-y-0.5 text-xs">
-                            {u.changes.map((c, i) => (
-                              <li key={i}>
-                                <span className="font-medium text-foreground/70">{c.field}:</span>{" "}
-                                {c.from ? <span className="text-muted-foreground line-through">{c.from}</span> : null}
-                                {c.from ? <span className="text-muted-foreground"> → </span> : null}
-                                <span className="text-foreground">{c.to || "—"}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                        {u.comment ? (
-                          <p className="mt-1.5 whitespace-pre-wrap rounded-md bg-muted/50 px-2 py-1 text-xs text-foreground/80">{u.comment}</p>
-                        ) : null}
                       </li>
                     ))}
                   </ol>
