@@ -44,9 +44,8 @@ export default async function DashboardPage() {
   const hasPRs = topPullRequests.length > 0;
   // "Today's focus" — the day's urgent items, surfaced in one strip at the top.
   const upcomingMeetings = todayEvents.filter((e) => new Date(e.end) >= now);
-  const prsToReview = pullRequests.filter(
-    (p) => !p.draft && (p.reviewDecision === "REVIEW_REQUIRED" || p.reviewDecision == null),
-  ).length;
+  // Strict: only PRs GitHub says actually need a review (null = no review required, not "to review").
+  const prsToReview = pullRequests.filter((p) => !p.draft && p.reviewDecision === "REVIEW_REQUIRED").length;
 
   const openTasks = taskCounts.todo + taskCounts.in_progress;
   const activeProjects = projects.filter((p) => p.status === "active");

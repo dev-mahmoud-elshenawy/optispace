@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { GripVertical } from "lucide-react";
+import { FolderGit2, GripVertical } from "lucide-react";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -134,6 +134,14 @@ export function ProjectsView({ items: initialItems, projectOptions }: ProjectsVi
         </span>
       </div>
 
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border py-16 text-center">
+          <FolderGit2 className="size-8 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            {items.length === 0 ? "No projects with open work right now." : "No projects match these filters."}
+          </p>
+        </div>
+      ) : (
       <DndContext id="projects-grid" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={filtered.map((it) => it.project.id)} strategy={rectSortingStrategy}>
           <div className="grid gap-6 sm:grid-cols-2">
@@ -157,6 +165,7 @@ export function ProjectsView({ items: initialItems, projectOptions }: ProjectsVi
           </div>
         </SortableContext>
       </DndContext>
+      )}
     </div>
   );
 }

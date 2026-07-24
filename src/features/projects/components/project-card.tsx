@@ -129,7 +129,7 @@ export function ProjectCard({ project: initialProject, tasks, files, links, feed
         : null;
 
   return (
-    <Card>
+    <Card className="hover:-translate-y-0.5">
       <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-1.5">

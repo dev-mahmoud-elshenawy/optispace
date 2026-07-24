@@ -20,7 +20,7 @@ interface ProfileCardProps {
 
 export function ProfileCard({ profile, onEdit, onDelete }: ProfileCardProps) {
   return (
-    <Card>
+    <Card className="hover:-translate-y-0.5">
       <CardContent className="space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-3">
