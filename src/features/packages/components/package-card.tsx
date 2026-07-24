@@ -113,7 +113,7 @@ export function PackageCard({ pkg, onEdit }: PackageCardProps) {
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          {pkg.lastSyncedAt ? `Synced ${formatDistanceToNow(pkg.lastSyncedAt, { addSuffix: true })} ago` : "Never synced"}
+          {pkg.lastSyncedAt ? `Synced ${formatDistanceToNow(pkg.lastSyncedAt, { addSuffix: true })}` : "Never synced"}
         </p>
       </CardContent>
       <CardFooter className="flex flex-wrap items-center justify-between gap-2">
