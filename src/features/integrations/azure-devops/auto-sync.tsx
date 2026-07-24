@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 import { syncAzureDevOps } from "@/features/integrations/azure-devops/actions";
-import { checkMeetingReminders } from "@/features/calendar/actions";
+import { checkMeetingReminders, syncCalendar } from "@/features/calendar/actions";
 import { syncGraphCalendar } from "@/features/integrations/graph/actions";
 import { checkTaskDueDates } from "@/features/tasks/actions";
 import { runScheduledBackup } from "@/features/backup/actions";
@@ -49,9 +49,10 @@ export function AzureDevOpsAutoSync({ enabled }: { enabled: boolean }) {
         // backup have no external source, so they run every tick regardless of
         // whether ADO/Calendar are configured; the backup itself is a cheap fs.stat
         // no-op after the first successful run each calendar day.
-        const [ado, cal, due, backup, packages, github, meetings] = await Promise.all([
+        const [ado, cal, ics, due, backup, packages, github, meetings] = await Promise.all([
           syncAzureDevOps(),
           syncGraphCalendar(),
+          syncCalendar(), // ICS fallback — self-skips when Graph is connected
           checkTaskDueDates(),
           runScheduledBackup(),
           refreshStalePackageStats(),
@@ -61,7 +62,7 @@ export function AzureDevOpsAutoSync({ enabled }: { enabled: boolean }) {
         if (cancelled) return;
         if (!backup.ok) console.error("[optispace] scheduled backup failed", backup.error);
         const adoChanged = ado.ok && (ado.imported > 0 || ado.updated > 0 || ado.pruned > 0 || ado.notified > 0);
-        const calChanged = cal.ok && cal.changed > 0;
+        const calChanged = (cal.ok && cal.changed > 0) || (ics.ok && ics.changed > 0);
         const dueNotified = due.notified > 0;
         const packagesChanged = packages.refreshed > 0;
         const githubChanged = github.ok && (github.upserted > 0 || github.pruned > 0 || github.notified > 0);

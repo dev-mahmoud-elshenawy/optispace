@@ -2,6 +2,8 @@ import { formatDistanceToNow } from "date-fns";
 
 import { PageShell } from "@/components/layout/page-shell";
 import { db } from "@/lib/db";
+import { getCalendarConfig } from "@/features/calendar/actions";
+import { CalendarConfigPanel } from "@/features/calendar/config-panel";
 import { BackupPanel } from "@/features/backup/components/backup-panel";
 import { ExportPanel } from "@/features/backup/components/export-panel";
 import { ScheduledBackupsPanel } from "@/features/backup/components/scheduled-backups-panel";
@@ -40,23 +42,29 @@ export default async function SettingsPage() {
     githubStatus,
     graphStatus,
     adoConfig,
+    calendarConfig,
     adoAgg,
     ghAgg,
     graphAgg,
+    icsAgg,
     adoHealth,
     ghHealth,
     graphHealth,
+    calHealth,
   ] = await Promise.all([
     listScheduledBackups(),
     getGithubAuthStatus(),
     getGraphAuthStatus(),
     getAdoConfig(),
+    getCalendarConfig(),
     db.task.aggregate({ where: { source: "azure_devops", deletedAt: null }, _count: true, _max: { updatedAt: true } }),
     db.githubPullRequest.aggregate({ where: { deletedAt: null }, _count: true, _max: { updatedAtRemote: true } }),
     db.calendarEvent.aggregate({ where: { source: "graph", deletedAt: null }, _count: true, _max: { updatedAt: true } }),
+    db.calendarEvent.aggregate({ where: { source: "ics", deletedAt: null }, _count: true, _max: { updatedAt: true } }),
     db.adoConfig.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
     db.githubAuth.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
     db.graphAuth.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
+    db.calendarConfig.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
   ]);
 
   return (
@@ -66,6 +74,7 @@ export default async function SettingsPage() {
           <SectionHeading>Integrations</SectionHeading>
           <AzureDevOpsConfigPanel config={adoConfig} stats={stat(adoAgg._count, adoAgg._max.updatedAt, adoHealth)} />
           <GraphConnectPanel status={graphStatus} stats={stat(graphAgg._count, graphAgg._max.updatedAt, graphHealth)} />
+          <CalendarConfigPanel config={calendarConfig} stats={stat(icsAgg._count, icsAgg._max.updatedAt, calHealth)} />
           <GithubConnectPanel status={githubStatus} stats={stat(ghAgg._count, ghAgg._max.updatedAtRemote, ghHealth)} />
         </section>
 

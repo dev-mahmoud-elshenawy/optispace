@@ -3,13 +3,15 @@ import { CalendarClock } from "lucide-react";
 import { PageShell } from "@/components/layout/page-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { getGraphAuthStatus } from "@/features/integrations/graph/actions";
+import { isCalendarEnabled } from "@/features/calendar/service";
 import { calendarRange } from "@/features/calendar/queries";
 import { CalendarView } from "@/features/calendar/components/calendar-view";
 
 export const dynamic = "force-dynamic";
 
 export default async function CalendarPage() {
-  if (!(await getGraphAuthStatus()).connected) {
+  const [graph, icsEnabled] = await Promise.all([getGraphAuthStatus(), isCalendarEnabled()]);
+  if (!graph.connected && !icsEnabled) {
     return (
       <PageShell title="Calendar" description="Your Outlook / Teams agenda">
         <Card className="border-dashed border-border/60">
@@ -17,8 +19,9 @@ export default async function CalendarPage() {
             <CalendarClock className="mx-auto h-8 w-8 text-muted-foreground/50" />
             <p className="font-medium text-foreground">Calendar not connected</p>
             <p>
-              Connect your Microsoft/Outlook calendar in{" "}
-              <span className="text-foreground">Settings → Microsoft Calendar (Graph)</span> to see and manage your meetings.
+              Connect via <span className="text-foreground">Settings → Microsoft Calendar (Graph)</span> for full
+              read-write, or add a published <span className="text-foreground">ICS feed URL</span> there for a
+              read-only view (no login required).
             </p>
           </CardContent>
         </Card>

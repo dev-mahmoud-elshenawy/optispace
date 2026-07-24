@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Keep @azure/msal-node a native Node require (it's a CJS package with a token cache that
-  // dislikes being bundled by Turbopack). Graph auth uses it server-side only.
-  serverExternalPackages: ["@azure/msal-node"],
+  // Keep these native Node requires (not Turbopack-bundled): @azure/msal-node (CJS token cache)
+  // for Graph auth, and node-ical (pulls @js-temporal/polyfill / JSBI, "BigInt is not a function"
+  // when bundled) for the ICS fallback feed.
+  serverExternalPackages: ["@azure/msal-node", "node-ical"],
   experimental: {
     // Project file uploads go through server actions; raise the default 1 MB cap.
     serverActions: { bodySizeLimit: "8mb" },
