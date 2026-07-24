@@ -20,9 +20,10 @@ import { cn } from "@/lib/utils";
 import { getCalendarRange } from "@/features/calendar/actions";
 import type { CalendarEventDTO } from "@/features/calendar/types";
 
-type View = "month" | "day";
+type View = "month" | "day" | "agenda";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MAX_CHIPS = 3;
+const AGENDA_WINDOWS = [7, 14, 30] as const;
 
 function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -41,6 +42,7 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
   const [selectedDay, setSelectedDay] = useState(() => new Date());
   const [events, setEvents] = useState<CalendarEventDTO[]>(initialEvents);
   const [loading, setLoading] = useState(false);
+  const [agendaDays, setAgendaDays] = useState<number>(7);
 
   // Data arrives server-rendered (initialEvents) — no fetch on mount, so the page
   // renders instantly. Month/day navigation filters in-memory. Only re-read from the
@@ -77,14 +79,38 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
     [events, selectedDay],
   );
 
+  // Flat "next N days" list, grouped by day (only days with events). Anchored on
+  // today, ignores the month cursor. Events already in progress fold into today.
+  const agendaGroups = useMemo(() => {
+    const from = startOfDay(new Date());
+    const to = endOfDay(addDays(from, agendaDays - 1));
+    const groups = new Map<string, { day: Date; events: CalendarEventDTO[] }>();
+    events
+      .filter((e) => new Date(e.end) >= from && new Date(e.start) <= to)
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+      .forEach((e) => {
+        const s = new Date(e.start);
+        const bucket = s < from ? from : startOfDay(s);
+        const key = format(bucket, "yyyy-MM-dd");
+        const group = groups.get(key) ?? { day: bucket, events: [] };
+        group.events.push(e);
+        groups.set(key, group);
+      });
+    return [...groups.values()];
+  }, [events, agendaDays]);
+
   function goToday() {
     const today = new Date();
     setCursor(today);
     setSelectedDay(today);
   }
 
-  // Prev/next steps by day in day view, by month in month view.
+  // Prev/next steps by day in day view, by month in month view. No-op in agenda
+  // (it's anchored on today).
   function step(delta: number) {
+    if (view === "agenda") {
+      return;
+    }
     if (view === "day") {
       const next = addDays(selectedDay, delta);
       setSelectedDay(next);
@@ -104,39 +130,73 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
       {/* Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon-sm" onClick={() => step(-1)} aria-label={view === "day" ? "Previous day" : "Previous month"}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={goToday}>
-            Today
-          </Button>
-          <Button variant="outline" size="icon-sm" onClick={() => step(1)} aria-label={view === "day" ? "Next day" : "Next month"}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <h2 className="ml-1 font-heading text-lg font-semibold tracking-tight">
-            {format(view === "day" ? selectedDay : cursor, view === "day" ? "EEEE, MMM d, yyyy" : "MMMM yyyy")}
+          {view !== "agenda" ? (
+            <>
+              <Button variant="outline" size="icon-sm" onClick={() => step(-1)} aria-label={view === "day" ? "Previous day" : "Previous month"}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="sm" onClick={goToday}>
+                Today
+              </Button>
+              <Button variant="outline" size="icon-sm" onClick={() => step(1)} aria-label={view === "day" ? "Next day" : "Next month"}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </>
+          ) : null}
+          <h2 className={cn("font-heading text-lg font-semibold tracking-tight", view !== "agenda" && "ml-1")}>
+            {view === "agenda"
+              ? `Agenda · Next ${agendaDays} days`
+              : format(view === "day" ? selectedDay : cursor, view === "day" ? "EEEE, MMM d, yyyy" : "MMMM yyyy")}
           </h2>
+          {view === "agenda" ? (
+            <div className="ml-1 flex overflow-hidden rounded-lg border border-border">
+              {AGENDA_WINDOWS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setAgendaDays(d)}
+                  className={cn(
+                    "px-2.5 py-1 text-xs tabular-nums transition-colors",
+                    agendaDays === d ? "bg-primary text-primary-foreground" : "hover:bg-accent",
+                  )}
+                >
+                  {d}d
+                </button>
+              ))}
+            </div>
+          ) : null}
           {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
         </div>
         <div className="flex overflow-hidden rounded-lg border border-border">
           <button
             type="button"
             onClick={() => setView("month")}
-            className={cn("px-3 py-1.5 text-sm", view === "month" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}
+            className={cn("px-3 py-1.5 text-sm transition-colors", view === "month" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}
           >
             Month
           </button>
           <button
             type="button"
             onClick={() => setView("day")}
-            className={cn("px-3 py-1.5 text-sm", view === "day" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}
+            className={cn("px-3 py-1.5 text-sm transition-colors", view === "day" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}
           >
             Day
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("agenda")}
+            className={cn("px-3 py-1.5 text-sm transition-colors", view === "agenda" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}
+          >
+            Agenda
           </button>
         </div>
       </div>
 
-      {view === "month" ? (
+      <div
+        key={`${view}:${view === "month" ? monthKey : view === "day" ? format(selectedDay, "yyyy-MM-dd") : agendaDays}`}
+        className="animate-in fade-in slide-in-from-bottom-2 duration-300 ease-out fill-mode-both"
+      >
+        {view === "month" ? (
         <div className="overflow-hidden rounded-xl border border-border/60">
           <div className="grid grid-cols-7 border-b border-border/60 bg-muted/30">
             {WEEKDAYS.map((d) => (
@@ -190,63 +250,100 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
             })}
           </div>
         </div>
-      ) : (
+      ) : view === "day" ? (
         <div className="rounded-xl border border-border/60">
           {dayEvents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2.5 py-12 text-center">
-              <span className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-                <Clock className="size-5" />
-              </span>
-              <p className="text-sm text-muted-foreground">No meetings on this day.</p>
-            </div>
+            <EmptyState message="No meetings on this day." />
           ) : (
             <div className="divide-y divide-border/50">
               {dayEvents.map((e) => (
-                <div key={e.id} className="flex items-start gap-3 px-4 py-3">
-                  <div className="flex w-16 shrink-0 items-center gap-1 pt-0.5 text-xs tabular-nums text-muted-foreground">
-                    <Clock className="h-3.5 w-3.5 text-primary" />
-                    {e.allDay ? "All day" : format(new Date(e.start), "h:mm a")}
+                <EventRow key={e.id} e={e} />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border/60">
+          {agendaGroups.length === 0 ? (
+            <EmptyState message={`No meetings in the next ${agendaDays} days.`} />
+          ) : (
+            <div className="divide-y divide-border/50">
+              {agendaGroups.map(({ day, events: dayEvs }) => (
+                <div key={day.toISOString()}>
+                  <div className="sticky top-0 z-10 flex items-baseline gap-2 border-b border-border/40 bg-muted/40 px-4 py-1.5 backdrop-blur">
+                    <span className={cn("text-sm font-semibold", isToday(day) && "text-primary")}>
+                      {format(day, "EEE, MMM d")}
+                    </span>
+                    {isToday(day) ? <span className="text-xs text-primary">Today</span> : null}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground">{e.title}</p>
-                    <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
-                      {!e.allDay ? (
-                        <span>
-                          {format(new Date(e.start), "h:mm a")} – {format(new Date(e.end), "h:mm a")}
-                        </span>
-                      ) : null}
-                      {e.location ? (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" /> {e.location}
-                        </span>
-                      ) : null}
-                      {e.meetingUrl ? (
-                        <a
-                          href={e.meetingUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 font-medium text-primary hover:underline"
-                        >
-                          <Video className="h-3 w-3" /> Join
-                        </a>
-                      ) : null}
-                    </div>
-                    {e.attendees.length > 0 ? (
-                      <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
-                        <Users className="mt-0.5 h-3 w-3 shrink-0" />
-                        <span>
-                          {e.attendees.slice(0, 6).join(", ")}
-                          {e.attendees.length > 6 ? ` +${e.attendees.length - 6} more` : ""}
-                        </span>
-                      </p>
-                    ) : null}
+                  <div className="divide-y divide-border/50">
+                    {dayEvs.map((e) => (
+                      <EventRow key={e.id} e={e} />
+                    ))}
                   </div>
                 </div>
               ))}
             </div>
           )}
         </div>
-      )}
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2.5 py-12 text-center">
+      <span className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
+        <Clock className="size-5" />
+      </span>
+      <p className="text-sm text-muted-foreground">{message}</p>
+    </div>
+  );
+}
+
+function EventRow({ e }: { e: CalendarEventDTO }) {
+  return (
+    <div className="flex items-start gap-3 px-4 py-3">
+      <div className="flex w-16 shrink-0 items-center gap-1 pt-0.5 text-xs tabular-nums text-muted-foreground">
+        <Clock className="h-3.5 w-3.5 text-primary" />
+        {e.allDay ? "All day" : format(new Date(e.start), "h:mm a")}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-foreground">{e.title}</p>
+        <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+          {!e.allDay ? (
+            <span>
+              {format(new Date(e.start), "h:mm a")} – {format(new Date(e.end), "h:mm a")}
+            </span>
+          ) : null}
+          {e.location ? (
+            <span className="flex items-center gap-1">
+              <MapPin className="h-3 w-3" /> {e.location}
+            </span>
+          ) : null}
+          {e.meetingUrl ? (
+            <a
+              href={e.meetingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 font-medium text-primary hover:underline"
+            >
+              <Video className="h-3 w-3" /> Join
+            </a>
+          ) : null}
+        </div>
+        {e.attendees.length > 0 ? (
+          <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+            <Users className="mt-0.5 h-3 w-3 shrink-0" />
+            <span>
+              {e.attendees.slice(0, 6).join(", ")}
+              {e.attendees.length > 6 ? ` +${e.attendees.length - 6} more` : ""}
+            </span>
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
