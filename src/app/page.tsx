@@ -15,9 +15,11 @@ import { recentNotifications, unreadNotificationCount } from "@/features/notific
 import { notificationActor, notificationTitle, type NotificationView } from "@/features/notifications/service";
 import { todayCalendarEvents } from "@/features/calendar/queries";
 import { listPullRequests } from "@/features/integrations/github/queries";
+import { getGithubAuthStatus } from "@/features/integrations/github/actions";
 import { DayPreviewCard } from "@/components/dashboard/day-preview-card";
 import { DashboardCharts } from "@/features/dashboard/components/dashboard-charts";
 import { ProfileIcon } from "@/features/profiles/components/profile-icon";
+import { AnimatedNumber } from "@/components/dashboard/animated-number";
 
 export default async function DashboardPage() {
   const now = new Date();
@@ -26,7 +28,7 @@ export default async function DashboardPage() {
   const endToday = new Date(year, now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const startTomorrow = new Date(year, now.getMonth(), now.getDate() + 1);
   const endTomorrow = new Date(year, now.getMonth(), now.getDate() + 1, 23, 59, 59, 999);
-  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents, tomorrowEvents, pullRequests] = await Promise.all([
+  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents, tomorrowEvents, pullRequests, githubAuth] = await Promise.all([
     listProfiles(),
     getLeaveSummary(year),
     getTaskStatusCounts(),
@@ -39,13 +41,17 @@ export default async function DashboardPage() {
     todayCalendarEvents(startToday, endToday),
     todayCalendarEvents(startTomorrow, endTomorrow),
     listPullRequests(),
+    getGithubAuthStatus(),
   ]);
   const topPullRequests = pullRequests.slice(0, 12);
   const hasPRs = topPullRequests.length > 0;
   // "Today's focus" — the day's urgent items, surfaced in one strip at the top.
   const upcomingMeetings = todayEvents.filter((e) => new Date(e.end) >= now);
-  // Strict: only PRs GitHub says actually need a review (null = no review required, not "to review").
-  const prsToReview = pullRequests.filter((p) => !p.draft && p.reviewDecision === "REVIEW_REQUIRED").length;
+  // Open PRs where I'm a reviewer or assignee (not my own). The sync fetches author/review-requested/
+  // assignee PRs, so "involves me" = author isn't my login. reviewDecision is null for these repos, so
+  // a strict "needs review" count would always be 0 — relation is the meaningful signal here.
+  const myLogin = githubAuth.login;
+  const prsForMe = myLogin ? pullRequests.filter((p) => p.author !== myLogin).length : pullRequests.length;
 
   const openTasks = taskCounts.todo + taskCounts.in_progress;
   const activeProjects = projects.filter((p) => p.status === "active");
@@ -90,7 +96,7 @@ export default async function DashboardPage() {
   const dateLabel = format(now, "EEEE, MMMM d");
   const enter = "animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-both";
 
-  const focusCount = upcomingMeetings.length + dueTodayOrOverdue.length + prsToReview + unreadCount;
+  const focusCount = upcomingMeetings.length + dueTodayOrOverdue.length + prsForMe + unreadCount;
 
   return (
     <div className="min-h-full pb-16">
@@ -144,13 +150,13 @@ export default async function DashboardPage() {
                     sub="Due today or overdue"
                   />
                 ) : null}
-                {prsToReview > 0 ? (
+                {prsForMe > 0 ? (
                   <FocusChip
                     href="/pull-requests"
                     icon={GitPullRequest}
                     tone="bg-indigo-500/15 text-indigo-400 ring-indigo-500/25"
-                    label={`${prsToReview} PR${prsToReview === 1 ? "" : "s"} to review`}
-                    sub="Awaiting your review"
+                    label={`${prsForMe} PR${prsForMe === 1 ? "" : "s"} for you`}
+                    sub="Review-requested or assigned"
                   />
                 ) : null}
                 {unreadCount > 0 ? (
@@ -177,10 +183,10 @@ export default async function DashboardPage() {
         <section className="space-y-5">
           <SectionLabel index="01" title="Overview" />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard href="/leave" icon={<CalendarDays className="size-5" />} label="Remaining leave" value={`${leave.remainingDays}`} sub={`of ${leave.allowanceDays} days`} delay={0} />
-            <StatCard href="/tasks" icon={<ListChecks className="size-5" />} label="Open tasks" value={`${openTasks}`} sub={`${taskCounts.done} done`} delay={70} />
-            <StatCard href="/projects" icon={<GitBranch className="size-5" />} label="Active projects" value={`${activeProjects.length}`} sub={`${projects.length} total`} delay={140} />
-            <StatCard href="/packages" icon={<PackageIcon className="size-5" />} label="Packages" value={`${packageCount}`} sub="published" delay={210} />
+            <StatCard href="/leave" icon={<CalendarDays className="size-5" />} label="Remaining leave" value={leave.remainingDays} sub={`of ${leave.allowanceDays} days`} delay={0} />
+            <StatCard href="/tasks" icon={<ListChecks className="size-5" />} label="Open tasks" value={openTasks} sub={`${taskCounts.done} done`} delay={70} />
+            <StatCard href="/projects" icon={<GitBranch className="size-5" />} label="Active projects" value={activeProjects.length} sub={`${projects.length} total`} delay={140} />
+            <StatCard href="/packages" icon={<PackageIcon className="size-5" />} label="Packages" value={packageCount} sub="published" delay={210} />
           </div>
         </section>
 
@@ -204,7 +210,7 @@ export default async function DashboardPage() {
 
             {hasPRs ? (
               <div className={enter} style={{ animationDelay: "160ms" }}>
-                <Panel icon={GitPullRequest} title="Pull requests" href="/pull-requests" badge={prsToReview}>
+                <Panel icon={GitPullRequest} title="Pull requests" href="/pull-requests" badge={prsForMe}>
                   {topPullRequests.map((pr, i) => (
                     <Link
                       key={pr.id}
@@ -346,7 +352,7 @@ function StatCard({
   href: string;
   icon: ReactNode;
   label: string;
-  value: string;
+  value: number;
   sub?: string;
   delay?: number;
 }) {
@@ -365,7 +371,9 @@ function StatCard({
           </span>
           <ArrowUpRight className="size-4 text-muted-foreground/30 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-primary" />
         </div>
-        <div className="mt-5 font-mono text-4xl font-semibold tabular-nums tracking-tight">{value}</div>
+        <div className="mt-5 font-mono text-4xl font-semibold tabular-nums tracking-tight">
+          <AnimatedNumber value={value} />
+        </div>
         <div className="mt-1.5 text-sm font-medium text-foreground">{label}</div>
         {sub ? <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div> : null}
       </div>

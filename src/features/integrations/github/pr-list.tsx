@@ -92,7 +92,7 @@ export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
               <SelectItem value="all">All repos</SelectItem>
               {repos.map((r) => (
                 <SelectItem key={r} value={r}>
-                  {r}
+                  {repoShortName(r)}
                 </SelectItem>
               ))}
             </SelectContent>
