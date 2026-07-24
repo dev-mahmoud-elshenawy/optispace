@@ -12,8 +12,10 @@ import {
   fetchGraphEvents,
   persistGraphCache,
   rsvpGraphEvent,
+  searchGraphPeople,
   updateGraphEvent,
   type GraphEventWrite,
+  type GraphPerson,
   type GraphRsvp,
 } from "./service";
 
@@ -214,4 +216,9 @@ export async function rsvpCalendarEvent(externalId: string, response: GraphRsvp,
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Failed to send response." };
   }
+}
+
+// Attendee picker: search people relevant to the user (needs People.Read). Best-effort → [].
+export async function searchCalendarPeople(query: string): Promise<GraphPerson[]> {
+  return searchGraphPeople(query);
 }

@@ -203,7 +203,9 @@ export function GraphConnectPanel({
                 </li>
                 <li>
                   <span className="font-medium">New registration</span>. Any name; supported account types
-                  = <span className="font-medium">Accounts in any org directory and personal Microsoft accounts</span>. No redirect URI needed.
+                  = <span className="font-medium">Any Entra ID Tenant + Personal Microsoft accounts</span> (this
+                  matches the app&rsquo;s <code className="rounded bg-muted px-1">common</code> sign-in — not
+                  &ldquo;Single tenant&rdquo;). No redirect URI needed.
                 </li>
                 <li>
                   In <span className="font-medium">Authentication</span> → Advanced settings, set{" "}
@@ -213,7 +215,9 @@ export function GraphConnectPanel({
                   In <span className="font-medium">API permissions</span>, add delegated Microsoft Graph scopes{" "}
                   <code className="rounded bg-muted px-1">Calendars.ReadWrite</code>,{" "}
                   <code className="rounded bg-muted px-1">offline_access</code>,{" "}
-                  <code className="rounded bg-muted px-1">User.Read</code>.
+                  <code className="rounded bg-muted px-1">User.Read</code>,{" "}
+                  <code className="rounded bg-muted px-1">People.Read</code> (the last powers the attendee
+                  picker). All are user-consented — no admin approval.
                 </li>
                 <li>
                   Copy the <span className="font-medium">Application (client) ID</span> from Overview and paste it above.

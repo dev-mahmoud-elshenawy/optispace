@@ -9,7 +9,7 @@ import type { CalendarEventInput } from "@/features/calendar/sync-core";
 // and personal Microsoft accounts. MSAL implicitly requests offline_access, so its token cache
 // holds a refresh token and acquireTokenSilent renews the ~1h access token transparently.
 const AUTHORITY = "https://login.microsoftonline.com/common";
-export const GRAPH_SCOPES = ["User.Read", "Calendars.ReadWrite"];
+export const GRAPH_SCOPES = ["User.Read", "Calendars.ReadWrite", "People.Read"];
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
 export function buildPca(clientId: string): PublicClientApplication {
@@ -150,6 +150,8 @@ export interface GraphEventWrite {
   end: string; // ISO UTC
   location?: string | null;
   allDay?: boolean;
+  attendees?: string[]; // email addresses — Graph emails them the invite on save
+  isOnlineMeeting?: boolean; // true → Graph generates a Teams meeting + join link
 }
 
 // Graph wants a zoneless wall-clock dateTime + a separate timeZone; we always send UTC.
@@ -165,7 +167,42 @@ function eventBody(w: GraphEventWrite) {
     end: { dateTime: toGraphDateTime(w.end), timeZone: "UTC" },
     location: { displayName: w.location ?? "" },
     isAllDay: w.allDay ?? false,
+    // Only send attendees when the user set some — a PATCH with attendees:[] would WIPE the
+    // event's existing invitees, so an empty list means "leave attendees untouched". Graph
+    // emails the invite automatically when attendees are present.
+    ...(w.attendees && w.attendees.length > 0
+      ? { attendees: w.attendees.map((address) => ({ emailAddress: { address }, type: "required" })) }
+      : {}),
+    ...(w.isOnlineMeeting ? { isOnlineMeeting: true, onlineMeetingProvider: "teamsForBusiness" } : {}),
   };
+}
+
+export interface GraphPerson {
+  name: string;
+  email: string;
+}
+
+// Search people relevant to the signed-in user (frequent contacts + directory) for the
+// attendee picker. Needs the People.Read scope; returns [] on any failure so the UI degrades.
+export async function searchGraphPeople(query: string): Promise<GraphPerson[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const params = new URLSearchParams({
+    $search: `"${q}"`,
+    $top: "8",
+    $select: "displayName,scoredEmailAddresses",
+  });
+  const res = await graphFetch(`/me/people?${params.toString()}`);
+  if (res === null || !res.ok) return [];
+  const data = (await res.json()) as {
+    value?: Array<{ displayName?: string; scoredEmailAddresses?: Array<{ address?: string }> }>;
+  };
+  const out: GraphPerson[] = [];
+  for (const p of data.value ?? []) {
+    const email = p.scoredEmailAddresses?.[0]?.address;
+    if (email) out.push({ name: p.displayName?.trim() || email, email });
+  }
+  return out;
 }
 
 async function errorText(res: Response): Promise<string> {
