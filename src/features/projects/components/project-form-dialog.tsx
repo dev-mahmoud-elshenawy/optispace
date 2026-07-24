@@ -58,20 +58,27 @@ export function ProjectFormDialog({ mode, project, trigger, onSaved }: ProjectFo
       status,
       notes: notes.trim() ? notes.trim() : null,
     };
-    const result =
-      mode === "create" ? await createProject(input) : await updateProject(project?.id ?? "", input);
-    setIsSubmitting(false);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
+    try {
+      const result =
+        mode === "create" ? await createProject(input) : await updateProject(project?.id ?? "", input);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(mode === "create" ? "Project created" : "Project updated");
+      setOpen(false);
+      if (mode === "create") resetForm();
+      // Edit: the parent card updates its own copy instantly (no full-page re-render).
+      // Create: no card exists yet, so refresh the list to show the new one.
+      if (onSaved) onSaved(input);
+      else router.refresh();
+    } catch {
+      // A thrown server action (not an {ok:false} return) would otherwise leave the
+      // button stuck in its disabled/"saving" state forever — surface it and recover.
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
-    toast.success(mode === "create" ? "Project created" : "Project updated");
-    setOpen(false);
-    if (mode === "create") resetForm();
-    // Edit: the parent card updates its own copy instantly (no full-page re-render).
-    // Create: no card exists yet, so refresh the list to show the new one.
-    if (onSaved) onSaved(input);
-    else router.refresh();
   }
 
   return (
