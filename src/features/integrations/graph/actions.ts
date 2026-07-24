@@ -4,7 +4,18 @@ import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
 import { reconcileCalendarEvents } from "@/features/calendar/sync-core";
-import { GRAPH_SCOPES, buildPca, fetchGraphEvents, persistGraphCache } from "./service";
+import {
+  GRAPH_SCOPES,
+  buildPca,
+  createGraphEvent,
+  deleteGraphEvent,
+  fetchGraphEvents,
+  persistGraphCache,
+  rsvpGraphEvent,
+  updateGraphEvent,
+  type GraphEventWrite,
+  type GraphRsvp,
+} from "./service";
 
 // ── Device-flow connect (MSAL) ───────────────────────────────────────────────
 // MSAL's acquireTokenByDeviceCode is one blocking call that resolves only after the user
@@ -153,4 +164,54 @@ async function runGraphSync(): Promise<GraphSyncResult> {
 
   const changed = await reconcileCalendarEvents("graph", events, now);
   return { ok: true, changed };
+}
+
+// ── Writes (create / edit / delete / RSVP) ───────────────────────────────────
+// Each write hits Graph, then resyncs the cache so the UI reflects it immediately.
+export type CalWriteResult = { ok: true } | { ok: false; error: string };
+
+async function afterWrite(): Promise<void> {
+  await syncGraphCalendar();
+  revalidatePath("/calendar");
+  revalidatePath("/");
+}
+
+export async function createCalendarEvent(w: GraphEventWrite): Promise<CalWriteResult> {
+  try {
+    await createGraphEvent(w);
+    await afterWrite();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to create event." };
+  }
+}
+
+export async function updateCalendarEvent(externalId: string, w: GraphEventWrite): Promise<CalWriteResult> {
+  try {
+    await updateGraphEvent(externalId, w);
+    await afterWrite();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to update event." };
+  }
+}
+
+export async function deleteCalendarEvent(externalId: string): Promise<CalWriteResult> {
+  try {
+    await deleteGraphEvent(externalId);
+    await afterWrite();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to delete event." };
+  }
+}
+
+export async function rsvpCalendarEvent(externalId: string, response: GraphRsvp, comment?: string): Promise<CalWriteResult> {
+  try {
+    await rsvpGraphEvent(externalId, response, comment);
+    await afterWrite();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Failed to send response." };
+  }
 }

@@ -13,7 +13,7 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Clock, ListPlus, MapPin, Loader2, Search, Users, Video } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, ListPlus, MapPin, Loader2, Plus, Search, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { getCalendarRange } from "@/features/calendar/actions";
 import type { CalendarEventDTO } from "@/features/calendar/types";
 import { createTask } from "@/features/tasks/actions";
+import { EventDialog } from "./event-dialog";
 
 type View = "month" | "day" | "agenda";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -47,6 +48,17 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
   const [agendaDays, setAgendaDays] = useState<number>(7);
   const [search, setSearch] = useState("");
   const [creatingPrep, setCreatingPrep] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<CalendarEventDTO | null>(null);
+
+  function openCreate() {
+    setEditingEvent(null);
+    setDialogOpen(true);
+  }
+  function openEvent(e: CalendarEventDTO) {
+    setEditingEvent(e);
+    setDialogOpen(true);
+  }
 
   // One-way "prep task from a meeting" — no durable link back to the event, since ICS
   // occurrences are re-synced/pruned each poll (an event id isn't a stable FK).
@@ -198,6 +210,10 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
           {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            New
+          </Button>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -299,7 +315,7 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
           ) : (
             <div className="divide-y divide-border/50">
               {dayEvents.map((e) => (
-                <EventRow key={e.id} e={e} onAddTask={() => addPrepTask(e)} busy={creatingPrep === e.id} />
+                <EventRow key={e.id} e={e} onAddTask={() => addPrepTask(e)} onEdit={() => openEvent(e)} busy={creatingPrep === e.id} />
               ))}
             </div>
           )}
@@ -320,7 +336,7 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
                   </div>
                   <div className="divide-y divide-border/50">
                     {dayEvs.map((e) => (
-                      <EventRow key={e.id} e={e} onAddTask={() => addPrepTask(e)} busy={creatingPrep === e.id} />
+                      <EventRow key={e.id} e={e} onAddTask={() => addPrepTask(e)} onEdit={() => openEvent(e)} busy={creatingPrep === e.id} />
                     ))}
                   </div>
                 </div>
@@ -330,6 +346,8 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
         </div>
         )}
       </div>
+
+      <EventDialog open={dialogOpen} onOpenChange={setDialogOpen} event={editingEvent} onChanged={load} />
     </div>
   );
 }
@@ -345,7 +363,17 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-function EventRow({ e, onAddTask, busy }: { e: CalendarEventDTO; onAddTask?: () => void; busy?: boolean }) {
+function EventRow({
+  e,
+  onAddTask,
+  onEdit,
+  busy,
+}: {
+  e: CalendarEventDTO;
+  onAddTask?: () => void;
+  onEdit?: () => void;
+  busy?: boolean;
+}) {
   return (
     <div className="group flex items-start gap-3 px-4 py-3">
       <div className="flex w-16 shrink-0 items-center gap-1 pt-0.5 text-xs tabular-nums text-muted-foreground">
@@ -353,7 +381,13 @@ function EventRow({ e, onAddTask, busy }: { e: CalendarEventDTO; onAddTask?: () 
         {e.allDay ? "All day" : format(new Date(e.start), "h:mm a")}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground">{e.title}</p>
+        {onEdit ? (
+          <button type="button" onClick={onEdit} className="text-left text-sm font-medium text-foreground hover:text-primary hover:underline">
+            {e.title}
+          </button>
+        ) : (
+          <p className="text-sm font-medium text-foreground">{e.title}</p>
+        )}
         <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
           {!e.allDay ? (
             <span>

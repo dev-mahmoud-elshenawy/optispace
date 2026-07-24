@@ -6,6 +6,7 @@ import type { CalendarEventDTO } from "./types";
 
 function toDTO(row: {
   id: string;
+  externalId: string | null;
   title: string;
   start: Date;
   end: Date;
@@ -23,6 +24,7 @@ function toDTO(row: {
   }
   return {
     id: row.id,
+    externalId: row.externalId,
     title: row.title,
     start: row.start.toISOString(),
     end: row.end.toISOString(),

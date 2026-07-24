@@ -141,3 +141,77 @@ export async function fetchGraphEvents(from: Date, to: Date): Promise<CalendarEv
 
   return out;
 }
+
+// ── Writes ───────────────────────────────────────────────────────────────────
+export interface GraphEventWrite {
+  subject: string;
+  description?: string | null;
+  start: string; // ISO UTC
+  end: string; // ISO UTC
+  location?: string | null;
+  allDay?: boolean;
+}
+
+// Graph wants a zoneless wall-clock dateTime + a separate timeZone; we always send UTC.
+function toGraphDateTime(iso: string): string {
+  return new Date(iso).toISOString().replace(/\.\d{3}Z$/, "");
+}
+
+function eventBody(w: GraphEventWrite) {
+  return {
+    subject: w.subject,
+    body: { contentType: "text", content: w.description ?? "" },
+    start: { dateTime: toGraphDateTime(w.start), timeZone: "UTC" },
+    end: { dateTime: toGraphDateTime(w.end), timeZone: "UTC" },
+    location: { displayName: w.location ?? "" },
+    isAllDay: w.allDay ?? false,
+  };
+}
+
+async function errorText(res: Response): Promise<string> {
+  const body = await res.text().catch(() => "");
+  try {
+    const json = JSON.parse(body);
+    return json?.error?.message || `Graph request failed (${res.status}).`;
+  } catch {
+    return body.slice(0, 200) || `Graph request failed (${res.status}).`;
+  }
+}
+
+// Graph event ids contain characters that must be percent-encoded in a path segment.
+function eventPath(id: string): string {
+  return `/me/events/${encodeURIComponent(id)}`;
+}
+
+const NOT_CONNECTED = "Not connected to Microsoft.";
+
+export async function createGraphEvent(w: GraphEventWrite): Promise<string> {
+  const res = await graphFetch("/me/events", { method: "POST", body: JSON.stringify(eventBody(w)) });
+  if (res === null) throw new Error(NOT_CONNECTED);
+  if (!res.ok) throw new Error(await errorText(res));
+  const data = (await res.json()) as { id: string };
+  return data.id;
+}
+
+export async function updateGraphEvent(id: string, w: GraphEventWrite): Promise<void> {
+  const res = await graphFetch(eventPath(id), { method: "PATCH", body: JSON.stringify(eventBody(w)) });
+  if (res === null) throw new Error(NOT_CONNECTED);
+  if (!res.ok) throw new Error(await errorText(res));
+}
+
+export async function deleteGraphEvent(id: string): Promise<void> {
+  const res = await graphFetch(eventPath(id), { method: "DELETE" });
+  if (res === null) throw new Error(NOT_CONNECTED);
+  if (!res.ok && res.status !== 404) throw new Error(await errorText(res));
+}
+
+export type GraphRsvp = "accept" | "decline" | "tentativelyAccept";
+
+export async function rsvpGraphEvent(id: string, response: GraphRsvp, comment?: string): Promise<void> {
+  const res = await graphFetch(`${eventPath(id)}/${response}`, {
+    method: "POST",
+    body: JSON.stringify({ sendResponse: true, comment: comment ?? "" }),
+  });
+  if (res === null) throw new Error(NOT_CONNECTED);
+  if (!res.ok) throw new Error(await errorText(res));
+}
