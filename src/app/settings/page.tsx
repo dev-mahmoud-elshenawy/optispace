@@ -12,6 +12,8 @@ import { getAdoConfig } from "@/features/integrations/azure-devops/actions";
 import { AzureDevOpsConfigPanel } from "@/features/integrations/azure-devops/config-panel";
 import { getGithubAuthStatus } from "@/features/integrations/github/actions";
 import { GithubConnectPanel } from "@/features/integrations/github/connect-panel";
+import { getGraphAuthStatus } from "@/features/integrations/graph/actions";
+import { GraphConnectPanel } from "@/features/integrations/graph/connect-panel";
 
 // Per-integration health shown in each card: item count + the REAL last successful sync time
 // (from the config row's lastSyncedAt, falling back to the newest cached item) + the latest error.
@@ -35,19 +37,35 @@ function stat(
 }
 
 export default async function SettingsPage() {
-  const [scheduledBackups, githubStatus, adoConfig, calendarConfig, adoAgg, calAgg, ghAgg, adoHealth, calHealth, ghHealth] =
-    await Promise.all([
-      listScheduledBackups(),
-      getGithubAuthStatus(),
-      getAdoConfig(),
-      getCalendarConfig(),
-      db.task.aggregate({ where: { source: "azure_devops", deletedAt: null }, _count: true, _max: { updatedAt: true } }),
-      db.calendarEvent.aggregate({ where: { deletedAt: null }, _count: true, _max: { updatedAt: true } }),
-      db.githubPullRequest.aggregate({ where: { deletedAt: null }, _count: true, _max: { updatedAtRemote: true } }),
-      db.adoConfig.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
-      db.calendarConfig.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
-      db.githubAuth.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
-    ]);
+  const [
+    scheduledBackups,
+    githubStatus,
+    graphStatus,
+    adoConfig,
+    calendarConfig,
+    adoAgg,
+    calAgg,
+    ghAgg,
+    graphAgg,
+    adoHealth,
+    calHealth,
+    ghHealth,
+    graphHealth,
+  ] = await Promise.all([
+    listScheduledBackups(),
+    getGithubAuthStatus(),
+    getGraphAuthStatus(),
+    getAdoConfig(),
+    getCalendarConfig(),
+    db.task.aggregate({ where: { source: "azure_devops", deletedAt: null }, _count: true, _max: { updatedAt: true } }),
+    db.calendarEvent.aggregate({ where: { deletedAt: null }, _count: true, _max: { updatedAt: true } }),
+    db.githubPullRequest.aggregate({ where: { deletedAt: null }, _count: true, _max: { updatedAtRemote: true } }),
+    db.calendarEvent.aggregate({ where: { source: "graph", deletedAt: null }, _count: true, _max: { updatedAt: true } }),
+    db.adoConfig.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
+    db.calendarConfig.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
+    db.githubAuth.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
+    db.graphAuth.findUnique({ where: { id: "singleton" }, select: { lastSyncedAt: true, lastError: true } }),
+  ]);
 
   return (
     <PageShell title="Settings" description="Connect integrations and back up your workspace.">
@@ -56,6 +74,7 @@ export default async function SettingsPage() {
           <SectionHeading>Integrations</SectionHeading>
           <AzureDevOpsConfigPanel config={adoConfig} stats={stat(adoAgg._count, adoAgg._max.updatedAt, adoHealth)} />
           <CalendarConfigPanel config={calendarConfig} stats={stat(calAgg._count, calAgg._max.updatedAt, calHealth)} />
+          <GraphConnectPanel status={graphStatus} stats={stat(graphAgg._count, graphAgg._max.updatedAt, graphHealth)} />
           <GithubConnectPanel status={githubStatus} stats={stat(ghAgg._count, ghAgg._max.updatedAtRemote, ghHealth)} />
         </section>
 
