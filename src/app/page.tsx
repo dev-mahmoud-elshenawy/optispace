@@ -219,7 +219,7 @@ export default async function DashboardPage() {
                           {pr.title} <span className="font-mono text-xs text-muted-foreground">#{pr.number}</span>
                         </span>
                       </span>
-                      <span className="shrink-0 font-mono text-xs text-muted-foreground">{pr.repo}</span>
+                      <span className="shrink-0 font-mono text-xs text-muted-foreground">{pr.repo.slice(pr.repo.indexOf("/") + 1)}</span>
                     </Link>
                   ))}
                 </Panel>

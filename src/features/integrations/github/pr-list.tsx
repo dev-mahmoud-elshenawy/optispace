@@ -124,7 +124,7 @@ export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
           <details key={repo} open className="group">
             <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-1 py-1.5 hover:bg-muted/50 [&::-webkit-details-marker]:hidden">
               <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
-              <h2 className="text-sm font-semibold tracking-tight">{repo}</h2>
+              <h2 className="text-sm font-semibold tracking-tight">{repoShortName(repo)}</h2>
               <Badge variant="secondary" className="ml-1 rounded-full px-2 py-0 text-[11px] font-medium">
                 {repoPrs.length}
               </Badge>
@@ -245,6 +245,13 @@ function matchesFilters(pr: PullRequestView, query: string, repo: string): boole
     if (!hay.includes(q)) return false;
   }
   return true;
+}
+
+// Strip the "owner/" prefix — every repo shares one org, so it just repeats. Keeps the last
+// path segment (GitHub repos are "owner/name", so this is the bare repo name).
+function repoShortName(repo: string): string {
+  const i = repo.indexOf("/");
+  return i === -1 ? repo : repo.slice(i + 1);
 }
 
 // Group PRs by repo. Rows arrive newest-first (updatedAtRemote desc), so each repo keeps
