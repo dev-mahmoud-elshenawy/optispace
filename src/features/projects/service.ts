@@ -65,6 +65,7 @@ export interface ProjectView {
   platform: ProjectPlatform;
   status: ProjectStatus;
   pinned: boolean;
+  sortWeight: number;
   notes: string | null;
   milestones: MilestoneView[];
   milestonesDone: number;
@@ -95,6 +96,19 @@ export const PROJECT_STATUS_ORDER: Record<ProjectStatus, number> = {
   planning: 3,
   completed: 4,
 };
+
+// THE single ordering used everywhere a project (or its tasks) is listed — the Development
+// page and the Tasks by-project/by-sprint groups — so they never diverge. Priority:
+// bookmarked first → status band (active → production → rest) → manual drag order
+// (sortWeight, lower = higher) → name A→Z.
+export type ProjectSortKey = { status: ProjectStatus; pinned: boolean; sortWeight: number; name: string };
+export function compareProjectsForOrder(a: ProjectSortKey, b: ProjectSortKey): number {
+  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+  const byStatus = (PROJECT_STATUS_ORDER[a.status] ?? 99) - (PROJECT_STATUS_ORDER[b.status] ?? 99);
+  if (byStatus !== 0) return byStatus;
+  if (a.sortWeight !== b.sortWeight) return a.sortWeight - b.sortWeight;
+  return a.name.localeCompare(b.name);
+}
 
 // Status-matched badge colors (subtle tint, readable in light + dark).
 // production = shipped & live, still open for hotfix/support — distinct violet vs completed green.
@@ -157,6 +171,7 @@ export function toProjectView(row: Project & { milestones: Milestone[] }): Proje
     platform: row.platform as ProjectPlatform,
     status: row.status as ProjectStatus,
     pinned: row.pinned,
+    sortWeight: row.sortWeight,
     notes: row.notes,
     milestones,
     milestonesDone: milestones.filter((m) => m.done).length,

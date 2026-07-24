@@ -101,6 +101,8 @@ export interface TaskView {
   projectId: string | null;
   projectName: string | null;
   projectStatus: ProjectStatus | null;
+  projectPinned: boolean;
+  projectSortWeight: number;
   source: string | null;
   externalId: string | null;
   externalUrl: string | null;
@@ -120,7 +122,7 @@ export interface TaskView {
 }
 
 type TaskRow = Task & {
-  project?: { name: string; status: string } | null;
+  project?: { name: string; status: string; pinned: boolean; sortWeight: number } | null;
   subtasks?: { id: string; title: string; done: boolean }[];
 };
 
@@ -136,6 +138,8 @@ export function toTaskView(row: TaskRow): TaskView {
     projectId: row.projectId,
     projectName: row.project?.name ?? null,
     projectStatus: (row.project?.status as ProjectStatus) ?? null,
+    projectPinned: row.project?.pinned ?? false,
+    projectSortWeight: row.project?.sortWeight ?? 0,
     source: row.source,
     externalId: row.externalId,
     externalUrl: row.externalUrl,

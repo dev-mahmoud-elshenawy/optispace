@@ -9,7 +9,7 @@ export async function listTasks(): Promise<TaskView[]> {
   const rows = await db.task.findMany({
     where: { deletedAt: null },
     include: {
-      project: { select: { name: true, status: true } },
+      project: { select: { name: true, status: true, pinned: true, sortWeight: true } },
       subtasks: { where: { deletedAt: null }, orderBy: { order: "asc" }, select: { id: true, title: true, done: true } },
     },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
@@ -23,7 +23,7 @@ export async function listProjectTasks(): Promise<TaskView[]> {
   const rows = await db.task.findMany({
     where: { deletedAt: null, projectId: { not: null } },
     include: {
-      project: { select: { name: true, status: true } },
+      project: { select: { name: true, status: true, pinned: true, sortWeight: true } },
       subtasks: { where: { deletedAt: null }, orderBy: { order: "asc" }, select: { id: true, title: true, done: true } },
     },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],

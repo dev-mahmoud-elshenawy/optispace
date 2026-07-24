@@ -6,7 +6,11 @@ import { ChevronRight, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { STATUS_DOT_CLASS, taskDaySpan, type TaskView } from "@/features/tasks/service";
-import { PROJECT_STATUS_BADGE_CLASS, PROJECT_STATUS_LABELS, PROJECT_STATUS_ORDER } from "@/features/projects/service";
+import {
+  compareProjectsForOrder,
+  PROJECT_STATUS_BADGE_CLASS,
+  PROJECT_STATUS_LABELS,
+} from "@/features/projects/service";
 import type { ProjectStatus } from "@/types";
 
 import { PriorityFlag } from "./priority-flag";
@@ -17,6 +21,8 @@ interface ProjectGroup {
   key: string;
   name: string;
   status: ProjectStatus | null;
+  pinned: boolean;
+  sortWeight: number;
   tasks: TaskView[];
 }
 
@@ -28,13 +34,25 @@ function groupByProject(tasks: TaskView[]): ProjectGroup[] {
     if (existing) {
       existing.tasks.push(task);
     } else {
-      map.set(key, { key, name: task.projectName ?? "No project", status: task.projectStatus, tasks: [task] });
+      map.set(key, {
+        key,
+        name: task.projectName ?? "No project",
+        status: task.projectStatus,
+        pinned: task.projectPinned,
+        sortWeight: task.projectSortWeight,
+        tasks: [task],
+      });
     }
   }
-  // Same priority order as the Development page: active work first, done last, "No project"
-  // always last; alphabetical within a status.
-  const rank = (g: ProjectGroup) => (g.key === "none" ? 99 : g.status ? PROJECT_STATUS_ORDER[g.status] : 98);
-  return [...map.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  // Exact same ordering as the Development page (shared comparator) — "No project" always last.
+  return [...map.values()].sort((a, b) => {
+    if ((a.key === "none") !== (b.key === "none")) return a.key === "none" ? 1 : -1;
+    if (!a.status || !b.status) return a.name.localeCompare(b.name);
+    return compareProjectsForOrder(
+      { status: a.status, pinned: a.pinned, sortWeight: a.sortWeight, name: a.name },
+      { status: b.status, pinned: b.pinned, sortWeight: b.sortWeight, name: b.name },
+    );
+  });
 }
 
 export function TaskMiniRow({

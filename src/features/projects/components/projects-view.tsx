@@ -1,13 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { GripVertical } from "lucide-react";
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { ProjectStatus } from "@/types";
 import type { TaskView } from "@/features/tasks/service";
-import { PROJECT_STATUS_LABELS, PROJECT_STATUS_ORDER } from "../service";
+import { compareProjectsForOrder, PROJECT_STATUS_LABELS } from "../service";
 import type { ProjectFeedbackItem, ProjectFileMeta, ProjectLinkItem, ProjectView } from "../service";
+import { reorderProjects } from "../actions";
 import { ProjectCard } from "./project-card";
 
 // Static, always-the-same filter options (display order) — no waiting on data to
@@ -29,12 +34,40 @@ interface ProjectsViewProps {
 
 const ALL = "all";
 
+// Sortable wrapper — the whole card is the drop target, but only the grip handle starts a
+// drag, so the card's own buttons/links stay clickable.
+function SortableProjectCard({ id, children }: { id: string; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
+      className="group/sortable relative"
+    >
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label="Drag to reorder"
+        title="Drag to reorder within this status"
+        className="absolute left-1.5 top-1.5 z-10 cursor-grab touch-none rounded p-1 text-muted-foreground/50 opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/sortable:opacity-100 active:cursor-grabbing"
+      >
+        <GripVertical className="size-4" />
+      </button>
+      {children}
+    </div>
+  );
+}
+
 export function ProjectsView({ items: initialItems, projectOptions }: ProjectsViewProps) {
   const [status, setStatus] = useState<string>(ALL);
   const [search, setSearch] = useState("");
-  // Own the list so an edit (status change) re-sorts/re-filters instantly, instead of
+  // Own the list so an edit (status change) or a drag re-sorts instantly, instead of
   // waiting for a server round-trip — the card's local badge update alone didn't reorder.
   const [items, setItems] = useState(initialItems);
+  useEffect(() => setItems(initialItems), [initialItems]);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   // Title-only search (project name), combined with the status filter — matches the
   // app convention that text search matches the name, not tags/other fields.
@@ -45,15 +78,34 @@ export function ProjectsView({ items: initialItems, projectOptions }: ProjectsVi
         (status === ALL || it.project.status === status) &&
         (query === "" || it.project.name.toLowerCase().includes(query)),
     )
-    // Same ordering as the Development server sort, but reactive: bookmarked first, then
-    // status priority (active → production → rest), then name A→Z.
-    .sort((a, b) => {
-      const pa = a.project;
-      const pb = b.project;
-      if (pa.pinned !== pb.pinned) return pa.pinned ? -1 : 1;
-      const byStatus = (PROJECT_STATUS_ORDER[pa.status] ?? 99) - (PROJECT_STATUS_ORDER[pb.status] ?? 99);
-      return byStatus !== 0 ? byStatus : pa.name.localeCompare(pb.name);
-    });
+    // The single shared ordering (bookmarked → status → manual drag order → name) — identical
+    // to the Tasks by-project/by-sprint views, so they never diverge.
+    .sort((a, b) => compareProjectsForOrder(a.project, b.project));
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const activeItem = items.find((i) => i.project.id === active.id);
+    const overItem = items.find((i) => i.project.id === over.id);
+    // Drag only reorders within one status band — status is the primary sort key, so a
+    // cross-status drop would just snap back. Ignore it.
+    if (!activeItem || !overItem || activeItem.project.status !== overItem.project.status) return;
+
+    const bandIds = filtered.filter((i) => i.project.status === activeItem.project.status).map((i) => i.project.id);
+    const from = bandIds.indexOf(active.id as string);
+    const to = bandIds.indexOf(over.id as string);
+    if (from === -1 || to === -1) return;
+    const newIds = arrayMove(bandIds, from, to);
+
+    // Optimistic: assign sortWeight = new index within the band (mirrors reorderProjects).
+    setItems((prev) =>
+      prev.map((i) => {
+        const idx = newIds.indexOf(i.project.id);
+        return idx === -1 ? i : { ...i, project: { ...i.project, sortWeight: idx } };
+      }),
+    );
+    void reorderProjects(newIds);
+  }
 
   return (
     <div className="space-y-4">
@@ -82,24 +134,29 @@ export function ProjectsView({ items: initialItems, projectOptions }: ProjectsVi
         </span>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2">
-        {filtered.map((it) => (
-          <ProjectCard
-            key={it.project.id}
-            project={it.project}
-            tasks={it.tasks}
-            files={it.files}
-            links={it.links}
-            feedback={it.feedback}
-            projectOptions={projectOptions}
-            onProjectSaved={(vals) =>
-              setItems((prev) =>
-                prev.map((p) => (p.project.id === it.project.id ? { ...p, project: { ...p.project, ...vals } } : p)),
-              )
-            }
-          />
-        ))}
-      </div>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={filtered.map((it) => it.project.id)} strategy={rectSortingStrategy}>
+          <div className="grid gap-6 sm:grid-cols-2">
+            {filtered.map((it) => (
+              <SortableProjectCard key={it.project.id} id={it.project.id}>
+                <ProjectCard
+                  project={it.project}
+                  tasks={it.tasks}
+                  files={it.files}
+                  links={it.links}
+                  feedback={it.feedback}
+                  projectOptions={projectOptions}
+                  onProjectSaved={(vals) =>
+                    setItems((prev) =>
+                      prev.map((p) => (p.project.id === it.project.id ? { ...p, project: { ...p.project, ...vals } } : p)),
+                    )
+                  }
+                />
+              </SortableProjectCard>
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
     </div>
   );
 }

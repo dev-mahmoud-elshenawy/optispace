@@ -54,6 +54,18 @@ export async function toggleProjectPin(id: string, pinned: boolean): Promise<Act
   return { ok: true };
 }
 
+// Persist a manual drag order: sortWeight = position within the passed list (a single
+// status band). One transaction so the band renumbers atomically. Optimistic in the UI —
+// no in-action revalidate (see createProject rationale).
+export async function reorderProjects(orderedIds: string[]): Promise<ActionResult> {
+  try {
+    await db.$transaction(orderedIds.map((id, index) => db.project.update({ where: { id }, data: { sortWeight: index } })));
+  } catch {
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  return { ok: true };
+}
+
 export async function deleteProject(id: string): Promise<ActionResult> {
   const now = new Date();
   try {
