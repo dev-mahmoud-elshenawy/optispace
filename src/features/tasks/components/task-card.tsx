@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { format } from "date-fns";
@@ -15,11 +16,11 @@ import { PriorityFlag } from "./priority-flag";
 
 interface TaskCardProps {
   task: TaskView;
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit: (task: TaskView) => void;
+  onDelete: (task: TaskView) => void;
 }
 
-export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
+export const TaskCard = memo(function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
   });
@@ -34,7 +35,7 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
         "group cursor-pointer space-y-2 rounded-lg bg-card p-4 text-sm shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing",
         isDragging && "opacity-50"
       )}
-      onClick={onEdit}
+      onClick={() => onEdit(task)}
     >
       {task.projectName ? (
         <div className="flex max-w-full flex-wrap items-center gap-1">
@@ -59,7 +60,7 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                onDelete();
+                onDelete(task);
               }}
             >
               <Trash2Icon />
@@ -116,4 +117,4 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
 
     </div>
   );
-}
+});

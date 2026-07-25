@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PlusIcon } from "lucide-react";
 
@@ -118,13 +118,15 @@ export function TasksView({ initialTasks, projectOptions, pullRequests }: TasksV
 
   // The board hands back only the tasks it was given (the filtered subset); merge
   // by id so tasks hidden by the filter are never dropped from the full state.
-  function handleTasksChange(next: TaskView[]) {
+  // Stable identities so memoized TaskColumn/TaskCard don't re-render on every
+  // parent state change (e.g. typing in search). All deps are stable setters.
+  const handleTasksChange = useCallback((next: TaskView[]) => {
     const byId = new Map(next.map((t) => [t.id, t]));
     setTasks((prev) => prev.map((t) => byId.get(t.id) ?? t));
-  }
+  }, []);
 
   // Optimistic add-or-replace (create/edit) and remove (delete) — no refetch.
-  function upsertTask(task: TaskView) {
+  const upsertTask = useCallback((task: TaskView) => {
     setTasks((prev) => {
       const i = prev.findIndex((t) => t.id === task.id);
       if (i === -1) return [task, ...prev];
@@ -132,12 +134,12 @@ export function TasksView({ initialTasks, projectOptions, pullRequests }: TasksV
       next[i] = task;
       return next;
     });
-  }
+  }, []);
 
-  function removeTasks(ids: string[]) {
+  const removeTasks = useCallback((ids: string[]) => {
     const set = new Set(ids);
     setTasks((prev) => prev.filter((t) => !set.has(t.id)));
-  }
+  }, []);
 
   function openCreate() {
     setEditingTask(null);
@@ -145,7 +147,7 @@ export function TasksView({ initialTasks, projectOptions, pullRequests }: TasksV
   }
 
   // Synced (DevOps) tasks open the DevOps editor everywhere; local tasks use the form.
-  function openEdit(task: TaskView) {
+  const openEdit = useCallback((task: TaskView) => {
     if (task.source === "azure_devops" && task.externalId) {
       setDetailStatusOnly(false);
       setDetailId(task.externalId);
@@ -153,15 +155,15 @@ export function TasksView({ initialTasks, projectOptions, pullRequests }: TasksV
     }
     setEditingTask(task);
     setFormOpen(true);
-  }
+  }, []);
 
   // Cross-column drag of a DevOps task: open the slim state picker (writes back to ADO).
-  function openStatusPick(task: TaskView) {
+  const openStatusPick = useCallback((task: TaskView) => {
     if (task.source === "azure_devops" && task.externalId) {
       setDetailStatusOnly(true);
       setDetailId(task.externalId);
     }
-  }
+  }, []);
 
   return (
     <div className="space-y-6">

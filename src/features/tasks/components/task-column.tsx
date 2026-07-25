@@ -105,7 +105,7 @@ export function TaskColumn({ status, tasks, onCreated, onEdit, onDelete }: TaskC
       >
         <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map((task) => (
-            <TaskCard key={task.id} task={task} onEdit={() => onEdit(task)} onDelete={() => onDelete(task)} />
+            <TaskCard key={task.id} task={task} onEdit={onEdit} onDelete={onDelete} />
           ))}
         </SortableContext>
         {tasks.length === 0 && !isOver ? (
