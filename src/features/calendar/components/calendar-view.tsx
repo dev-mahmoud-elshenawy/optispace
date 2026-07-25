@@ -39,7 +39,13 @@ function eventsForDay(events: CalendarEventDTO[], day: Date): CalendarEventDTO[]
   return events.filter((e) => new Date(e.start) <= endOfDay(day) && new Date(e.end) >= startOfDay(day));
 }
 
-export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDTO[] }) {
+export function CalendarView({
+  initialEvents,
+  canWrite,
+}: {
+  initialEvents: CalendarEventDTO[];
+  canWrite: boolean; // Graph connected → create/edit/RSVP; ICS-only is read-only
+}) {
   const [view, setView] = useState<View>("month");
   const [cursor, setCursor] = useState(() => new Date());
   const [selectedDay, setSelectedDay] = useState(() => new Date());
@@ -210,10 +216,12 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
           {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            New
-          </Button>
+          {canWrite ? (
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              New
+            </Button>
+          ) : null}
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -315,7 +323,7 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
           ) : (
             <div className="divide-y divide-border/50">
               {dayEvents.map((e) => (
-                <EventRow key={e.id} e={e} onAddTask={() => addPrepTask(e)} onEdit={() => openEvent(e)} busy={creatingPrep === e.id} />
+                <EventRow key={e.id} e={e} onAddTask={() => addPrepTask(e)} onEdit={canWrite ? () => openEvent(e) : undefined} busy={creatingPrep === e.id} />
               ))}
             </div>
           )}
@@ -336,7 +344,7 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
                   </div>
                   <div className="divide-y divide-border/50">
                     {dayEvs.map((e) => (
-                      <EventRow key={e.id} e={e} onAddTask={() => addPrepTask(e)} onEdit={() => openEvent(e)} busy={creatingPrep === e.id} />
+                      <EventRow key={e.id} e={e} onAddTask={() => addPrepTask(e)} onEdit={canWrite ? () => openEvent(e) : undefined} busy={creatingPrep === e.id} />
                     ))}
                   </div>
                 </div>
@@ -347,7 +355,9 @@ export function CalendarView({ initialEvents }: { initialEvents: CalendarEventDT
         )}
       </div>
 
-      <EventDialog open={dialogOpen} onOpenChange={setDialogOpen} event={editingEvent} onChanged={load} />
+      {canWrite ? (
+        <EventDialog open={dialogOpen} onOpenChange={setDialogOpen} event={editingEvent} onChanged={load} />
+      ) : null}
     </div>
   );
 }

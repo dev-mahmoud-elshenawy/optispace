@@ -40,7 +40,7 @@ export default async function CalendarPage() {
 
   return (
     <PageShell title="Calendar" description="Your Outlook / Teams agenda">
-      <CalendarView initialEvents={initialEvents} />
+      <CalendarView initialEvents={initialEvents} canWrite={graph.connected} />
     </PageShell>
   );
 }

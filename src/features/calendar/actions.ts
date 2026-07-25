@@ -28,6 +28,22 @@ export async function saveCalendarConfig(
   input: { icsUrl: string; reminderMinutes: number },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const icsUrl = input.icsUrl.trim();
+  // Minimal SSRF/URL hygiene: require http(s) and no embedded credentials. (Full DNS-pinning is
+  // disproportionate for a single-user local app where the user configures their own feed.)
+  if (icsUrl) {
+    let parsed: URL;
+    try {
+      parsed = new URL(icsUrl);
+    } catch {
+      return { ok: false, error: "Enter a valid calendar URL." };
+    }
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return { ok: false, error: "Calendar URL must start with http:// or https://." };
+    }
+    if (parsed.username || parsed.password) {
+      return { ok: false, error: "Calendar URL must not contain a username or password." };
+    }
+  }
   const reminderMinutes =
     Number.isFinite(input.reminderMinutes) && input.reminderMinutes > 0 ? Math.round(input.reminderMinutes) : 15;
   const data = { icsUrl: icsUrl || null, reminderMinutes };
