@@ -101,6 +101,20 @@ export function GraphConnectPanel({
     router.refresh();
   }
 
+  // Forget the Client ID saved on this device (used when Graph won't be connected — e.g. the
+  // tenant blocks consent). Also clears any stored token/cache via graphDisconnect.
+  async function handleForget() {
+    cancelled.current = true;
+    localStorage.removeItem(CLIENT_ID_KEY);
+    await graphDisconnect();
+    setClientId("");
+    setEditing(true);
+    setPrompt(null);
+    setBusy(false);
+    toast.success("Client ID forgotten.");
+    router.refresh();
+  }
+
   async function copyCode() {
     if (!prompt) return;
     await navigator.clipboard.writeText(prompt.userCode);
@@ -235,13 +249,22 @@ export function GraphConnectPanel({
               {busy ? <Loader2 className="size-4 animate-spin" /> : <CalendarClock className="size-4" />}
               Connect Microsoft
             </Button>
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="block text-xs text-muted-foreground underline-offset-2 hover:underline"
-            >
-              Change Client ID
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+              >
+                Change Client ID
+              </button>
+              <button
+                type="button"
+                onClick={handleForget}
+                className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+              >
+                Forget Client ID
+              </button>
+            </div>
           </div>
         )}
       </CardContent>
