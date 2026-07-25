@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // db.<model>.<method> call is a spy we assert against directly.
 vi.mock("@/lib/db", () => ({
   db: {
-    task: { update: vi.fn(), delete: vi.fn() },
-    project: { update: vi.fn(), delete: vi.fn() },
+    task: { update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
+    project: { update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
     milestone: { updateMany: vi.fn(), deleteMany: vi.fn() },
-    leave: { update: vi.fn(), delete: vi.fn() },
-    package: { update: vi.fn(), delete: vi.fn() },
-    profile: { update: vi.fn(), delete: vi.fn() },
+    leave: { update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
+    package: { update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
+    profile: { update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
     projectFile: { update: vi.fn(), deleteMany: vi.fn() },
     projectLink: { update: vi.fn(), deleteMany: vi.fn() },
     projectFeedback: { update: vi.fn(), deleteMany: vi.fn() },
@@ -52,9 +52,10 @@ describe("purgeArchive", () => {
   it("deletes children before parents inside one transaction (FK-safe ordering)", async () => {
     await purgeArchive();
     expect(db.$transaction).toHaveBeenCalledOnce();
+    expect(db.projectFile.deleteMany).toHaveBeenCalledWith({ where: { deletedAt: { not: null } } });
+    expect(db.project.deleteMany).toHaveBeenCalledWith({ where: { deletedAt: { not: null } } });
     const ops = vi.mocked(db.$transaction).mock.calls[0][0] as unknown[];
-    // projectFile/projectLink/projectFeedback/milestone/task must run before project.
-    expect(ops.length).toBeGreaterThan(0);
+    expect(ops).toHaveLength(9);
   });
 
   it("returns ok:false on failure without throwing", async () => {
