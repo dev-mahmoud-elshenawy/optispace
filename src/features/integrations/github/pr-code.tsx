@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import hljs from "highlight.js/lib/common";
 import {
@@ -666,7 +666,7 @@ function FileBlock({
                 {file.lines.map((dl, i) => {
                   const side: "LEFT" | "RIGHT" = dl.type === "del" ? "LEFT" : "RIGHT";
                   const lineNo = side === "LEFT" ? dl.oldLine : dl.newLine;
-                  const lineThreads = lineNo != null ? byLine.get(`${side}:${lineNo}`) ?? [] : [];
+                  const lineThreads = lineNo != null ? byLine.get(`${side}:${lineNo}`) ?? EMPTY_THREADS : EMPTY_THREADS;
                   const composerOpen = active?.path === file.path && active.line === lineNo && active.side === side;
                   return (
                     <LineRow
@@ -735,7 +735,11 @@ function FileBlock({
   );
 }
 
-function LineRow({
+// Shared stable empty array so lines with no threads keep a constant `threads` prop identity
+// (lets the memo comparator below skip re-rendering them).
+const EMPTY_THREADS: ReviewThread[] = [];
+
+function LineRowBase({
   dl,
   lang,
   canComment,
@@ -836,6 +840,26 @@ function LineRow({
     </>
   );
 }
+
+// The row's callback props are re-created every parent render but each captures only stable
+// per-row values (path/line/side/headOid), so the comparator ignores them and compares only the
+// data props. Result: changing one line's composer (or an unrelated parent re-render) no longer
+// re-renders every diff line.
+const LineRow = memo(
+  LineRowBase,
+  (a, b) =>
+    a.dl === b.dl &&
+    a.lang === b.lang &&
+    a.canComment === b.canComment &&
+    a.threads === b.threads &&
+    a.composerOpen === b.composerOpen &&
+    a.endLine === b.endLine &&
+    a.repo === b.repo &&
+    a.number === b.number &&
+    a.headBranch === b.headBranch &&
+    a.headRepo === b.headRepo &&
+    a.viewerLogin === b.viewerLogin,
+);
 
 function LineComposer({
   endLine,

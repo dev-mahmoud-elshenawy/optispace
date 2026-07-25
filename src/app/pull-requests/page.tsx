@@ -6,8 +6,10 @@ import { GithubTokenBanner } from "@/features/integrations/github/github-token-b
 import { PullRequestList } from "@/features/integrations/github/pr-list";
 
 export default async function PullRequestsPage() {
-  const enabled = await isGithubConfigured();
-  const prs = enabled ? await listPullRequests() : [];
+  // Run both reads in parallel; PRs are soft-deleted on disconnect, so listing when not
+  // configured just returns [] (cheap) rather than gating a second round-trip.
+  const [enabled, allPrs] = await Promise.all([isGithubConfigured(), listPullRequests()]);
+  const prs = enabled ? allPrs : [];
 
   return (
     <PageShell

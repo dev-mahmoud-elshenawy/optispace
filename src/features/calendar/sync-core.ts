@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
+
 import { db } from "@/lib/db";
 
 // Normalized event shape for the calendar cache. `id` is the stable dedupe key (the Graph
@@ -47,6 +49,7 @@ export async function reconcileCalendarEvents(
   const byKey = new Map(existing.map((r) => [r.dedupeKey, r]));
   const seen = new Set<string>();
   let changed = 0;
+  const toCreate: Prisma.CalendarEventCreateManyInput[] = [];
 
   for (const e of events) {
     seen.add(e.id);
@@ -67,12 +70,18 @@ export async function reconcileCalendarEvents(
       deletedAt: null,
     };
     if (!prior) {
-      await db.calendarEvent.create({ data: { dedupeKey: e.id, ...data } });
-      changed += 1;
+      // Collect new rows for one batched insert instead of N round-trips.
+      toCreate.push({ dedupeKey: e.id, ...data });
     } else if (prior.fingerprint !== fp) {
+      // Updates carry distinct values per row, so they stay individual.
       await db.calendarEvent.update({ where: { id: prior.id }, data });
       changed += 1;
     }
+  }
+
+  if (toCreate.length > 0) {
+    await db.calendarEvent.createMany({ data: toCreate });
+    changed += toCreate.length;
   }
 
   const stale = existing.filter((r) => !seen.has(r.dedupeKey));
