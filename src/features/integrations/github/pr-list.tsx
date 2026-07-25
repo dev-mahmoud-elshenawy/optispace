@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import {
   ArrowRight,
@@ -21,8 +21,18 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
+import { persistentCache } from "@/lib/lru";
+
+import { loadPullRequests } from "./actions";
 import { GithubPrDetail } from "./pr-detail";
 import { CHECKS_BADGE, REVIEW_BADGE, type PullRequestView } from "./types";
+
+// The last-synced PR list, persisted so a page reload paints instantly from cache instead of
+// blank-then-rebuild. SSR still passes the fresh copy (authoritative when present); this cache
+// only fills the gap when the server render came back empty (slow/cold/blocked render).
+// The synced PR list, persisted (versioned + TTL + clearable) so a reload paints instantly from
+// cache instead of blank-then-rebuild. Single "all" key — it's one list, not per-item.
+const prsListCache = persistentCache<PullRequestView[]>("github-pr-list");
 
 // Small status icons for the checks/review badges — keyed by the same keys as the *_BADGE maps.
 const STATUS_ICON: Record<string, typeof Check> = {
@@ -63,11 +73,40 @@ function avatarColor(name: string): string {
   return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
-export function PullRequestList({ prs }: { prs: PullRequestView[] }) {
+export function PullRequestList({ prs: initialPrs }: { prs: PullRequestView[] }) {
+  const [prs, setPrs] = useState<PullRequestView[]>(initialPrs);
   const [selected, setSelected] = useState<PullRequestView | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [repoFilter, setRepoFilter] = useState("all");
+
+  // SSR/refresh copy is authoritative when it has rows; otherwise fall back to the cached copy so
+  // a reload never shows empty while the (dev-recompiling / cold) server render catches up.
+  useEffect(() => {
+    if (initialPrs.length > 0) {
+      setPrs(initialPrs);
+      return;
+    }
+    const cached = prsListCache.get("all");
+    if (cached) setPrs(cached);
+  }, [initialPrs]);
+
+  // Persist the latest list so the next reload has something to paint immediately.
+  useEffect(() => {
+    prsListCache.set("all", prs);
+  }, [prs]);
+
+  // Background resync: when a sync reports PR changes, update the list in place (no full-page
+  // rebuild). Fires from the Sync-now button and the 2-min auto-poller.
+  useEffect(() => {
+    function revalidate() {
+      loadPullRequests()
+        .then(setPrs)
+        .catch(() => {});
+    }
+    window.addEventListener("optispace:pull-requests-updated", revalidate);
+    return () => window.removeEventListener("optispace:pull-requests-updated", revalidate);
+  }, []);
 
   const repos = useMemo(() => [...new Set(prs.map((p) => p.repo))].sort(), [prs]);
 

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getCalendarConfig } from "@/features/calendar/actions";
 import { CalendarConfigPanel } from "@/features/calendar/config-panel";
 import { BackupPanel } from "@/features/backup/components/backup-panel";
+import { ClearCachePanel } from "@/features/backup/components/clear-cache-panel";
 import { ExportPanel } from "@/features/backup/components/export-panel";
 import { ScheduledBackupsPanel } from "@/features/backup/components/scheduled-backups-panel";
 import { listScheduledBackups } from "@/features/backup/queries";
@@ -83,6 +84,7 @@ export default async function SettingsPage() {
           <ScheduledBackupsPanel backups={scheduledBackups} />
           <BackupPanel />
           <ExportPanel />
+          <ClearCachePanel />
         </section>
 
         <p className="text-xs text-muted-foreground">

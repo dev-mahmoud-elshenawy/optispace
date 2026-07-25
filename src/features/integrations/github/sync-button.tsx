@@ -19,6 +19,7 @@ export function GithubSyncButton() {
       const result = await syncGithubPullRequests();
       if (result.ok) {
         window.dispatchEvent(new Event("optispace:github-auth-ok"));
+        window.dispatchEvent(new Event("optispace:pull-requests-updated"));
         toast.success(`Synced — ${result.upserted} open, ${result.pruned} closed out.`);
         router.refresh();
       } else if (isGithubAuthError(result.error)) {

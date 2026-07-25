@@ -75,6 +75,7 @@ export function AzureDevOpsAutoSync({ enabled }: { enabled: boolean }) {
           // Nudge the bell (counter + desktop push) and the calendar view to re-read.
           if ((ado.ok && ado.notified > 0) || dueNotified || githubNotified || meetingsNotified) window.dispatchEvent(new Event("optispace:notifications-updated"));
           if (calChanged) window.dispatchEvent(new Event("optispace:calendar-updated"));
+          if (githubChanged) window.dispatchEvent(new Event("optispace:pull-requests-updated"));
         }
       } catch (e) {
         // Silent to the UI (no toast/overlay), but log so a real failure — e.g. a

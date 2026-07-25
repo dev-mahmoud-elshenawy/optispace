@@ -61,15 +61,15 @@ function avatarColor(name: string): string {
 
 // Work-item history is a slow ADO getUpdates round-trip that never changes for a given
 // revision — cache per externalId so reopening the same item shows history instantly.
-import { cacheSet } from "@/lib/lru";
+import { persistentCache } from "@/lib/lru";
 
-const historyCache = new Map<string, WorkItemUpdateView[]>();
+const historyCache = persistentCache<WorkItemUpdateView[]>("ado-task-history");
 
 // Full work-item detail (description + comments + attachments + allowed states + rev) is
 // ~6 ADO calls. Cache it per externalId for stale-while-revalidate: a reopened item renders
 // instantly from cache while a fresh fetch refreshes it in the background — no blocking
 // spinner on the common path (mirrors the GitHub PR detail cache).
-const detailCache = new Map<string, WorkItemDetail>();
+const detailCache = persistentCache<WorkItemDetail>("ado-task-detail");
 
 // Editable form values, seeded from the fetched work item.
 interface Form {
@@ -106,6 +106,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<WorkItemDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false); // showing cached copy because the background revalidate failed
   const [form, setForm] = useState<Form | null>(null);
   const [comment, setComment] = useState("");
   const [commentKey, setCommentKey] = useState(0); // bump to remount/clear the comment editor after posting
@@ -144,15 +145,19 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     const result = await getAzureDevOpsTaskDetail(id);
     if (requestIdRef.current !== requestId) return; // superseded by a newer load() — ignore this stale response
     if (result.ok) {
-      cacheSet(detailCache, id, result.detail);
+      detailCache.set(id, result.detail);
       setDetail(result.detail);
       setForm(toForm(result.detail));
       setAssigneeQuery(result.detail.assignedTo ?? "");
       setAssigneePicked(true); // seeded value is already the current person — don't auto-open the dropdown
+      setStale(false);
     } else if (!cached) {
-      // A failed background revalidate keeps the cached view — only surface the error
-      // when we had nothing to show.
+      // Nothing cached to show — surface the error.
       setError(result.error);
+    } else {
+      // A failed background revalidate keeps the cached view, but flag it as stale so the user
+      // knows this is a saved copy that couldn't refresh (offline / token expired / ADO down).
+      setStale(true);
     }
     setLoading(false);
   }
@@ -163,6 +168,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
 
   useEffect(() => {
     if (!open) return;
+    setStale(false);
     const cachedDetail = detailCache.get(currentId);
     setDetail(cachedDetail ?? null); // instant render from cache; load() revalidates in the background
     setForm(cachedDetail ? toForm(cachedDetail) : null);
@@ -182,7 +188,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     setLoadingUpdates(true);
     try {
       const rows = await getAzureDevOpsWorkItemUpdates(currentId);
-      cacheSet(historyCache, currentId, rows);
+      historyCache.set(currentId, rows);
       setUpdates(rows);
     } catch {
       setUpdates([]);
@@ -272,7 +278,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
         descriptionRaw: form.description,
         descriptionHtml: form.description || null,
       };
-      cacheSet(detailCache, currentId, next); // keep the cache coherent so a reopen shows the saved values
+      detailCache.set(currentId, next); // keep the cache coherent so a reopen shows the saved values
       setDetail(next);
       historyCache.delete(currentId); // history now stale — drop cache so it reloads on next expand
       setUpdates(null);
@@ -314,6 +320,11 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
           </div>
         ) : null}
         {error ? <p className="py-6 text-sm text-destructive">{error}</p> : null}
+        {stale && !loading ? (
+          <p className="rounded-md bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+            Showing saved copy — couldn&rsquo;t refresh from Azure DevOps.
+          </p>
+        ) : null}
 
         {detail && form ? (
           statusOnly ? (

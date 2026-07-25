@@ -37,7 +37,15 @@ import {
   updateReviewCommentById,
   type PullRequestDTO,
 } from "./service";
-import type { DiffFile, PendingReviewComment, PrCommit, PullRequestDetail, TimelineItem } from "./types";
+import { listPullRequests } from "./queries";
+import type { DiffFile, PendingReviewComment, PrCommit, PullRequestDetail, PullRequestView, TimelineItem } from "./types";
+
+// Client-callable read of the cached PR list. The page no longer blocks on this server-side;
+// instead the client paints the localStorage copy instantly on load, then calls this to
+// revalidate in the background (stale-while-revalidate that survives a page reload).
+export async function loadPullRequests(): Promise<PullRequestView[]> {
+  return listPullRequests();
+}
 
 export type GithubSyncResult =
   | { ok: true; upserted: number; pruned: number; notified: number }

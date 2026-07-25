@@ -67,9 +67,9 @@ function nodeTint(it: TimelineItem): string {
 // Cache the timeline per PR so reopening is instant (stale-while-revalidate),
 // mirroring pr-detail's detailCache — the cold "Loading activity…" spinner only
 // shows on a first-ever open.
-import { cacheSet } from "@/lib/lru";
+import { persistentCache } from "@/lib/lru";
 
-const timelineCache = new Map<string, TimelineItem[]>();
+const timelineCache = persistentCache<TimelineItem[]>("github-pr-timeline");
 
 export function PrTimeline({ nodeId, repo, number }: { nodeId: string | null; repo: string; number: number }) {
   const key = `${repo}#${number}`;
@@ -84,7 +84,7 @@ export function PrTimeline({ nodeId, repo, number }: { nodeId: string | null; re
     getPullRequestTimeline(nodeId, repo, number).then((res) => {
       if (!active) return;
       if (res.ok) {
-        cacheSet(timelineCache, key, res.timeline);
+        timelineCache.set(key, res.timeline);
         setItems(res.timeline);
       } else if (!cached) {
         setError(res.error); // keep the cached view if a revalidate fails

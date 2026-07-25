@@ -74,9 +74,9 @@ const htmlBox =
   "max-w-none text-sm leading-relaxed [&_a]:text-primary [&_a]:underline [&_img]:max-w-full [&_img]:rounded [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2 [&_code]:text-xs [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5";
 
 // Short-lived detail cache — reopening a PR shows instantly, then revalidates in the background.
-import { cacheSet } from "@/lib/lru";
+import { persistentCache } from "@/lib/lru";
 
-const detailCache = new Map<string, PullRequestDetail>();
+const detailCache = persistentCache<PullRequestDetail>("github-pr-detail");
 const cacheKey = (nodeId: string | null, repo: string, number: number) => `${nodeId ?? ""}|${repo}#${number}`;
 
 // Deterministic avatar tint per person — a name always maps to the same colour so people are
@@ -150,6 +150,7 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
   const [detail, setDetail] = useState<PullRequestDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false); // showing cached copy because the background revalidate failed
   const [commentBody, setCommentBody] = useState("");
   const [commentBusy, setCommentBusy] = useState(false);
   const [mergeMethod, setMergeMethod] = useState<"squash" | "merge" | "rebase">("squash");
@@ -172,13 +173,18 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
       setLoading(true);
     }
     setError(null);
+    setStale(false);
     getPullRequestDetail(nodeId, repo, number).then((res) => {
       if (!active) return;
       if (res.ok) {
-        cacheSet(detailCache, key, res.detail);
+        detailCache.set(key, res.detail);
         setDetail(res.detail);
+        setStale(false);
       } else if (!cached) {
         setError(res.error);
+      } else {
+        // Revalidate failed but we have a cached copy — flag it so the user knows it may be out of date.
+        setStale(true);
       }
       setLoading(false);
     });
@@ -192,7 +198,7 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
     const key = cacheKey(nodeId, repo, number);
     getPullRequestDetail(nodeId, repo, number).then((res) => {
       if (res.ok) {
-        cacheSet(detailCache, key, res.detail);
+        detailCache.set(key, res.detail);
         setDetail(res.detail);
       }
     });
@@ -356,7 +362,13 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
         ) : error ? (
           <p className="px-6 py-6 text-sm text-destructive">{error}</p>
         ) : detail && state ? (
-          <Tabs defaultValue="summary" className="flex min-h-0 flex-1 flex-col px-6 pb-4">
+          <>
+            {stale ? (
+              <p className="mx-6 mt-3 rounded-md bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+                Showing saved copy — couldn&rsquo;t refresh from GitHub.
+              </p>
+            ) : null}
+            <Tabs defaultValue="summary" className="flex min-h-0 flex-1 flex-col px-6 pb-4">
             <TabsList className="mt-3 self-start">
               <TabsTrigger value="summary">Summary</TabsTrigger>
               <TabsTrigger value="timeline">Timeline</TabsTrigger>
@@ -723,6 +735,7 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
               />
             </TabsContent>
           </Tabs>
+          </>
         ) : null}
       </DialogContent>
     </Dialog>
