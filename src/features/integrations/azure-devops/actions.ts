@@ -213,6 +213,20 @@ async function runAzureDevOpsSync(): Promise<SyncResult> {
   // fetch them in parallel (chunked) after the write loop instead of one serial call each.
   const assignmentCandidates: typeof items = [];
 
+  // Build iterationPath → order from ADO's iteration tree (per project), so sprint groups
+  // sort in the same order DevOps shows them. fetchIterations returns leaf paths in tree
+  // order; the index is that order. Keys include the project prefix, so they're unique.
+  const iterationOrderByPath = new Map<string, number>();
+  const projects = [...new Set(items.map((i) => i.project).filter((p): p is string => Boolean(p)))];
+  await Promise.all(
+    projects.map(async (project) => {
+      const paths = await fetchIterations(project).catch(() => [] as string[]);
+      paths.forEach((path, index) => iterationOrderByPath.set(path, index));
+    }),
+  );
+  const iterationOrderFor = (path: string | null): number | null =>
+    path ? (iterationOrderByPath.get(path) ?? null) : null;
+
   let imported = 0;
   let updated = 0;
   for (const item of items) {
@@ -242,6 +256,7 @@ async function runAzureDevOpsSync(): Promise<SyncResult> {
           externalUrl: item.url,
           workItemType: item.workItemType,
           iterationPath: item.iterationPath,
+          iterationOrder: iterationOrderFor(item.iterationPath),
           effort: item.effort,
           changedDate: item.changedDate ? new Date(item.changedDate) : null,
           projectId,
@@ -274,6 +289,7 @@ async function runAzureDevOpsSync(): Promise<SyncResult> {
         externalUrl: item.url,
         workItemType: item.workItemType,
         iterationPath: item.iterationPath,
+        iterationOrder: iterationOrderFor(item.iterationPath),
         effort: item.effort,
         changedDate: item.changedDate ? new Date(item.changedDate) : null,
         projectId,

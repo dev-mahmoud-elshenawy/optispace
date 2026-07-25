@@ -6,12 +6,14 @@ export interface LeaveView {
   startDate: Date;
   endDate: Date;
   type: LeaveType;
+  halfDay: boolean;
   notes: string | null;
   days: number;
 }
 
 export interface LeaveSummary {
-  allowanceDays: number;
+  allowanceDays: number; // effective = base + carried
+  carriedOver: number; // portion of allowanceDays rolled in from the previous year
   usedDays: number;
   remainingDays: number;
   byType: Record<LeaveType, number>;
@@ -28,17 +30,20 @@ export function leaveDays(start: Date, end: Date): number {
 
 export function toLeaveView(row: Leave): LeaveView {
   const type = row.type as LeaveType;
+  // A half day counts 0.5 (only offered for single-day leave in the form).
+  const days = row.halfDay ? 0.5 : leaveDays(row.startDate, row.endDate);
   return {
     id: row.id,
     startDate: row.startDate,
     endDate: row.endDate,
     type,
+    halfDay: row.halfDay,
     notes: row.notes,
-    days: leaveDays(row.startDate, row.endDate),
+    days,
   };
 }
 
-export function computeSummary(allowanceDays: number, leaves: LeaveView[]): LeaveSummary {
+export function computeSummary(allowanceDays: number, leaves: LeaveView[], carriedOver = 0): LeaveSummary {
   const byType = LEAVE_TYPES.reduce(
     (acc, type) => {
       acc[type] = 0;
@@ -53,10 +58,12 @@ export function computeSummary(allowanceDays: number, leaves: LeaveView[]): Leav
     byType[leave.type] += leave.days;
   }
 
+  // The allowance is annual PAID leave — sick/unpaid don't draw it down.
   return {
     allowanceDays,
+    carriedOver,
     usedDays,
-    remainingDays: allowanceDays - usedDays,
+    remainingDays: allowanceDays - byType.annual,
     byType,
   };
 }

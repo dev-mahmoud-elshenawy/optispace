@@ -3,11 +3,11 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { format } from "date-fns";
-import { GitBranch, ListChecks, Trash2Icon } from "lucide-react";
+import { GitBranch, ListChecks, Repeat, Trash2Icon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { type TaskView } from "@/features/tasks/service";
+import { RECURRENCE_LABELS, type TaskView } from "@/features/tasks/service";
 import { PROJECT_STATUS_BADGE_CLASS, PROJECT_STATUS_LABELS } from "@/features/projects/service";
 import { adoPriorityMeta, workItemTypeColor } from "@/features/integrations/azure-devops/types";
 import { LinkedPrBadge } from "./linked-pr-badge";
@@ -102,6 +102,12 @@ export function TaskCard({ task, onEdit, onDelete }: TaskCardProps) {
           <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
             <ListChecks className="size-3.5" />
             {task.subtasks.filter((s) => s.done).length}/{task.subtasks.length}
+          </span>
+        ) : null}
+        {task.recurrence ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <Repeat className="size-3" />
+            {RECURRENCE_LABELS[task.recurrence]}
           </span>
         ) : null}
         {task.linkedPr ? <LinkedPrBadge pr={task.linkedPr} /> : null}

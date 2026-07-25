@@ -22,6 +22,9 @@ import {
 import type { WorkItemDetail, WorkItemUpdateView } from "@/features/integrations/azure-devops/service";
 import { workItemStateColor, workItemTypeColor, type AdoIdentity } from "@/features/integrations/azure-devops/types";
 import { MentionInput } from "@/features/integrations/azure-devops/mention-input";
+import { getAzureDevOpsTaskPrLink, setAzureDevOpsTaskPrLink } from "@/features/tasks/actions";
+import { loadPullRequests } from "@/features/integrations/github/actions";
+import type { PullRequestView } from "@/features/integrations/github/types";
 
 interface AzureDevOpsTaskDetailProps {
   externalId: string;
@@ -71,6 +74,13 @@ const historyCache = persistentCache<WorkItemUpdateView[]>("ado-task-history");
 // spinner on the common path (mirrors the GitHub PR detail cache).
 const detailCache = persistentCache<WorkItemDetail>("ado-task-detail");
 
+// PR-link data for the modal. The pickable-PR list rarely changes, so cache it module-side
+// (stale-while-revalidate) instead of re-fetching on every open; the per-work-item link is
+// cached by id and updated on save — so reopening a task shows the picker instantly.
+type PrLink = { linkedPrRepo: string | null; linkedPrNumber: number | null } | null;
+let prOptionsCache: PullRequestView[] | null = null;
+const prLinkCache = new Map<string, PrLink>();
+
 // Editable form values, seeded from the fetched work item.
 interface Form {
   title: string;
@@ -118,6 +128,10 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
   const [assigneeResults, setAssigneeResults] = useState<AdoIdentity[]>([]);
   const [searchingAssignee, setSearchingAssignee] = useState(false);
   const [assigneePicked, setAssigneePicked] = useState(true);
+  // GitHub PR linking — linkedPr* live on the local Task row (sync never writes them).
+  const [prOptions, setPrOptions] = useState<PullRequestView[]>([]);
+  const [prValue, setPrValue] = useState("none"); // "repo#number" or "none"
+  const [prLinkable, setPrLinkable] = useState(true); // false when the work item has no local task row yet
   // Work item history (lazy — fetched only when the History section is first expanded).
   const [updates, setUpdates] = useState<WorkItemUpdateView[] | null>(null);
   const [loadingUpdates, setLoadingUpdates] = useState(false);
@@ -226,6 +240,63 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
       clearTimeout(t);
     };
   }, [assigneeQuery, assigneePicked]);
+
+  // Load the current PR link + pickable PRs whenever the shown work item changes.
+  // Paints instantly from module caches, then revalidates in the background.
+  useEffect(() => {
+    if (!open || statusOnly) return;
+    let cancelled = false;
+
+    const applyLink = (link: PrLink) => {
+      if (!link) {
+        setPrLinkable(false);
+        setPrValue("none");
+        return;
+      }
+      setPrLinkable(true);
+      setPrValue(
+        link.linkedPrRepo && link.linkedPrNumber != null ? `${link.linkedPrRepo}#${link.linkedPrNumber}` : "none",
+      );
+    };
+
+    if (prOptionsCache) setPrOptions(prOptionsCache);
+    const cachedLink = prLinkCache.get(currentId);
+    if (cachedLink !== undefined) applyLink(cachedLink);
+
+    void (async () => {
+      const [link, prs] = await Promise.all([
+        cachedLink !== undefined ? Promise.resolve(cachedLink) : getAzureDevOpsTaskPrLink(currentId),
+        prOptionsCache ?? loadPullRequests(),
+      ]);
+      if (cancelled) return;
+      prOptionsCache = prs;
+      prLinkCache.set(currentId, link);
+      setPrOptions(prs);
+      applyLink(link);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, statusOnly, currentId]);
+
+  async function onPrChange(value: string) {
+    setPrValue(value);
+    let repo: string | null = null;
+    let number: number | null = null;
+    if (value !== "none") {
+      const i = value.lastIndexOf("#"); // repo never contains "#"
+      repo = value.slice(0, i);
+      number = Number(value.slice(i + 1)) || null;
+    }
+    const result = await setAzureDevOpsTaskPrLink(currentId, repo, number);
+    if (result.ok) {
+      prLinkCache.set(currentId, { linkedPrRepo: repo, linkedPrNumber: number }); // keep cache coherent
+      toast.success(repo ? "Pull request linked" : "Pull request unlinked");
+      router.refresh(); // refresh the board so the card badge updates
+    } else {
+      toast.error(result.error);
+    }
+  }
 
   function set<K extends keyof Form>(key: K, value: Form[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -551,6 +622,41 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
                     );
                   })}
                 </div>
+              </section>
+            ) : null}
+
+            {prLinkable ? (
+              <section>
+                <h4 className="mb-2 flex items-center gap-1.5 font-medium">
+                  <GitBranch className="size-4" /> Linked pull request
+                </h4>
+                {(() => {
+                  const key = (p: PullRequestView) => `${p.repo}#${p.number}`;
+                  const options =
+                    prValue !== "none" && !prOptions.some((p) => key(p) === prValue)
+                      ? [{ key: prValue, label: prValue }, ...prOptions.map((p) => ({ key: key(p), label: `${p.repo} #${p.number} — ${p.title}` }))]
+                      : prOptions.map((p) => ({ key: key(p), label: `${p.repo} #${p.number} — ${p.title}` }));
+                  return (
+                    <>
+                      <Select value={prValue} onValueChange={onPrChange}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="No pull request" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No pull request</SelectItem>
+                          {options.map((o) => (
+                            <SelectItem key={o.key} value={o.key}>
+                              {o.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {prOptions.length === 0 ? (
+                        <p className="mt-1 text-xs text-muted-foreground">Sync GitHub in Settings to attach a pull request.</p>
+                      ) : null}
+                    </>
+                  );
+                })()}
               </section>
             ) : null}
 

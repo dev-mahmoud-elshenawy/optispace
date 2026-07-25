@@ -28,6 +28,7 @@ describe("computeSummary", () => {
     startDate: new Date(),
     endDate: new Date(),
     type,
+    halfDay: false,
     notes: null,
     days,
   });
@@ -48,5 +49,16 @@ describe("computeSummary", () => {
     const summary = computeSummary(10, []);
     expect(summary.usedDays).toBe(0);
     expect(summary.byType.annual).toBe(0);
+  });
+
+  it("only annual leave draws down the allowance (sick/unpaid do not)", () => {
+    const summary = computeSummary(20, [leave("annual", 3), leave("sick", 2), leave("unpaid", 5)]);
+    expect(summary.usedDays).toBe(10);
+    expect(summary.remainingDays).toBe(17); // 20 - 3 annual, unaffected by sick/unpaid
+  });
+
+  it("reports carried-over days", () => {
+    const summary = computeSummary(25, [], 5);
+    expect(summary.carriedOver).toBe(5);
   });
 });

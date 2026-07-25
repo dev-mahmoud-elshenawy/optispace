@@ -21,7 +21,8 @@ import type { AdoIdentity } from "@/features/integrations/azure-devops/types";
 import type { PullRequestView } from "@/features/integrations/github/types";
 import type { TaskView } from "@/features/tasks/service";
 
-import { NO_PR, NO_PROJECT, prKey, TaskFormFields, type TaskFormValues } from "./task-form-fields";
+import { NO_PR, NO_PROJECT, NO_RECURRENCE, prKey, TaskFormFields, type TaskFormValues } from "./task-form-fields";
+import type { TaskRecurrence } from "@/types";
 import { SubtaskChecklist } from "./subtask-checklist";
 import { SubtaskDraftList } from "./subtask-draft-list";
 
@@ -51,6 +52,7 @@ function initialValues(task: TaskView | null): TaskFormValues {
     dueDate: toDateInputValue(task?.dueDate),
     projectId: task?.projectId ?? NO_PROJECT,
     linkedPr: task?.linkedPrRepo && task?.linkedPrNumber != null ? prKey(task.linkedPrRepo, task.linkedPrNumber) : NO_PR,
+    recurrence: task?.recurrence ?? NO_RECURRENCE,
   };
 }
 
@@ -175,6 +177,7 @@ export function TaskFormDialog({ task, projectOptions, pullRequests = [], onOpen
     const hashAt = values.linkedPr.lastIndexOf("#");
     const linkedPrRepo = values.linkedPr !== NO_PR && hashAt > 0 ? values.linkedPr.slice(0, hashAt) : undefined;
     const linkedPrNumber = linkedPrRepo ? Number(values.linkedPr.slice(hashAt + 1)) || undefined : undefined;
+    const recurrence = values.recurrence === NO_RECURRENCE ? undefined : (values.recurrence as TaskRecurrence);
 
     const input = {
       title: values.title,
@@ -185,6 +188,7 @@ export function TaskFormDialog({ task, projectOptions, pullRequests = [], onOpen
       projectId: values.projectId === NO_PROJECT ? undefined : values.projectId,
       linkedPrRepo,
       linkedPrNumber,
+      recurrence,
     };
 
     const projectName = input.projectId
@@ -212,6 +216,7 @@ export function TaskFormDialog({ task, projectOptions, pullRequests = [], onOpen
           projectName,
           linkedPrRepo: linkedPrRepo ?? null,
           linkedPrNumber: linkedPrNumber ?? null,
+          recurrence: recurrence ?? null,
           updatedAt: new Date(),
         };
       } else {
@@ -242,10 +247,12 @@ export function TaskFormDialog({ task, projectOptions, pullRequests = [], onOpen
           adoState: null,
           adoPriority: null,
           iterationPath: null,
+          iterationOrder: null,
           effort: null,
           changedDate: null,
           linkedPrRepo: linkedPrRepo ?? null,
           linkedPrNumber: linkedPrNumber ?? null,
+          recurrence: recurrence ?? null,
           subtasks: pendingSubtasks
             .map((t) => t.trim())
             .filter(Boolean)

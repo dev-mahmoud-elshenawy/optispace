@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { TASK_PRIORITIES, TASK_STATUSES } from "@/types";
+import { TASK_PRIORITIES, TASK_RECURRENCES, TASK_STATUSES } from "@/types";
 
 export const taskInputSchema = z.object({
   title: z.string().trim().min(1, "Title is required"),
@@ -11,6 +11,7 @@ export const taskInputSchema = z.object({
   projectId: z.string().trim().optional(),
   linkedPrRepo: z.string().trim().optional(), // "owner/repo" of an attached GitHub PR
   linkedPrNumber: z.number().int().positive().optional(),
+  recurrence: z.enum(TASK_RECURRENCES).optional(), // null/undefined = one-off
 });
 
 export type TaskInput = z.infer<typeof taskInputSchema>;

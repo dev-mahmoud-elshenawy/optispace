@@ -15,17 +15,22 @@ function firstError(issues: { message: string }[], fallback: string): string {
   return issues[0]?.message ?? fallback;
 }
 
-export async function setAllowance(year: number, totalDays: number): Promise<ActionResult> {
-  const parsed = allowanceSchema.safeParse({ year, totalDays });
+export async function setAllowance(
+  year: number,
+  totalDays: number,
+  carryOverDays = 0,
+): Promise<ActionResult> {
+  const parsed = allowanceSchema.safeParse({ year, totalDays, carryOverDays });
   if (!parsed.success) {
     return { ok: false, error: firstError(parsed.error.issues, "Invalid allowance") };
   }
 
+  const carry = parsed.data.carryOverDays ?? 0;
   try {
     await db.leaveAllowance.upsert({
       where: { year: parsed.data.year },
-      create: parsed.data,
-      update: { totalDays: parsed.data.totalDays },
+      create: { year: parsed.data.year, totalDays: parsed.data.totalDays, carryOverDays: carry },
+      update: { totalDays: parsed.data.totalDays, carryOverDays: carry },
     });
     revalidateLeave();
     return { ok: true };
@@ -46,6 +51,7 @@ export async function createLeave(input: LeaveInput): Promise<ActionResult> {
         startDate: new Date(parsed.data.startDate),
         endDate: new Date(parsed.data.endDate),
         type: parsed.data.type,
+        halfDay: parsed.data.halfDay ?? false,
         notes: parsed.data.notes || null,
       },
     });
@@ -69,6 +75,7 @@ export async function updateLeave(id: string, input: LeaveInput): Promise<Action
         startDate: new Date(parsed.data.startDate),
         endDate: new Date(parsed.data.endDate),
         type: parsed.data.type,
+        halfDay: parsed.data.halfDay ?? false,
         notes: parsed.data.notes || null,
       },
     });

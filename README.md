@@ -59,11 +59,11 @@ No cloud, no accounts, nothing leaving your laptop. Fast, focused, and entirely 
 | Module | What it does |
 |--------|--------------|
 | 🏠 **Dashboard** | Stats, upcoming leave, recent tasks, active projects — every card links through |
-| 🌴 **Annual Leave** | Allowance, monthly accrual, calendar with month picker + drag-to-select, history |
+| 🌴 **Leave** | Annual / sick / unpaid types, half-days, year-to-year carry-over, monthly accrual, calendar with month picker + drag-to-select, history |
 | 🔗 **Profiles** | Quick links to your GitHub, npm, pub.dev, LinkedIn, site, and more |
-| ✅ **Tasks** | Kanban / list / by-project views — drag & drop, priority flags, inline quick-add, title search + project filter, subtask checklists, recurring tasks, overdue flags |
+| ✅ **Tasks** | Kanban / list / by-project / by-sprint views — drag & drop, priority flags, inline quick-add, title search + project filter, subtask checklists, recurring tasks, overdue flags, link a GitHub PR (local **and** Azure DevOps tasks) |
 | 🛠️ **Development** | Projects with milestone checklists, nested tasks, and a per-project hub: files, links (releases/dashboards/servers, with credentials), and client feedback (tied to a release, with optional attached document) |
-| 📦 **Packages** | Track packages you publish on **any registry** (free-text, add your own) — npm & pub.dev fetch live stats/vulns on demand, others tracked manually; registry/language/tag filters + update-available badge |
+| 📦 **Packages** | Track packages you publish on **any registry** (free-text, add your own) — npm & pub.dev fetch live stats/vulns on demand, others tracked manually; registry/language/tag filters + update-available badge; click a package for a detail view with live version history |
 | 🔄 **Azure DevOps sync** | Imports work items assigned to you into Tasks (configure `AZURE_DEVOPS_*` in `.env`); manual Sync now + auto-sync while the app is open |
 | 🔀 **Pull Requests** | PRs you authored, were asked to review, or are assigned to (connect GitHub in **Settings** via OAuth device flow — no token/`.env`), grouped by repo in collapsible sections with review-decision + CI-checks badges; review-requested and status-change notifications |
 | 🔔 **Notifications** | Bell in the sidebar + a full list + dashboard widget for Azure DevOps assignments/@mentions, task due-dates, and GitHub PR review requests/status changes, with desktop push while the app is open |

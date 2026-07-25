@@ -7,7 +7,38 @@ import { db } from "@/lib/db";
 import { type TaskStatus } from "@/types";
 
 import { moveTaskSchema, subtaskTitleSchema, taskInputSchema, type TaskInput } from "./schema";
-import { dueDateNotificationEvents, type DueTaskInput } from "./service";
+import { advanceRecurrence, dueDateNotificationEvents, type DueTaskInput } from "./service";
+import type { TaskRecurrence } from "@/types";
+
+// When a recurring LOCAL task is completed, clone it as a fresh todo with the due date
+// advanced by its interval. No-op for one-off tasks, synced (ADO) tasks, or a task with
+// no recurrence. Guarded by the caller so it only fires on the transition INTO done.
+async function spawnNextOccurrence(taskId: string): Promise<void> {
+  const task = await db.task.findFirst({
+    where: { id: taskId, deletedAt: null, source: null, recurrence: { not: null } },
+  });
+  if (!task?.recurrence) return;
+
+  const base = task.dueDate ?? new Date();
+  const nextDue = advanceRecurrence(base, task.recurrence as TaskRecurrence);
+  const last = await db.task.findFirst({
+    where: { status: "todo", deletedAt: null },
+    orderBy: { order: "desc" },
+    select: { order: true },
+  });
+  await db.task.create({
+    data: {
+      title: task.title,
+      description: task.description,
+      status: "todo",
+      priority: task.priority,
+      dueDate: nextDue,
+      projectId: task.projectId,
+      recurrence: task.recurrence,
+      order: (last?.order ?? -1) + 1,
+    },
+  });
+}
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type CreateTaskResult = { ok: true; id: string } | { ok: false; error: string };
@@ -50,6 +81,7 @@ export async function createTask(input: TaskInput, subtaskTitles: string[] = [])
         projectId: data.projectId || null,
         linkedPrRepo: data.linkedPrRepo || null,
         linkedPrNumber: data.linkedPrNumber ?? null,
+        recurrence: data.recurrence ?? null,
       },
       select: { id: true },
     });
@@ -71,6 +103,9 @@ export async function updateTask(id: string, input: TaskInput): Promise<ActionRe
   if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
   const data = parsed.data;
 
+  // Read the prior status so we only spawn the next occurrence on the transition INTO done.
+  const before = await db.task.findUnique({ where: { id }, select: { status: true } });
+
   await db.task.update({
     where: { id },
     data: {
@@ -82,8 +117,13 @@ export async function updateTask(id: string, input: TaskInput): Promise<ActionRe
       projectId: data.projectId || null,
       linkedPrRepo: data.linkedPrRepo || null,
       linkedPrNumber: data.linkedPrNumber ?? null,
+      recurrence: data.recurrence ?? null,
     },
   });
+
+  if (data.status === "done" && before?.status !== "done") {
+    await spawnNextOccurrence(id);
+  }
 
   revalidatePath("/tasks");
   revalidatePath("/");
@@ -104,12 +144,18 @@ export async function moveTask(id: string, status: TaskStatus, orderedIds: strin
   const parsed = moveTaskSchema.safeParse({ id, status, orderedIds });
   if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
 
+  const before = await db.task.findUnique({ where: { id: parsed.data.id }, select: { status: true } });
+
   await db.$transaction([
     db.task.update({ where: { id: parsed.data.id }, data: { status: parsed.data.status } }),
     ...parsed.data.orderedIds.map((taskId, index) =>
       db.task.update({ where: { id: taskId }, data: { order: index } }),
     ),
   ]);
+
+  if (parsed.data.status === "done" && before?.status !== "done") {
+    await spawnNextOccurrence(parsed.data.id);
+  }
 
   revalidatePath("/tasks");
   revalidatePath("/");
@@ -153,6 +199,34 @@ export async function toggleSubtask(id: string, done: boolean): Promise<ActionRe
 export async function deleteSubtask(id: string): Promise<ActionResult> {
   const { count } = await db.subtask.updateMany({ where: { id, deletedAt: null }, data: { deletedAt: new Date() } });
   if (count === 0) return { ok: false, error: "Subtask not found." };
+  revalidatePath("/tasks");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+// PR-link a synced Azure DevOps task by its work-item id. The linkedPr* columns are
+// local-only (sync never writes them), so attaching a PR to an ADO task is safe. Returns
+// null when the work item has no local row (e.g. a non-assigned linked item) — not linkable.
+export async function getAzureDevOpsTaskPrLink(
+  externalId: string,
+): Promise<{ linkedPrRepo: string | null; linkedPrNumber: number | null } | null> {
+  const row = await db.task.findFirst({
+    where: { source: "azure_devops", externalId, deletedAt: null },
+    select: { linkedPrRepo: true, linkedPrNumber: true },
+  });
+  return row ?? null;
+}
+
+export async function setAzureDevOpsTaskPrLink(
+  externalId: string,
+  linkedPrRepo: string | null,
+  linkedPrNumber: number | null,
+): Promise<ActionResult> {
+  const { count } = await db.task.updateMany({
+    where: { source: "azure_devops", externalId, deletedAt: null },
+    data: { linkedPrRepo, linkedPrNumber },
+  });
+  if (count === 0) return { ok: false, error: "This work item isn't tracked locally yet — sync first." };
   revalidatePath("/tasks");
   revalidatePath("/");
   return { ok: true };

@@ -2,9 +2,23 @@ import "server-only";
 import { db } from "@/lib/db";
 import { computeSummary, toLeaveView, type LeaveView } from "./service";
 
-export async function getAllowance(year: number): Promise<number> {
+export interface AllowanceDetail {
+  total: number; // base days set for the year
+  carryOver: number; // days rolled in from the previous year
+  effective: number; // total + carryOver
+}
+
+export async function getAllowanceDetail(year: number): Promise<AllowanceDetail> {
   const row = await db.leaveAllowance.findUnique({ where: { year } });
-  return row?.totalDays ?? 0;
+  const total = row?.totalDays ?? 0;
+  const carryOver = row?.carryOverDays ?? 0;
+  return { total, carryOver, effective: total + carryOver };
+}
+
+// Unused annual days at the end of a year — the amount worth carrying into the next.
+export async function getYearRemaining(year: number): Promise<number> {
+  const [{ effective }, leaves] = await Promise.all([getAllowanceDetail(year), listLeaves(year)]);
+  return computeSummary(effective, leaves).remainingDays;
 }
 
 export async function listLeaves(year: number): Promise<LeaveView[]> {
@@ -20,7 +34,7 @@ export async function listLeaves(year: number): Promise<LeaveView[]> {
 export async function getLeaveSummary(
   year: number,
 ): Promise<{ allowanceDays: number; usedDays: number; remainingDays: number }> {
-  const [allowanceDays, leaves] = await Promise.all([getAllowance(year), listLeaves(year)]);
-  const { allowanceDays: allowance, usedDays, remainingDays } = computeSummary(allowanceDays, leaves);
-  return { allowanceDays: allowance, usedDays, remainingDays };
+  const [{ effective, carryOver }, leaves] = await Promise.all([getAllowanceDetail(year), listLeaves(year)]);
+  const { allowanceDays, usedDays, remainingDays } = computeSummary(effective, leaves, carryOver);
+  return { allowanceDays, usedDays, remainingDays };
 }

@@ -18,13 +18,16 @@ export function LeaveSummaryCards({ summary }: LeaveSummaryCardsProps) {
   const monthsAccrued = now.getMonth();
   const monthlyRate = summary.allowanceDays / 12;
   const accruedDays = Math.round(monthlyRate * monthsAccrued * 100) / 100;
-  const currentBalance = accruedDays - summary.usedDays;
+  // Only annual leave draws down the balance (sick/unpaid don't).
+  const currentBalance = accruedDays - summary.byType.annual;
   const asOfLabel = now.toLocaleString("en-US", { month: "short" });
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <LeaveStat icon={CalendarDays} label="Allowance" value={summary.allowanceDays}>
-        days for the year
+        {summary.carriedOver > 0
+          ? `incl. ${summary.carriedOver} carried over`
+          : "days for the year"}
       </LeaveStat>
 
       <LeaveStat icon={Plane} label="Used" value={summary.usedDays}>

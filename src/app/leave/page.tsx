@@ -7,7 +7,7 @@ import { LeaveCalendar } from "@/features/leave/components/leave-calendar";
 import { LeaveFormDialog } from "@/features/leave/components/leave-form-dialog";
 import { LeaveHistory } from "@/features/leave/components/leave-history";
 import { LeaveSummaryCards } from "@/features/leave/components/leave-summary-cards";
-import { getAllowance, listLeaves } from "@/features/leave/queries";
+import { getAllowanceDetail, getYearRemaining, listLeaves } from "@/features/leave/queries";
 import { computeSummary } from "@/features/leave/service";
 
 interface LeavePageProps {
@@ -20,8 +20,12 @@ export default async function LeavePage({ searchParams }: LeavePageProps) {
   const parsedYear = yearParam ? Number(yearParam) : currentYear;
   const year = Number.isInteger(parsedYear) ? parsedYear : currentYear;
 
-  const [allowanceDays, leaves] = await Promise.all([getAllowance(year), listLeaves(year)]);
-  const summary = computeSummary(allowanceDays, leaves);
+  const [allowance, leaves, prevYearRemaining] = await Promise.all([
+    getAllowanceDetail(year),
+    listLeaves(year),
+    getYearRemaining(year - 1),
+  ]);
+  const summary = computeSummary(allowance.effective, leaves, allowance.carryOver);
   const initialMonth = year === currentYear ? new Date() : new Date(year, 0, 1);
 
   return (
@@ -30,7 +34,12 @@ export default async function LeavePage({ searchParams }: LeavePageProps) {
       description="Track your leave allowance, history, and calendar."
       actions={
         <>
-          <AllowanceDialog year={year} currentDays={allowanceDays} />
+          <AllowanceDialog
+            year={year}
+            currentDays={allowance.total}
+            currentCarryOver={allowance.carryOver}
+            prevYearRemaining={prevYearRemaining}
+          />
           <LeaveFormDialog trigger={<Button>Log leave</Button>} />
         </>
       }

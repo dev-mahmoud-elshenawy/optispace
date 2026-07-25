@@ -72,6 +72,44 @@ export async function fetchRegistryStats(input: FetchRegistryStatsInput): Promis
   return {};
 }
 
+export interface VersionHistoryEntry {
+  version: string;
+  published: string | null; // ISO date, or null when the registry doesn't report it
+}
+
+const MAX_VERSIONS = 40; // newest N — enough for a changelog view without huge payloads
+
+async function fetchNpmVersions(name: string): Promise<VersionHistoryEntry[]> {
+  const pkg = asRecord(await fetchJson(`https://registry.npmjs.org/${encodeURIComponent(name)}`));
+  const versions = asRecord(pkg?.versions);
+  const time = asRecord(pkg?.time);
+  if (!versions) return [];
+  return Object.keys(versions)
+    .map((version) => ({ version, published: typeof time?.[version] === "string" ? (time[version] as string) : null }))
+    .sort((a, b) => (b.published ?? "").localeCompare(a.published ?? ""))
+    .slice(0, MAX_VERSIONS);
+}
+
+async function fetchPubDevVersions(name: string): Promise<VersionHistoryEntry[]> {
+  const pkg = asRecord(await fetchJson(`https://pub.dev/api/packages/${encodeURIComponent(name)}`));
+  const list = Array.isArray(pkg?.versions) ? (pkg.versions as unknown[]) : [];
+  return list
+    .map((v) => asRecord(v))
+    .filter((v): v is Record<string, unknown> => v !== null && typeof v.version === "string")
+    .map((v) => ({ version: v.version as string, published: typeof v.published === "string" ? v.published : null }))
+    .sort((a, b) => (b.published ?? "").localeCompare(a.published ?? ""))
+    .slice(0, MAX_VERSIONS);
+}
+
+// Newest-first version history for a package, live from the registry (npm / pub.dev only).
+// Custom registries have no wired API → empty list.
+export async function fetchVersionHistory(input: FetchRegistryStatsInput): Promise<VersionHistoryEntry[]> {
+  const provider = registryProvider(input.registry);
+  if (provider === "npm") return fetchNpmVersions(input.name);
+  if (provider === "pubdev") return fetchPubDevVersions(input.name);
+  return [];
+}
+
 export interface VulnerabilityCheck {
   vulnerable: boolean;
   advisoryUrl: string | null;

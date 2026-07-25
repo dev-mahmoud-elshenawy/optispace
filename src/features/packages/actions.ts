@@ -4,9 +4,21 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { serializeTags } from "@/types";
 import { packageSchema, type PackageInput } from "./schema";
-import { checkVulnerabilities, fetchRegistryStats } from "./registry";
+import { checkVulnerabilities, fetchRegistryStats, fetchVersionHistory, type VersionHistoryEntry } from "./registry";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+
+// Live version history for a package (npm / pub.dev). Empty for custom registries or if
+// the fetch fails — the caller shows a "no history" state rather than an error.
+export async function getPackageVersionHistory(id: string): Promise<VersionHistoryEntry[]> {
+  const pkg = await db.package.findFirst({ where: { id, deletedAt: null }, select: { registry: true, name: true } });
+  if (!pkg) return [];
+  try {
+    return await fetchVersionHistory({ registry: pkg.registry, name: pkg.name });
+  } catch {
+    return [];
+  }
+}
 
 function revalidatePackages(): void {
   revalidatePath("/packages");

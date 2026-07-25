@@ -4,12 +4,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { STATUS_LABELS } from "@/features/tasks/service";
+import { RECURRENCE_LABELS, STATUS_LABELS } from "@/features/tasks/service";
 import type { PullRequestView } from "@/features/integrations/github/types";
-import { TASK_PRIORITIES, TASK_STATUSES, type TaskPriority, type TaskStatus } from "@/types";
+import { TASK_PRIORITIES, TASK_RECURRENCES, TASK_STATUSES, type TaskPriority, type TaskStatus } from "@/types";
 
 export const NO_PROJECT = "none";
 export const NO_PR = "none";
+export const NO_RECURRENCE = "none";
 
 // Select value for a PR = "owner/repo#number" (repo never contains "#", so lastIndexOf splits it).
 export function prKey(repo: string, number: number): string {
@@ -24,6 +25,7 @@ export interface TaskFormValues {
   dueDate: string;
   projectId: string;
   linkedPr: string; // prKey(repo, number) or NO_PR
+  recurrence: string; // one of TASK_RECURRENCES or NO_RECURRENCE
 }
 
 interface TaskFormFieldsProps {
@@ -107,21 +109,38 @@ export function TaskFormFields({ values, onChange, projectOptions, pullRequests 
         </div>
 
         <div className="space-y-2">
-          <Label>Project</Label>
-          <Select value={values.projectId} onValueChange={(v) => onChange("projectId", v)}>
+          <Label>Repeats</Label>
+          <Select value={values.recurrence} onValueChange={(v) => onChange("recurrence", v)}>
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NO_PROJECT}>No project</SelectItem>
-              {projectOptions.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
+              <SelectItem value={NO_RECURRENCE}>Doesn&apos;t repeat</SelectItem>
+              {TASK_RECURRENCES.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {RECURRENCE_LABELS[r]}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Project</Label>
+        <Select value={values.projectId} onValueChange={(v) => onChange("projectId", v)}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_PROJECT}>No project</SelectItem>
+            {projectOptions.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-2">

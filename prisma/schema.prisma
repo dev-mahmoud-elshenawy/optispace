@@ -15,18 +15,20 @@ datasource db {
 
 // ── Annual Leave ─────────────────────────────────────────────
 model LeaveAllowance {
-  id        String   @id @default(cuid())
-  year      Int      @unique
-  totalDays Float
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(cuid())
+  year          Int      @unique
+  totalDays     Float
+  carryOverDays Float    @default(0) // unused days rolled in from the previous year; effective allowance = totalDays + carryOverDays
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model Leave {
   id        String   @id @default(cuid())
   startDate DateTime
   endDate   DateTime
-  type      String // annual (see LEAVE_TYPES in src/types)
+  type      String // annual | sick | unpaid (see LEAVE_TYPES in src/types)
+  halfDay   Boolean  @default(false) // single-day leave taken as a half day (counts 0.5)
   notes     String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -100,10 +102,12 @@ model Task {
   adoState      String? // raw ADO System.State, e.g. "New"/"Ready For Testing"/"In Test" (source-owned; shown in list)
   adoPriority   Int? // raw ADO Microsoft.VSTS.Common.Priority (1–4) for the card flag (source-owned)
   iterationPath String? // ADO sprint path, e.g. "Canitude\Iteration 2" (source-owned)
+  iterationOrder Int? // position of iterationPath in ADO's iteration tree — sprint groups sort by this (source-owned)
   effort        Float? // ADO estimated effort / original estimate (source-owned; null = unestimated)
   changedDate   DateTime? // ADO System.ChangedDate — last change in the source (source-owned)
   linkedPrRepo   String? // manually attached GitHub PR "owner/repo" (joins GithubPullRequest cache for inline status)
   linkedPrNumber Int? // attached GitHub PR number
+  recurrence    String? // local tasks only: daily | weekly | monthly (null = one-off). Completing spawns the next occurrence.
   order       Int       @default(0) // position within its Kanban column
   projectId   String?
   createdAt   DateTime  @default(now())

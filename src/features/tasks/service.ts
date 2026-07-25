@@ -2,7 +2,22 @@ import type { Task } from "@prisma/client";
 
 import type { NotificationEvent } from "@/features/notifications/service";
 import type { PullRequestView } from "@/features/integrations/github/types";
-import { type ProjectStatus, type TaskPriority, type TaskStatus } from "@/types";
+import { type ProjectStatus, type TaskPriority, type TaskRecurrence, type TaskStatus } from "@/types";
+
+export const RECURRENCE_LABELS: Record<TaskRecurrence, string> = {
+  daily: "Daily",
+  weekly: "Weekly",
+  monthly: "Monthly",
+};
+
+// Next due date for a recurring task, based on its recurrence interval.
+export function advanceRecurrence(from: Date, recurrence: TaskRecurrence): Date {
+  const next = new Date(from);
+  if (recurrence === "daily") next.setDate(next.getDate() + 1);
+  else if (recurrence === "weekly") next.setDate(next.getDate() + 7);
+  else next.setMonth(next.getMonth() + 1);
+  return next;
+}
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
   todo: "To Do",
@@ -110,10 +125,12 @@ export interface TaskView {
   adoState: string | null;
   adoPriority: number | null;
   iterationPath: string | null;
+  iterationOrder: number | null;
   effort: number | null;
   changedDate: Date | null;
   linkedPrRepo: string | null;
   linkedPrNumber: number | null;
+  recurrence: TaskRecurrence | null;
   // Resolved from the GithubPullRequest cache client-side (tasks-view) — not set by toTaskView.
   linkedPr?: PullRequestView | null;
   subtasks: SubtaskView[];
@@ -147,10 +164,12 @@ export function toTaskView(row: TaskRow): TaskView {
     adoState: row.adoState,
     adoPriority: row.adoPriority,
     iterationPath: row.iterationPath,
+    iterationOrder: row.iterationOrder,
     effort: row.effort,
     changedDate: row.changedDate,
     linkedPrRepo: row.linkedPrRepo,
     linkedPrNumber: row.linkedPrNumber,
+    recurrence: (row.recurrence as TaskRecurrence) ?? null,
     subtasks: (row.subtasks ?? []).map((s) => ({ id: s.id, title: s.title, done: s.done })),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

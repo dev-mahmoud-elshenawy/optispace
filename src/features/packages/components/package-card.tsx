@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import type { PackageStatus } from "@/types";
 import { registryLabel, registryProvider, type PackageView } from "../service";
 import { deletePackage, refreshPackageStats } from "../actions";
+import { PackageDetailDialog } from "./package-detail-dialog";
 
 const LANGUAGE_LABEL: Record<string, string> = {
   dart_flutter: "Dart / Flutter",
@@ -35,6 +36,7 @@ export function PackageCard({ pkg, onEdit }: PackageCardProps) {
   const [isRefreshing, startRefresh] = useTransition();
   const [isDeleting, startDelete] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   function handleRefresh() {
     startRefresh(async () => {
@@ -63,7 +65,13 @@ export function PackageCard({ pkg, onEdit }: PackageCardProps) {
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <CardTitle className="truncate">{pkg.name}</CardTitle>
+            <button
+              type="button"
+              onClick={() => setDetailOpen(true)}
+              className="max-w-full truncate text-left hover:underline"
+            >
+              <CardTitle className="truncate">{pkg.name}</CardTitle>
+            </button>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <Badge variant="outline">{registryLabel(pkg.registry)}</Badge>
               <Badge variant="secondary">{LANGUAGE_LABEL[pkg.language]}</Badge>
@@ -145,6 +153,8 @@ export function PackageCard({ pkg, onEdit }: PackageCardProps) {
           </Button>
         </div>
       </CardFooter>
+
+      <PackageDetailDialog pkg={pkg} open={detailOpen} onOpenChange={setDetailOpen} />
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>

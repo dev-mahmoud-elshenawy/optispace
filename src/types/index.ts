@@ -1,7 +1,7 @@
 // Shared enum-like unions — single source of truth for the String columns in schema.prisma.
 // Zod schemas (each feature's schema.ts) validate against these; components render from them.
 
-export const LEAVE_TYPES = ["annual"] as const;
+export const LEAVE_TYPES = ["annual", "sick", "unpaid"] as const;
 export type LeaveType = (typeof LEAVE_TYPES)[number];
 
 export const TASK_STATUSES = ["todo", "in_progress", "done"] as const;
@@ -9,6 +9,10 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export const TASK_PRIORITIES = ["low", "medium", "high"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+
+// Local tasks only — completing a recurring task spawns the next occurrence.
+export const TASK_RECURRENCES = ["daily", "weekly", "monthly"] as const;
+export type TaskRecurrence = (typeof TASK_RECURRENCES)[number];
 
 
 export const PROJECT_PLATFORMS = ["flutter", "react_native", "web", "backend"] as const;

@@ -9,6 +9,7 @@ import { TaskMiniRow } from "./task-project-groups";
 interface SprintSubGroup {
   key: string;
   name: string;
+  order: number | null; // ADO iteration order (from sync); null = unknown → numeric-label fallback
   tasks: TaskView[];
 }
 
@@ -29,12 +30,26 @@ function groupBySprint(tasks: TaskView[], projectName: string): SprintSubGroup[]
     const key = !label || label === projectName ? "none" : task.iterationPath!;
     const name = !label || label === projectName ? "No sprint" : label;
     const existing = map.get(key);
-    if (existing) existing.tasks.push(task);
-    else map.set(key, { key, name, tasks: [task] });
+    if (existing) {
+      existing.tasks.push(task);
+      // Keep the lowest known iteration order for the group (tasks in a sprint share it).
+      if (task.iterationOrder != null && (existing.order == null || task.iterationOrder < existing.order)) {
+        existing.order = task.iterationOrder;
+      }
+    } else {
+      map.set(key, { key, name, order: task.iterationOrder ?? null, tasks: [task] });
+    }
   }
-  return [...map.values()].sort(
-    (a, b) => (a.key === "none" ? 1 : 0) - (b.key === "none" ? 1 : 0) || a.name.localeCompare(b.name),
-  );
+  // Order sprints exactly like DevOps' iteration tree using the synced `iterationOrder`;
+  // groups without a known order fall back to a numeric-aware label sort ("Iteration 2"
+  // before "Iteration 10"). "No sprint" always last.
+  return [...map.values()].sort((a, b) => {
+    if ((a.key === "none") !== (b.key === "none")) return a.key === "none" ? 1 : -1;
+    if (a.order != null && b.order != null && a.order !== b.order) return a.order - b.order;
+    if (a.order != null && b.order == null) return -1;
+    if (a.order == null && b.order != null) return 1;
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+  });
 }
 
 interface TaskSprintSubGroupsProps {
