@@ -61,6 +61,8 @@ function avatarColor(name: string): string {
 
 // Work-item history is a slow ADO getUpdates round-trip that never changes for a given
 // revision — cache per externalId so reopening the same item shows history instantly.
+import { cacheSet } from "@/lib/lru";
+
 const historyCache = new Map<string, WorkItemUpdateView[]>();
 
 // Full work-item detail (description + comments + attachments + allowed states + rev) is
@@ -142,7 +144,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     const result = await getAzureDevOpsTaskDetail(id);
     if (requestIdRef.current !== requestId) return; // superseded by a newer load() — ignore this stale response
     if (result.ok) {
-      detailCache.set(id, result.detail);
+      cacheSet(detailCache, id, result.detail);
       setDetail(result.detail);
       setForm(toForm(result.detail));
       setAssigneeQuery(result.detail.assignedTo ?? "");
@@ -180,7 +182,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
     setLoadingUpdates(true);
     try {
       const rows = await getAzureDevOpsWorkItemUpdates(currentId);
-      historyCache.set(currentId, rows);
+      cacheSet(historyCache, currentId, rows);
       setUpdates(rows);
     } catch {
       setUpdates([]);
@@ -270,7 +272,7 @@ export function AzureDevOpsTaskDetail({ externalId, open, onOpenChange, statusOn
         descriptionRaw: form.description,
         descriptionHtml: form.description || null,
       };
-      detailCache.set(currentId, next); // keep the cache coherent so a reopen shows the saved values
+      cacheSet(detailCache, currentId, next); // keep the cache coherent so a reopen shows the saved values
       setDetail(next);
       historyCache.delete(currentId); // history now stale — drop cache so it reloads on next expand
       setUpdates(null);

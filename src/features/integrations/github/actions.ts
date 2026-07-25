@@ -84,14 +84,18 @@ async function runGithubSync(): Promise<GithubSyncResult> {
     return { ok: false, error: error instanceof Error ? error.message : "GitHub sync failed." };
   }
 
+  // Load all cached rows once and index by repo#number, instead of a findUnique per PR (N+1).
+  // This snapshot also drives the prune below, so the whole sync is 2 reads + the writes.
+  const existingRows = await db.githubPullRequest.findMany({
+    select: { id: true, repo: true, number: true, state: true, reviewDecision: true, checksStatus: true, deletedAt: true },
+  });
+  const byKey = new Map(existingRows.map((r) => [prKey(r), r]));
+
   const events: NotificationEvent[] = [];
   let upserted = 0;
 
   for (const pr of prs) {
-    const existing = await db.githubPullRequest.findUnique({
-      where: { repo_number: { repo: pr.repo, number: pr.number } },
-      select: { id: true, state: true, reviewDecision: true, checksStatus: true, deletedAt: true },
-    });
+    const existing = byKey.get(prKey(pr));
 
     const data = {
       nodeId: pr.nodeId,
@@ -131,10 +135,9 @@ async function runGithubSync(): Promise<GithubSyncResult> {
   let pruned = 0;
   if (prs.length > 0) {
     const liveKeys = new Set(prs.map(prKey));
-    const active = await db.githubPullRequest.findMany({
-      where: { deletedAt: null },
-      select: { id: true, repo: true, number: true },
-    });
+    // Reuse the pre-sync snapshot: rows that were active then and aren't in the live set now.
+    // (Newly-created rows are in liveKeys, so they're never pruned.)
+    const active = existingRows.filter((row) => row.deletedAt == null);
     const stale = active.filter((row) => !liveKeys.has(prKey(row))).map((row) => row.id);
     if (stale.length > 0) {
       await db.githubPullRequest.updateMany({ where: { id: { in: stale } }, data: { deletedAt: new Date() } });

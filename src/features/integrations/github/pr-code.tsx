@@ -102,6 +102,8 @@ interface ActiveLine {
 // Cache the parsed diff per (PR, commit-plan) so reopening the Code tab is instant
 // (stale-while-revalidate) — the cold "Loading diff…" spinner only shows on a
 // first-ever open. Keyed by repo#number#planKey ("all" = whole PR).
+import { cacheSet } from "@/lib/lru";
+
 const filesCache = new Map<string, DiffFile[]>();
 function collapsedFor(files: DiffFile[]): Set<string> {
   // Huge / empty files start collapsed so the diff opens light.
@@ -160,7 +162,7 @@ export function PrCode({ repo, number, headOid, headBranch, headRepo, threads, v
     req.then((res) => {
       if (!active) return;
       if (res.ok) {
-        filesCache.set(cacheKey, res.files);
+        cacheSet(filesCache, cacheKey, res.files);
         setFiles(res.files);
         setCollapsed(collapsedFor(res.files));
         setViewed(new Set());

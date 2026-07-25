@@ -74,6 +74,8 @@ const htmlBox =
   "max-w-none text-sm leading-relaxed [&_a]:text-primary [&_a]:underline [&_img]:max-w-full [&_img]:rounded [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2 [&_code]:text-xs [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5";
 
 // Short-lived detail cache — reopening a PR shows instantly, then revalidates in the background.
+import { cacheSet } from "@/lib/lru";
+
 const detailCache = new Map<string, PullRequestDetail>();
 const cacheKey = (nodeId: string | null, repo: string, number: number) => `${nodeId ?? ""}|${repo}#${number}`;
 
@@ -173,7 +175,7 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
     getPullRequestDetail(nodeId, repo, number).then((res) => {
       if (!active) return;
       if (res.ok) {
-        detailCache.set(key, res.detail);
+        cacheSet(detailCache, key, res.detail);
         setDetail(res.detail);
       } else if (!cached) {
         setError(res.error);
@@ -190,7 +192,7 @@ export function GithubPrDetail({ nodeId, repo, number, title, open, onOpenChange
     const key = cacheKey(nodeId, repo, number);
     getPullRequestDetail(nodeId, repo, number).then((res) => {
       if (res.ok) {
-        detailCache.set(key, res.detail);
+        cacheSet(detailCache, key, res.detail);
         setDetail(res.detail);
       }
     });
