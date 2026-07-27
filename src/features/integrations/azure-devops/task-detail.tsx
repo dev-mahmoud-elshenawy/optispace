@@ -47,24 +47,10 @@ const PRIORITY_LABELS: Record<string, string> = {
   "4": "4 · Low",
 };
 
-// Deterministic per-name avatar tint (mirrors the GitHub PR reviewers styling).
-const AVATAR_COLORS = [
-  "bg-rose-500/15 text-rose-600 dark:text-rose-300",
-  "bg-amber-500/15 text-amber-600 dark:text-amber-300",
-  "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
-  "bg-sky-500/15 text-sky-600 dark:text-sky-300",
-  "bg-violet-500/15 text-violet-600 dark:text-violet-300",
-  "bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-300",
-];
-function avatarColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-
 // Work-item history is a slow ADO getUpdates round-trip that never changes for a given
 // revision — cache per externalId so reopening the same item shows history instantly.
 import { persistentCache } from "@/lib/lru";
+import { avatarColor } from "@/lib/avatar";
 
 const historyCache = persistentCache<WorkItemUpdateView[]>("ado-task-history");
 

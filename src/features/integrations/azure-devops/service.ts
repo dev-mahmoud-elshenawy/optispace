@@ -15,6 +15,7 @@ import DOMPurify from "isomorphic-dompurify";
 
 import { db } from "@/lib/db";
 import type { TaskPriority, TaskStatus } from "@/types";
+import type { TeamFetchResult, TeamWorkItem } from "@/features/team/types";
 
 import type { AdoIdentity } from "./types";
 
@@ -167,6 +168,27 @@ function nameHeuristic(state: string): TaskStatus {
   return "todo";
 }
 
+// Resolve an ADO state name → its category per (project, type), cached for the call that owns
+// the resolver. Shared by the personal sync and the team query so both bucket custom states
+// ("Ready For Testing", "In Test", …) the same way.
+function stateCategoryResolver(wit: IWorkItemTrackingApi): (project: string, type: string) => Promise<Record<string, string>> {
+  const stateMaps = new Map<string, Record<string, string>>();
+  return async (project, type) => {
+    const key = `${project}|${type}`;
+    const cached = stateMaps.get(key);
+    if (cached) return cached;
+    let map: Record<string, string> = {};
+    try {
+      const states = await wit.getWorkItemTypeStates(project, type);
+      map = Object.fromEntries(states.map((s) => [s.name ?? "", s.category ?? ""]));
+    } catch {
+      map = {};
+    }
+    stateMaps.set(key, map);
+    return map;
+  };
+}
+
 export interface AssignedWorkItems {
   items: WorkItemDTO[]; // open items to import (capped)
   openIds: string[]; // every not-Removed assigned id (uncapped) — for pruning
@@ -200,22 +222,7 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
     detail.push(...batch);
   }
 
-  // Resolve state → category per (project, type), cached.
-  const stateMaps = new Map<string, Record<string, string>>();
-  async function statesFor(project: string, type: string): Promise<Record<string, string>> {
-    const key = `${project}|${type}`;
-    const cached = stateMaps.get(key);
-    if (cached) return cached;
-    let map: Record<string, string> = {};
-    try {
-      const states = await wit.getWorkItemTypeStates(project, type);
-      map = Object.fromEntries(states.map((s) => [s.name ?? "", s.category ?? ""]));
-    } catch {
-      map = {};
-    }
-    stateMaps.set(key, map);
-    return map;
-  }
+  const statesFor = stateCategoryResolver(wit);
 
   const items: WorkItemDTO[] = [];
   const doneIds: string[] = [];
@@ -253,6 +260,123 @@ export async function fetchAssignedWorkItems(config: AzureDevOpsConfig): Promise
     });
   }
   return { items, openIds, doneIds };
+}
+
+// ── Team read (leader view) ────────────────────────────────────────────────
+// The whole team's work for ONE project, read live. Deliberately separate from the personal
+// sync: that one is `AssignedTo = @Me` and PRUNES closed items, while evaluation metrics need
+// exactly those closed items (with assignee + ClosedDate). Nothing here touches the DB.
+const TEAM_FIELD_KEYS = [
+  "System.Title",
+  "System.WorkItemType",
+  "System.State",
+  "System.AssignedTo",
+  "System.TeamProject",
+  "System.IterationPath",
+  "System.CreatedDate",
+  "System.ChangedDate",
+  "Microsoft.VSTS.Common.ClosedDate",
+];
+
+const wiqlLiteral = (v: string) => v.replace(/'/g, "''");
+
+// Every state name in this project that is NOT done, across all its work item types — resolved
+// from state *categories* so custom workflows work. WIQL can't filter by category, so the names
+// are what goes into the query.
+async function openStateNames(wit: IWorkItemTrackingApi, project: string): Promise<string[]> {
+  const types = await wit.getWorkItemTypes(project).catch(() => []);
+  const statesFor = stateCategoryResolver(wit);
+  const open = new Set<string>();
+  for (const t of types) {
+    const name = t.name;
+    if (!name) continue;
+    for (const [state, category] of Object.entries(await statesFor(project, name))) {
+      if (state && categoryToStatus(category) !== null && categoryToStatus(category) !== "done") open.add(state);
+    }
+  }
+  return [...open];
+}
+
+export async function fetchTeamWorkItems(input: {
+  project: string;
+  iterationPath?: string | null;
+  windowDays: number;
+}): Promise<TeamFetchResult> {
+  const config = await getAzureDevOpsConfig();
+  const c = await apis();
+  if (!config || !c || !input.project) return { items: [], truncated: false };
+  const wit = await c.wit;
+
+  const iterationFilter = input.iterationPath
+    ? ` AND [System.IterationPath] UNDER '${wiqlLiteral(input.iterationPath)}'`
+    : "";
+  const base =
+    `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '${wiqlLiteral(input.project)}'` +
+    ` AND [System.State] <> 'Removed'${iterationFilter}`;
+
+  // TWO queries, unioned. A changed-date window alone silently hid the most interesting rows:
+  // an item untouched for six months is *precisely* the aging work a lead needs to see, yet it
+  // falls outside any recent window. So:
+  //   A) everything touched inside the window — closes, so the evaluation metrics are complete;
+  //   B) everything currently open, at ANY age — WIP and aging.
+  // "Open" comes from the project's real state names resolved by category, not a guessed list,
+  // so custom states ("Ready For Testing", "In Test", …) are handled.
+  const openStates = await openStateNames(wit, input.project);
+  const stateList = openStates.map((s) => `'${wiqlLiteral(s)}'`).join(", ");
+  const queries = [
+    `${base} AND [System.ChangedDate] >= @today - ${Math.trunc(input.windowDays)} ORDER BY [System.ChangedDate] DESC`,
+    ...(stateList ? [`${base} AND [System.State] IN (${stateList}) ORDER BY [System.ChangedDate] DESC`] : []),
+  ];
+
+  const seen = new Set<number>();
+  const allIds: number[] = [];
+  for (const query of queries) {
+    const result = await wit.queryByWiql({ query });
+    for (const w of result.workItems ?? []) {
+      const id = Number(w.id);
+      if (!seen.has(id)) {
+        seen.add(id);
+        allIds.push(id);
+      }
+    }
+  }
+  if (allIds.length === 0) return { items: [], truncated: false };
+  const cap = CHUNK_SIZE * MAX_CHUNKS;
+  const ids = allIds.slice(0, cap);
+
+  const detail: WorkItem[] = [];
+  for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+    detail.push(...(await wit.getWorkItems(ids.slice(i, i + CHUNK_SIZE), TEAM_FIELD_KEYS)));
+  }
+
+  const statesFor = stateCategoryResolver(wit);
+  const items: TeamWorkItem[] = [];
+  for (const wi of detail) {
+    const f = wi.fields ?? {};
+    const project = fieldStr(f, "System.TeamProject");
+    const type = fieldStr(f, "System.WorkItemType");
+    const state = fieldStr(f, "System.State");
+    const category = (await statesFor(project, type))[state];
+    const status = category ? categoryToStatus(category) : nameHeuristic(state);
+    if (status === null) continue; // Removed/unknown category
+    const assignee = f["System.AssignedTo"] as { displayName?: string; uniqueName?: string } | undefined;
+    items.push({
+      externalId: String(wi.id),
+      title: fieldStr(f, "System.Title") || `Work item ${wi.id}`,
+      type,
+      state,
+      status,
+      project,
+      iterationPath: fieldStr(f, "System.IterationPath"),
+      assignedTo: assignee?.displayName ?? "",
+      assignedToEmail: assignee?.uniqueName ?? null,
+      createdDate: fieldStr(f, "System.CreatedDate"),
+      changedDate: fieldStr(f, "System.ChangedDate") || null,
+      closedDate: fieldStr(f, "Microsoft.VSTS.Common.ClosedDate") || null,
+      url: itemUrl(config.orgUrl, project, wi.id ?? 0),
+    });
+  }
+  return { items, truncated: allIds.length > cap };
 }
 
 // Verify a real, recent assignment from the work item's update history — the ONLY

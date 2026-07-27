@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { avatarColor } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
 
 import {
@@ -78,22 +79,6 @@ import { persistentCache } from "@/lib/lru";
 
 const detailCache = persistentCache<PullRequestDetail>("github-pr-detail");
 const cacheKey = (nodeId: string | null, repo: string, number: number) => `${nodeId ?? ""}|${repo}#${number}`;
-
-// Deterministic avatar tint per person — a name always maps to the same colour so people are
-// recognisable at a glance across reviews/comments.
-const AVATAR_COLORS = [
-  "bg-rose-500/15 text-rose-600 dark:text-rose-300",
-  "bg-amber-500/15 text-amber-600 dark:text-amber-300",
-  "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
-  "bg-sky-500/15 text-sky-600 dark:text-sky-300",
-  "bg-violet-500/15 text-violet-600 dark:text-violet-300",
-  "bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-300",
-];
-function avatarColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
 
 function InitialAvatar({ name, className }: { name: string; className?: string }) {
   return (

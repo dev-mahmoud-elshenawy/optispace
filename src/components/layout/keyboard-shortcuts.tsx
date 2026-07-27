@@ -13,6 +13,8 @@ const GO_ROUTES: Record<string, string> = {
   t: "/tasks",
   p: "/projects", // Development
   r: "/pull-requests",
+  m: "/team", // members
+
   k: "/packages",
   l: "/leave",
   f: "/profiles",
