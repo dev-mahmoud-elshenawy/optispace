@@ -238,6 +238,9 @@ async function runAzureDevOpsSync(): Promise<SyncResult> {
     projects.map(async (project) => {
       const paths = await fetchIterations(project).catch(() => [] as string[]);
       paths.forEach((path, index) => iterationOrderByPath.set(path, index));
+      // Same fetch, now also cached for the Team sprint picker (best-effort — a cache write must
+      // never fail a sync).
+      await cacheIterations(project, paths).catch(() => undefined);
     }),
   );
   const iterationOrderFor = (path: string | null): number | null =>
@@ -493,9 +496,38 @@ export async function getAzureDevOpsWorkItemTypes(project: string): Promise<stri
   return fetchWorkItemTypes(project);
 }
 
+// Store a project's sprint paths in tree order: add/restore what's there, soft-delete what left.
+async function cacheIterations(project: string, paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  await Promise.all(
+    paths.map((path, position) =>
+      db.adoIteration.upsert({
+        where: { project_path: { project, path } },
+        update: { position, deletedAt: null },
+        create: { project, path, position },
+      }),
+    ),
+  );
+  await db.adoIteration.updateMany({
+    where: { project, deletedAt: null, path: { notIn: paths } },
+    data: { deletedAt: new Date() },
+  });
+}
+
+// Sprint picker source. Reads SQLite first — that's why the project list feels instant, and the
+// sprint list now behaves the same. Only a project with nothing cached pays the ADO round trip
+// (~0.5s cold), and that result is cached for next time.
 export async function getAzureDevOpsIterations(project: string): Promise<string[]> {
   if (!project) return [];
-  return fetchIterations(project);
+  const cached = await db.adoIteration.findMany({
+    where: { project, deletedAt: null },
+    orderBy: { position: "asc" },
+    select: { path: true },
+  });
+  if (cached.length > 0) return cached.map((i) => i.path);
+  const paths = await fetchIterations(project);
+  await cacheIterations(project, paths).catch(() => undefined);
+  return paths;
 }
 
 export type CreateWorkItemInput = {

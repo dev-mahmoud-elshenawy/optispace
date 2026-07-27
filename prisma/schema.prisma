@@ -280,6 +280,22 @@ model AdoProject {
   @@index([name])
 }
 
+// Sprint paths per project, cached so the Team picker reads them from SQLite instead of waiting on
+// Azure DevOps — the same reason the project list feels instant. Filled by the ADO sync, which
+// already fetches iterations for sprint ordering, so this costs no extra API calls.
+model AdoIteration {
+  id        String    @id @default(cuid())
+  project   String
+  path      String
+  position  Int       @default(0) // ADO tree order — what the board shows
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([project, path])
+  @@index([project])
+}
+
 model Package {
   id             String  @id @default(cuid())
   name           String
