@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-import { syncAzureDevOps } from "@/features/integrations/azure-devops/actions";
+import { getAdoConfig, syncAzureDevOps } from "@/features/integrations/azure-devops/actions";
 import { checkMeetingReminders, syncCalendar } from "@/features/calendar/actions";
 import { syncGraphCalendar } from "@/features/integrations/graph/actions";
 import { checkTaskDueDates } from "@/features/tasks/actions";
@@ -11,9 +11,11 @@ import { runScheduledBackup } from "@/features/backup/actions";
 import { refreshStalePackageStats } from "@/features/packages/actions";
 import { syncGithubPullRequests } from "@/features/integrations/github/actions";
 
-const INTERVAL_MS = 2 * 60 * 1000; // 2 minutes — near-real-time detection of new
-// assignments/mentions (local-first: a webhook would need a public URL, so a short
-// poll is the closest equivalent while the app is open).
+// Poll cadence comes from Settings (AdoConfig.pollMinutes, default 2 min) — near-real-time
+// detection of new assignments/mentions. Local-first: a webhook would need a public URL, so a
+// short poll is the closest equivalent while the app is open. Read once per mount; a changed
+// setting takes effect on the next reload, which is when the layout remounts anyway.
+const FALLBACK_INTERVAL_MS = 2 * 60 * 1000;
 const DEDUPE_MS = 15 * 1000; // skip a sync if another started this recently
 
 // Cross-context (multi-tab / StrictMode double-mount / rapid reload) dedupe via
@@ -88,7 +90,18 @@ export function AzureDevOpsAutoSync({ enabled }: { enabled: boolean }) {
     }
 
     run();
-    const id = setInterval(run, INTERVAL_MS);
+    let id: ReturnType<typeof setInterval> = setInterval(run, FALLBACK_INTERVAL_MS);
+    void getAdoConfig()
+      .then((config) => {
+        if (cancelled) return;
+        const ms = Math.max(config.pollMinutes, 1) * 60_000;
+        if (ms === FALLBACK_INTERVAL_MS) return;
+        clearInterval(id);
+        id = setInterval(run, ms);
+      })
+      .catch(() => {
+        /* keep the fallback cadence */
+      });
     return () => {
       cancelled = true;
       clearInterval(id);

@@ -27,6 +27,8 @@ export function AzureDevOpsConfigPanel({
   const [email, setEmail] = useState(config.email);
   const [projects, setProjects] = useState(config.projects || "all");
   const [includeDone, setIncludeDone] = useState(config.includeDone);
+  const [pollMinutes, setPollMinutes] = useState(String(config.pollMinutes));
+  const [mentionLookbackDays, setMentionLookbackDays] = useState(String(config.mentionLookbackDays));
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -44,7 +46,15 @@ export function AzureDevOpsConfigPanel({
 
   async function save() {
     setBusy(true);
-    const res = await saveAdoConfig({ orgUrl, pat, email, projects, includeDone });
+    const res = await saveAdoConfig({
+      orgUrl,
+      pat,
+      email,
+      projects,
+      includeDone,
+      pollMinutes: Number(pollMinutes),
+      mentionLookbackDays: Number(mentionLookbackDays),
+    });
     setBusy(false);
     if (!res.ok) {
       toast.error(res.error);
@@ -137,6 +147,32 @@ export function AzureDevOpsConfigPanel({
               onChange={(e) => setProjects(e.target.value)}
               placeholder="all — or Project A, Project B"
             />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ado-poll">Sync every (minutes)</Label>
+            <Input
+              id="ado-poll"
+              type="number"
+              min="1"
+              max="60"
+              value={pollMinutes}
+              onChange={(e) => setPollMinutes(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Background poll while the app is open. Takes effect on the next reload.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ado-mention-lookback">Mention lookback (days)</Label>
+            <Input
+              id="ado-mention-lookback"
+              type="number"
+              min="1"
+              max="90"
+              value={mentionLookbackDays}
+              onChange={(e) => setMentionLookbackDays(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">How far back to scan comments for @mentions of you.</p>
           </div>
           <label className="flex items-center gap-2 text-sm sm:col-span-2">
             <Checkbox checked={includeDone} onCheckedChange={(v) => setIncludeDone(v === true)} />

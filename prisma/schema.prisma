@@ -246,6 +246,9 @@ model AdoConfig {
   email       String?
   projects    String   @default("") // "all" or a comma-separated list of project names
   includeDone Boolean  @default(false)
+  // Sync tuning, editable in Settings — this app reads no env vars.
+  pollMinutes         Int @default(2)  // background poll cadence while the app is open
+  mentionLookbackDays Int @default(14) // how far back to scan for @mentions
   lastSyncedAt DateTime? // last SUCCESSFUL sync (Settings health)
   lastError    String? // latest sync error message, cleared on the next success
   createdAt   DateTime @default(now())

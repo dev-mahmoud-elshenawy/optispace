@@ -27,6 +27,8 @@ export interface AzureDevOpsConfig {
   allProjects: boolean; // projects = "all" → every accessible project
   projects: string[]; // explicit project names (ignored when allProjects)
   includeDone: boolean;
+  pollMinutes: number; // background poll cadence (Settings)
+  mentionLookbackDays: number; // @mention scan window (Settings)
 }
 
 export async function getAzureDevOpsConfig(): Promise<AzureDevOpsConfig | null> {
@@ -48,6 +50,8 @@ export async function getAzureDevOpsConfig(): Promise<AzureDevOpsConfig | null> 
       .map((s) => s.trim())
       .filter((s) => s && s.toLowerCase() !== "all"),
     includeDone: row.includeDone,
+    pollMinutes: row.pollMinutes,
+    mentionLookbackDays: row.mentionLookbackDays,
   };
 }
 

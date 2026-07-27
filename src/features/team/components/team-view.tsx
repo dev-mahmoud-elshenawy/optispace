@@ -36,7 +36,8 @@ import { MemberDetailDialog } from "./member-detail";
 // Same stale-while-revalidate pattern as the PR/work-item modals: a repeat query paints from
 // the saved copy instantly, then refreshes in the background.
 const workCache = persistentCache<{ items: TeamWorkItem[]; truncated: boolean }>("team-work", { max: 12 });
-const ALL = "all";
+const ALL = "all"; // explicit "All sprints" choice — a whole-project read
+const NONE = ""; // nothing picked yet
 
 interface TeamViewProps {
   projects: string[];
@@ -47,7 +48,7 @@ interface TeamViewProps {
 export function TeamView({ projects }: TeamViewProps) {
   const [project, setProject] = useState("");
   const [iterations, setIterations] = useState<string[]>([]);
-  const [iteration, setIteration] = useState(ALL);
+  const [iteration, setIteration] = useState(NONE);
   const [windowDays, setWindowDays] = useState<TeamWindow>(DEFAULT_TEAM_WINDOW);
   const [search, setSearch] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -62,13 +63,17 @@ export function TeamView({ projects }: TeamViewProps) {
   // Fixed at load time so the aging/cycle numbers don't drift while you read the table.
   const [asOf, setAsOf] = useState<Date | null>(null);
 
+  // Picking a project deliberately queries NOTHING: the only read that covers a whole project is
+  // "All sprints", which is huge. You pick the sprint you want and that triggers the load.
   function pickProject(next: string) {
     setProject(next);
     setIterations([]); // the previous project's sprints don't apply
-    setIteration(ALL);
+    setIteration(NONE);
+    setItems([]);
+    setTruncated(false);
+    setError(null);
     setMember(null);
     setPickerOpen(false);
-    void load({ project: next, iteration: ALL, windowDays });
   }
 
   function pickIteration(next: string) {
@@ -80,7 +85,7 @@ export function TeamView({ projects }: TeamViewProps) {
   function pickWindow(next: TeamWindow) {
     setWindowDays(next);
     setMember(null);
-    void load({ project, iteration, windowDays: next });
+    if (iteration) void load({ project, iteration, windowDays: next });
   }
 
   // Loads are triggered by the controls, never by an effect: nothing is queried until you choose a
@@ -168,15 +173,15 @@ export function TeamView({ projects }: TeamViewProps) {
 
         <Select value={iteration} onValueChange={pickIteration} disabled={!project}>
           <SelectTrigger className="w-48">
-            <SelectValue placeholder="All sprints" />
+            <SelectValue placeholder="Choose a sprint…" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All sprints</SelectItem>
             {iterations.map((it) => (
               <SelectItem key={it} value={it}>
                 {iterationLabel(it)}
               </SelectItem>
             ))}
+            <SelectItem value={ALL}>All sprints (whole project — slow)</SelectItem>
           </SelectContent>
         </Select>
 
@@ -210,7 +215,7 @@ export function TeamView({ projects }: TeamViewProps) {
           className="w-56"
         />
 
-        <Button variant="outline" size="sm" onClick={() => void load({ project, iteration, windowDays })} disabled={loading || !project}>
+        <Button variant="outline" size="sm" onClick={() => void load({ project, iteration, windowDays })} disabled={loading || !project || !iteration}>
           {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />} Refresh
         </Button>
         {loading ? <span className="text-xs text-muted-foreground">Reading Azure DevOps…</span> : null}
@@ -243,7 +248,12 @@ export function TeamView({ projects }: TeamViewProps) {
         <CardContent className="pt-6">
           {!project ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Users className="size-4" /> Choose a project above to load its team.
+              <Users className="size-4" /> Choose a project above, then a sprint.
+            </p>
+          ) : !iteration ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Users className="size-4" /> Pick a sprint to load {project}. &ldquo;All sprints&rdquo; reads the whole
+              project and is much slower.
             </p>
           ) : rollup.members.length === 0 ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">

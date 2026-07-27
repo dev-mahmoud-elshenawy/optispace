@@ -39,6 +39,8 @@ export interface AdoConfigView {
   email: string;
   projects: string; // "all" or comma-separated names
   includeDone: boolean;
+  pollMinutes: number;
+  mentionLookbackDays: number;
 }
 
 export async function getAdoConfig(): Promise<AdoConfigView> {
@@ -50,6 +52,8 @@ export async function getAdoConfig(): Promise<AdoConfigView> {
     email: row?.email ?? "",
     projects: row?.projects ?? "",
     includeDone: row?.includeDone ?? false,
+    pollMinutes: row?.pollMinutes ?? 2,
+    mentionLookbackDays: row?.mentionLookbackDays ?? 14,
   };
 }
 
@@ -59,6 +63,8 @@ export interface SaveAdoConfigInput {
   email: string;
   projects: string;
   includeDone: boolean;
+  pollMinutes: number;
+  mentionLookbackDays: number;
 }
 
 export async function saveAdoConfig(input: SaveAdoConfigInput): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -73,6 +79,9 @@ export async function saveAdoConfig(input: SaveAdoConfigInput): Promise<{ ok: tr
     email: input.email.trim() || null,
     projects: input.projects.trim(),
     includeDone: input.includeDone,
+    // Clamp rather than reject: a 0-minute poll would hammer ADO, a negative lookback is meaningless.
+    pollMinutes: Math.min(Math.max(Math.round(input.pollMinutes) || 2, 1), 60),
+    mentionLookbackDays: Math.min(Math.max(Math.round(input.mentionLookbackDays) || 14, 1), 90),
   };
   await db.adoConfig.upsert({ where: { id: "singleton" }, update: data, create: { id: "singleton", ...data } });
   revalidatePath("/settings");
@@ -88,8 +97,6 @@ export async function clearAdoConfig(): Promise<{ ok: true }> {
 }
 
 const SOURCE = "azure_devops";
-const MENTION_LOOKBACK_DAYS = 14; // only notify for comments newer than this — avoids a
-// first-run flood of ancient mentions once mention detection ships.
 
 function stripHtml(html: string): string {
   return html
@@ -153,7 +160,7 @@ export async function syncAzureDevOps(): Promise<SyncResult> {
 async function runAzureDevOpsSync(): Promise<SyncResult> {
   const config = await getAzureDevOpsConfig();
   if (!config) {
-    return { ok: false, error: "Azure DevOps is not configured. Set AZURE_DEVOPS_ORG_URL and AZURE_DEVOPS_PAT in .env." };
+    return { ok: false, error: "Azure DevOps is not configured. Add your organization URL and PAT in Settings." };
   }
 
   // Refresh the cached project list (best-effort — a failure here must not abort the
@@ -217,7 +224,7 @@ async function runAzureDevOpsSync(): Promise<SyncResult> {
     select: { id: true, externalId: true, deletedAt: true, status: true, changedDate: true },
   });
   const existingByExternalId = new Map(existingList.map((t) => [t.externalId, t] as const));
-  const lookbackCutoff = Date.now() - MENTION_LOOKBACK_DAYS * 86_400_000;
+  const lookbackCutoff = Date.now() - config.mentionLookbackDays * 86_400_000;
   // Assignment-info needs a per-item ADO getUpdates call — collect candidates here and
   // fetch them in parallel (chunked) after the write loop instead of one serial call each.
   const assignmentCandidates: typeof items = [];
@@ -367,9 +374,9 @@ async function runAzureDevOpsSync(): Promise<SyncResult> {
   // confirmed to contain my real data-vss-mention GUID (filters plain-name matches).
   try {
     if (me) {
-      const cutoff = Date.now() - MENTION_LOOKBACK_DAYS * 86_400_000;
+      const cutoff = Date.now() - config.mentionLookbackDays * 86_400_000;
       const mentionTag = `data-vss-mention="version:2.0,${me.id}`.toLowerCase();
-      const candidates = await fetchMentionCandidates(me.displayName, MENTION_LOOKBACK_DAYS);
+      const candidates = await fetchMentionCandidates(me.displayName, config.mentionLookbackDays);
       for (const candidate of candidates) {
         try {
           const comments = await fetchRawComments(candidate.project, candidate.externalId);
