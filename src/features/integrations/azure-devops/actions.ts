@@ -118,6 +118,15 @@ function flattenError(error: unknown): string {
   return parts.join(" ").trim();
 }
 
+// Never hand a blank error string to the UI: an Error with an empty .message (AggregateError,
+// some SDK rejections) rendered as *nothing at all* — the work-item modal sat on just its
+// "Work item #123" title, no spinner, no content, no error. flattenError digs out .code/.errors;
+// the fallback covers the still-empty case, and the log names the real cause in the terminal.
+function adoError(error: unknown, fallback: string): string {
+  console.error("[optispace] Azure DevOps request failed", error);
+  return flattenError(error) || fallback;
+}
+
 export type SyncResult =
   | { ok: true; imported: number; updated: number; pruned: number; notified: number }
   | { ok: false; error: string };
@@ -439,7 +448,7 @@ export async function getAzureDevOpsTaskDetail(externalId: string): Promise<Deta
     if (!detail) return { ok: false, error: "Azure DevOps is not configured, or this work item could not be found." };
     return { ok: true, detail };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Failed to load work item details." };
+    return { ok: false, error: adoError(error, "Failed to load work item details.") };
   }
 }
 
@@ -544,7 +553,7 @@ export async function createAzureDevOpsTask(input: CreateWorkItemInput): Promise
     revalidatePath("/");
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Failed to create the work item." };
+    return { ok: false, error: adoError(error, "Failed to create the work item.") };
   }
 }
 
@@ -622,7 +631,7 @@ export async function updateAzureDevOpsWorkItem(
     revalidatePath("/");
     return { ok: true, rev: newRev };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Update failed." };
+    return { ok: false, error: adoError(error, "Update failed.") };
   }
 }
 
@@ -654,6 +663,6 @@ export async function addAzureDevOpsComment(externalId: string, project: string,
     await postComment(project, externalId, text.trim());
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "Comment failed." };
+    return { ok: false, error: adoError(error, "Comment failed.") };
   }
 }
