@@ -36,6 +36,9 @@ import { MemberCard } from "./member-card";
 // Same stale-while-revalidate pattern as the PR/work-item modals: a repeat query paints from
 // the saved copy instantly, then refreshes in the background.
 const workCache = persistentCache<{ items: TeamWorkItem[]; truncated: boolean }>("team-work", { max: 12 });
+// Sprint lists are small and static — cache per project so re-picking one is instant instead of
+// another second of an empty dropdown.
+const iterationCache = new Map<string, string[]>();
 const ALL = "all"; // explicit "All sprints" choice — a whole-project read
 const NONE = ""; // nothing picked yet
 
@@ -48,6 +51,7 @@ interface TeamViewProps {
 export function TeamView({ projects }: TeamViewProps) {
   const [project, setProject] = useState("");
   const [iterations, setIterations] = useState<string[]>([]);
+  const [iterationsLoading, setIterationsLoading] = useState(false);
   const [iteration, setIteration] = useState(NONE);
   const [windowDays, setWindowDays] = useState<TeamWindow>(DEFAULT_TEAM_WINDOW);
   const [search, setSearch] = useState("");
@@ -66,8 +70,10 @@ export function TeamView({ projects }: TeamViewProps) {
   // Picking a project deliberately queries NOTHING: the only read that covers a whole project is
   // "All sprints", which is huge. You pick the sprint you want and that triggers the load.
   function pickProject(next: string) {
+    const cached = iterationCache.get(next);
     setProject(next);
-    setIterations([]); // the previous project's sprints don't apply
+    setIterations(cached ?? []); // the previous project's sprints don't apply
+    setIterationsLoading(!cached);
     setIteration(NONE);
     setItems([]);
     setTruncated(false);
@@ -122,14 +128,21 @@ export function TeamView({ projects }: TeamViewProps) {
   // the previous project's sprints happens in `pickProject`, not here: setState directly in an
   // effect body cascades renders (react-hooks/set-state-in-effect).
   useEffect(() => {
-    if (!project) return;
+    if (!project || iterationCache.has(project)) return;
     let cancelled = false;
     getAzureDevOpsIterations(project)
       .then((paths) => {
-        if (!cancelled) setIterations(paths);
+        iterationCache.set(project, paths);
+        if (!cancelled) {
+          setIterations(paths);
+          setIterationsLoading(false);
+        }
       })
       .catch(() => {
-        if (!cancelled) setIterations([]);
+        if (!cancelled) {
+          setIterations([]);
+          setIterationsLoading(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -194,9 +207,19 @@ export function TeamView({ projects }: TeamViewProps) {
           </CommandList>
         </CommandDialog>
 
-        <Select value={iteration} onValueChange={pickIteration} disabled={!project || loading}>
+        <Select
+          value={iteration}
+          onValueChange={pickIteration}
+          disabled={!project || loading || iterationsLoading}
+        >
           <SelectTrigger className="w-48 [&>span]:truncate">
-            <SelectValue placeholder="Choose a sprint…" />
+            {iterationsLoading ? (
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" /> Loading sprints…
+              </span>
+            ) : (
+              <SelectValue placeholder="Choose a sprint…" />
+            )}
           </SelectTrigger>
           <SelectContent>
             {iterations.map((it) => (
@@ -204,7 +227,9 @@ export function TeamView({ projects }: TeamViewProps) {
                 {iterationLabel(it)}
               </SelectItem>
             ))}
-            <SelectItem value={ALL}>All sprints · slow</SelectItem>
+            {/* Last, and only once the real sprints have arrived — otherwise this is the ONLY thing
+                on offer while the list loads, and one click triggers a whole-project read. */}
+            {iterations.length > 0 ? <SelectItem value={ALL}>All sprints · slow</SelectItem> : null}
           </SelectContent>
         </Select>
 
