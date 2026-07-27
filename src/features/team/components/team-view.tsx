@@ -35,7 +35,13 @@ import { MemberCard } from "./member-card";
 
 // Same stale-while-revalidate pattern as the PR/work-item modals: a repeat query paints from
 // the saved copy instantly, then refreshes in the background.
-const workCache = persistentCache<{ items: TeamWorkItem[]; truncated: boolean }>("team-work", { max: 12 });
+const workCache = persistentCache<{ items: TeamWorkItem[]; truncated: boolean; at: number }>("team-work", {
+  max: 12,
+  version: 2, // shape changed (added `at`) — bump so old entries aren't hydrated into new code
+});
+// A cached sprint is re-read only if it's older than this. Re-picking a sprint you looked at a
+// minute ago shouldn't re-run a 2000-item project query; "Refresh" is there for a forced re-read.
+const FRESH_MS = 5 * 60 * 1000;
 // Sprint lists are small and static — cache per project so re-picking one is instant instead of
 // another second of an empty dropdown.
 const iterationCache = new Map<string, string[]>();
@@ -66,6 +72,7 @@ export function TeamView({ projects }: TeamViewProps) {
   const [member, setMember] = useState<TeamMemberStats | null>(null);
   // Fixed at load time so the aging/cycle numbers don't drift while you read the table.
   const [asOf, setAsOf] = useState<Date | null>(null);
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
 
   // Picking a project deliberately queries NOTHING: the only read that covers a whole project is
   // "All sprints", which is huge. You pick the sprint you want and that triggers the load.
@@ -96,14 +103,30 @@ export function TeamView({ projects }: TeamViewProps) {
 
   // Loads are triggered by the controls, never by an effect: nothing is queried until you choose a
   // project, and each filter change passes its own values (state wouldn't be updated yet).
-  const load = useCallback(async ({ project, iteration, windowDays }: { project: string; iteration: string; windowDays: TeamWindow }) => {
+  const load = useCallback(async ({
+    project,
+    iteration,
+    windowDays,
+    force = false,
+  }: {
+    project: string;
+    iteration: string;
+    windowDays: TeamWindow;
+    force?: boolean;
+  }) => {
     if (!project) return;
     const cacheKey = `${project}|${iteration}|${windowDays}`;
     const cached = workCache.get(cacheKey);
     if (cached) {
       setItems(cached.items);
       setTruncated(cached.truncated);
-      setAsOf(new Date());
+      setAsOf(new Date(cached.at));
+      setCachedAt(cached.at);
+      // Fresh enough — don't spend a whole-project read to confirm what we just fetched.
+      if (!force && Date.now() - cached.at < FRESH_MS) {
+        setLoading(false);
+        return;
+      }
     }
     setLoading(!cached);
     setError(null);
@@ -114,10 +137,12 @@ export function TeamView({ projects }: TeamViewProps) {
     });
     setLoading(false);
     if (result.ok) {
-      workCache.set(cacheKey, { items: result.items, truncated: result.truncated });
+      const at = Date.now();
+      workCache.set(cacheKey, { items: result.items, truncated: result.truncated, at });
       setItems(result.items);
       setTruncated(result.truncated);
-      setAsOf(new Date());
+      setAsOf(new Date(at));
+      setCachedAt(at);
     } else if (!cached) {
       setError(result.error);
       setItems([]);
@@ -263,7 +288,7 @@ export function TeamView({ projects }: TeamViewProps) {
           className="w-56"
         />
 
-        <Button variant="outline" size="sm" onClick={() => void load({ project, iteration, windowDays })} disabled={loading || !project || !iteration}>
+        <Button variant="outline" size="sm" onClick={() => void load({ project, iteration, windowDays, force: true })} disabled={loading || !project || !iteration}>
           {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />} Refresh
         </Button>
 
@@ -278,6 +303,12 @@ export function TeamView({ projects }: TeamViewProps) {
           </span>
         </p>
       ) : null}
+      {!loading && asOf !== null && iteration ? (
+        <p className="text-xs text-muted-foreground">
+          Read at {asOf.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} · reused for{" "}
+          {FRESH_MS / 60000} minutes, then re-read. Refresh forces it now.
+        </p>
+      ) : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {truncated ? (
         <p className="rounded-md bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400">
@@ -290,9 +321,9 @@ export function TeamView({ projects }: TeamViewProps) {
         <SummaryTile label="Being worked on" value={String(rollup.wip)} hint="open items right now" />
         <SummaryTile label="Bugs" value={`${Math.round(rollup.bugRatio * 100)}%`} hint="of all items in view" />
         <SummaryTile
-          label="Active work time"
+          label="Time in progress"
           value={formatDays(rollup.medianWorkDays)}
-          hint={`Active → Closed · ${formatDays(rollup.medianLeadDays)} incl. backlog wait`}
+          hint={`Active → Closed · waited ${formatDays(rollup.medianWaitDays)} before starting`}
         />
         <SummaryTile
           label="Estimated"
@@ -335,8 +366,8 @@ export function TeamView({ projects }: TeamViewProps) {
             {[
               ["Finished", `Items closed inside the last ${windowDays} days.`],
               ["In progress", "Items still open right now, any age."],
-              ["Active work", "Median time from Active to Closed — the real work window, backlog wait excluded."],
-              ["Lead time", "Median from Created to Closed, which includes however long it sat in the backlog."],
+              ["Time in progress", "Median calendar time from Active to Closed. Elapsed time, not hours worked — hours are the Effort field."],
+              ["Waited", "Median time an item sat between being created and someone setting it Active."],
               ["Untouched", `Open with no update for ${AGING_DAYS}+ days.`],
               ["Estimated", "Share of their items that carry an Original Estimate."],
               ["Tasks & bugs", "Stories/features/epics are excluded — they're containers for the work below them."],

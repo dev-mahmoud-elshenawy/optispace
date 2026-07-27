@@ -77,11 +77,11 @@ export function MemberCard({
           </span>
           {/* Always the SAME measure in this slot. Swapping in lead time when Active dates were
               missing made two cards side by side incomparable — the gap is flagged as a chip instead. */}
-          <span className="shrink-0" title="Median time from Active to Closed">
+          <span className="shrink-0" title="Median calendar time from Active to Closed — not hours worked">
             <span className="block font-mono text-2xl font-semibold leading-none tabular-nums">
               {formatDays(member.medianWorkDays)}
             </span>
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">active work</span>
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">in progress</span>
           </span>
           <span className="ml-auto h-10 w-24 shrink-0">
             {hasTrend ? (

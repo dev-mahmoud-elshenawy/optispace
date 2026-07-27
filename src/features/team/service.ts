@@ -52,6 +52,13 @@ function leadDays(item: TeamWorkItem): number | null {
   return Number.isFinite(days) && days >= 0 ? days : null;
 }
 
+// How long it sat in the backlog before anyone started it.
+function waitDays(item: TeamWorkItem): number | null {
+  if (!item.activatedDate) return null;
+  const days = (new Date(item.activatedDate).getTime() - new Date(item.createdDate).getTime()) / DAY_MS;
+  return Number.isFinite(days) && days >= 0 ? days : null;
+}
+
 const nums = (values: (number | null)[]): number[] => values.filter((d): d is number => d !== null);
 
 // One pass per member: WIP now, closed inside the window, bug share, median cycle time and
@@ -84,6 +91,7 @@ export function rollupTeam(items: TeamWorkItem[], now: Date): TeamRollup {
       bugs,
       bugRatio: own.length > 0 ? bugs / own.length : 0,
       medianWorkDays: median(nums(closed.map(workDays))),
+      medianWaitDays: median(nums(closed.map(waitDays))),
       medianLeadDays: median(nums(closed.map(leadDays))),
       aging: open.filter((i) => (i.changedDate ? new Date(i.changedDate).getTime() < agingBefore : false)).length,
       total: own.length,
@@ -108,6 +116,7 @@ export function rollupTeam(items: TeamWorkItem[], now: Date): TeamRollup {
     wip: items.filter((i) => i.status !== "done").length,
     bugRatio: items.length > 0 ? bugs / items.length : 0,
     medianWorkDays: median(nums(items.map(workDays))),
+    medianWaitDays: median(nums(items.map(waitDays))),
     medianLeadDays: median(nums(items.map(leadDays))),
     unassigned: byMember.get(UNASSIGNED)?.length ?? 0,
     estimateCoverage: items.length > 0 ? items.filter((i) => (i.originalEstimate ?? 0) > 0).length / items.length : 0,
@@ -124,6 +133,16 @@ const CYCLE_BUCKETS: { label: string; max: number }[] = [
   { label: "1-2 weeks", max: 14 },
   { label: "2-4 weeks", max: 30 },
   { label: "over a month", max: Infinity },
+];
+
+// Open work bucketed by how long since anyone touched it. The counterpart to the speed histogram:
+// one shows how fast finished work moved, this shows what is quietly rotting.
+const OPEN_AGE_BUCKETS: { label: string; max: number }[] = [
+  { label: "this week", max: 7 },
+  { label: "1-2 weeks", max: 14 },
+  { label: "2-4 weeks", max: 30 },
+  { label: "1-3 months", max: 90 },
+  { label: "3 months+", max: Infinity },
 ];
 
 function tally(labels: string[]): { label: string; count: number }[] {
@@ -174,6 +193,13 @@ export function memberDetail(items: TeamWorkItem[], now: Date): MemberDetail {
       })
       .sort((a, b) => b.count - a.count),
     openByState: tally(open.map((i) => i.state || "Unknown")),
+    openAgeBuckets: (() => {
+      const ages = open.map((i) => (now.getTime() - new Date(i.changedDate ?? i.createdDate).getTime()) / DAY_MS);
+      return OPEN_AGE_BUCKETS.map(({ label, max }, index) => ({
+        label,
+        count: ages.filter((d) => d < max && (index === 0 || d >= OPEN_AGE_BUCKETS[index - 1].max)).length,
+      }));
+    })(),
     fastestDays: cycles.length > 0 ? Math.min(...cycles) : null,
     slowestDays: cycles.length > 0 ? Math.max(...cycles) : null,
     oldestOpenDays:
@@ -262,7 +288,7 @@ export function memberInsights(
   if (member.medianWorkDays !== null && detail.p85WorkDays !== null && detail.p85WorkDays > member.medianWorkDays * 4) {
     out.push({
       tone: "watch",
-      text: `Inconsistent turnaround: typically ${formatDays(member.medianWorkDays)} of active work, but the slow tail reaches ${formatDays(detail.p85WorkDays)}.`,
+      text: `Inconsistent turnaround: typically ${formatDays(member.medianWorkDays)} in progress, but the slow tail reaches ${formatDays(detail.p85WorkDays)}.`,
     });
   }
   if (member.total >= 5 && team.bugRatio > 0 && member.bugRatio >= Math.max(team.bugRatio * 1.5, 0.25)) {
@@ -349,8 +375,9 @@ export function memberReportMarkdown(input: {
     `| --- | --- | --- |`,
     `| Finished | ${member.closed} | ${team.closedPerMember.toFixed(1)} avg |`,
     `| Open now | ${member.wip} (${member.inProgress} in progress) | — |`,
-    `| Active work time (median) | ${formatDays(member.medianWorkDays)} | ${formatDays(team.medianWorkDays)} |`,
-    `| Slow tail (p85 active) | ${formatDays(detail.p85WorkDays)} | — |`,
+    `| Time in progress (Active → Closed) | ${formatDays(member.medianWorkDays)} | ${formatDays(team.medianWorkDays)} |`,
+    `| Slow tail (p85 in progress) | ${formatDays(detail.p85WorkDays)} | — |`,
+    `| Waited before start (Created → Active) | ${formatDays(member.medianWaitDays)} | — |`,
     `| Lead time incl. backlog wait | ${formatDays(member.medianLeadDays)} | — |`,
     `| Bug share | ${pct(member.bugRatio)} | ${pct(team.bugRatio)} |`,
     `| Untouched ${AGING_DAYS}d+ | ${member.aging} | — |`,
@@ -375,7 +402,8 @@ export function memberReportMarkdown(input: {
     ``,
     `## Caveats`,
     `- Effort is the field this team fills in; Completed Work (hour-level actuals) is not part of every project's template, so estimate-vs-actual is only available where it is.`,
-    `- Active work time is Active → Closed. Lead time is Created → Closed and includes backlog waiting, which can be months.`,
+    `- Time in progress is CALENDAR time from Active to Closed — not hours worked. Hours are whatever the team puts in the Effort field.`,
+    `- Lead time is Created → Closed; the wait row separates out how much of that was backlog queueing.`,
     `- Items closed without ever being set Active are excluded from work time (${Math.round(detail.activatedCoverage * 100)}% coverage).`,
     `- Counts cover Tasks and Bugs; user stories are containers and are excluded.`,
   ];

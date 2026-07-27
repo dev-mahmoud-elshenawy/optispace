@@ -41,7 +41,8 @@ export interface TeamMemberStats {
   closed: number; // closed inside the window
   bugs: number; // bugs touched inside the window
   bugRatio: number; // 0..1 of that member's items in the window
-  medianWorkDays: number | null; // Active → Closed: the actual work window (headline)
+  medianWorkDays: number | null; // Active → Closed: CALENDAR time in progress (not hours worked)
+  medianWaitDays: number | null; // Created → Active: how long it sat before anyone started
   medianLeadDays: number | null; // Created → Closed: includes however long it waited in the backlog
   aging: number; // open items untouched for AGING_DAYS+
   total: number;
@@ -63,6 +64,7 @@ export interface TeamRollup {
   wip: number;
   bugRatio: number;
   medianWorkDays: number | null;
+  medianWaitDays: number | null;
   medianLeadDays: number | null;
   unassigned: number;
   estimateCoverage: number; // 0..1 across every item in view
@@ -104,6 +106,7 @@ export interface MemberDetail {
   cycleBuckets: { label: string; count: number }[];
   typeMix: { label: string; count: number }[];
   openByState: { label: string; count: number }[];
+  openAgeBuckets: { label: string; count: number }[]; // open items by time since their last update
   // Bugs vs user stories: how many, how long each takes to close, and the planned hours behind
   // them — answers "how much of this person's time do bugs eat compared to feature work".
   byType: { label: string; count: number; closed: number; medianDays: number | null; plannedHours: number }[];

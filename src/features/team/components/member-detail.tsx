@@ -120,11 +120,11 @@ export function MemberDetailDialog({
             good={team.closedPerMember > 0 ? member.closed >= team.closedPerMember : null}
           />
           <Stat
-            label={member.medianWorkDays !== null ? "Active work time" : "Active work time (n/a)"}
+            label={member.medianWorkDays !== null ? "Time in progress" : "Time in progress (n/a)"}
             value={formatDays(member.medianWorkDays)}
             compare={
               member.medianWorkDays !== null
-                ? `Active → Closed · team ${formatDays(team.medianWorkDays)} · slow tail ${formatDays(detail.p85WorkDays)}`
+                ? `Active → Closed calendar time · team ${formatDays(team.medianWorkDays)} · slow tail ${formatDays(detail.p85WorkDays)}`
                 : "no closed item recorded an Active date — use lead time"
             }
             good={
@@ -134,9 +134,9 @@ export function MemberDetailDialog({
             }
           />
           <Stat
-            label="Lead time"
-            value={formatDays(member.medianLeadDays)}
-            compare="Created → Closed — includes backlog waiting"
+            label="Waited before start"
+            value={formatDays(member.medianWaitDays)}
+            compare={`Created → Active · lead time ${formatDays(member.medianLeadDays)} end to end`}
             good={null}
           />
           <Stat
@@ -206,8 +206,8 @@ export function MemberDetailDialog({
 
             <div className="grid gap-6 lg:grid-cols-2">
               <Panel
-                title="How fast items get finished"
-                hint={`Each bar counts finished items by how long they took once someone actually started them — from Active to Closed, so time spent waiting in the backlog is not counted. ${
+                title="How long items sat in progress"
+                hint={`Each bar counts finished items by how long they stayed in progress — Active to Closed calendar time, so backlog waiting is excluded. This is elapsed time, NOT hours worked; hours live in the Effort field. ${
                   detail.cycleBuckets.reduce((sum, b) => sum + b.count, 0) > 0
                     ? `${detail.cycleBuckets[0].count + detail.cycleBuckets[1].count} of ${detail.cycleBuckets.reduce((sum, b) => sum + b.count, 0)} took 3 days or less.`
                     : ""
@@ -219,13 +219,20 @@ export function MemberDetailDialog({
               >
                 <Bars data={detail.cycleBuckets} color="var(--chart-2)" />
               </Panel>
-              {/* Pointless when the filter already pins one sprint — it would be a single bar. */}
-              {detail.closedBySprint.length > 1 ? (
-                <Panel title="Finished per sprint" hint="Which sprints they actually delivered in.">
-                  <Bars data={detail.closedBySprint} />
-                </Panel>
-              ) : null}
+              <Panel
+                title="How long their open work has been sitting"
+                hint={`Open items by time since anyone last touched them. The right-hand bars are the sweep list for your next 1:1 — ${detail.neverUpdated > 0 ? `${detail.neverUpdated} of them have never been updated since creation.` : "none have gone untouched since creation."}`}
+              >
+                <Bars data={detail.openAgeBuckets} color="var(--chart-4)" />
+              </Panel>
             </div>
+
+            {/* Pointless when the filter already pins one sprint — it would be a single bar. */}
+            {detail.closedBySprint.length > 1 ? (
+              <Panel title="Finished per sprint" hint="Which sprints they actually delivered in.">
+                <Bars data={detail.closedBySprint} />
+              </Panel>
+            ) : null}
           </TabsContent>
 
           <TabsContent value="quality" className="mt-4 space-y-6">
