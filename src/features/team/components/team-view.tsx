@@ -1,21 +1,37 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, Loader2, RefreshCw, Users } from "lucide-react";
+import { ChevronRight, Loader2, RefreshCw, Search, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { avatarColor } from "@/lib/avatar";
 import { persistentCache } from "@/lib/lru";
 import { getAzureDevOpsIterations } from "@/features/integrations/azure-devops/actions";
-import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
-import { workItemStateColor, workItemTypeColor } from "@/features/integrations/azure-devops/types";
 
 import { loadTeamWork } from "../actions";
 import { formatDays, initials, iterationLabel, rollupTeam } from "../service";
-import { AGING_DAYS, TEAM_WINDOWS, UNASSIGNED, type TeamWindow, type TeamWorkItem } from "../types";
+import {
+  AGING_DAYS,
+  DEFAULT_TEAM_WINDOW,
+  TEAM_WINDOWS,
+  UNASSIGNED,
+  isContainerType,
+  type TeamMemberStats,
+  type TeamWindow,
+  type TeamWorkItem,
+} from "../types";
+import { MemberDetailDialog } from "./member-detail";
 
 // Same stale-while-revalidate pattern as the PR/work-item modals: a repeat query paints from
 // the saved copy instantly, then refreshes in the background.
@@ -24,28 +40,54 @@ const ALL = "all";
 
 interface TeamViewProps {
   projects: string[];
-  defaultProject: string;
 }
 
-export function TeamView({ projects, defaultProject }: TeamViewProps) {
-  const [project, setProject] = useState(defaultProject);
+// No project is selected on load and nothing is queried until you pick one: a whole-project read
+// is expensive, so it must be a deliberate choice rather than something the page does to you.
+export function TeamView({ projects }: TeamViewProps) {
+  const [project, setProject] = useState("");
   const [iterations, setIterations] = useState<string[]>([]);
   const [iteration, setIteration] = useState(ALL);
-  const [windowDays, setWindowDays] = useState<TeamWindow>(90);
+  const [windowDays, setWindowDays] = useState<TeamWindow>(DEFAULT_TEAM_WINDOW);
   const [search, setSearch] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // "work" = Tasks/Bugs only (the default): stories are containers assigned to their owner, so
+  // counting them alongside their children double-credits the same work.
+  const [scope, setScope] = useState<"work" | "all">("work");
   const [items, setItems] = useState<TeamWorkItem[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [openItem, setOpenItem] = useState<string | null>(null);
+  const [member, setMember] = useState<TeamMemberStats | null>(null);
   // Fixed at load time so the aging/cycle numbers don't drift while you read the table.
   const [asOf, setAsOf] = useState<Date | null>(null);
 
-  const cacheKey = `${project}|${iteration}|${windowDays}`;
+  function pickProject(next: string) {
+    setProject(next);
+    setIterations([]); // the previous project's sprints don't apply
+    setIteration(ALL);
+    setMember(null);
+    setPickerOpen(false);
+    void load({ project: next, iteration: ALL, windowDays });
+  }
 
-  const load = useCallback(async () => {
+  function pickIteration(next: string) {
+    setIteration(next);
+    setMember(null);
+    void load({ project, iteration: next, windowDays });
+  }
+
+  function pickWindow(next: TeamWindow) {
+    setWindowDays(next);
+    setMember(null);
+    void load({ project, iteration, windowDays: next });
+  }
+
+  // Loads are triggered by the controls, never by an effect: nothing is queried until you choose a
+  // project, and each filter change passes its own values (state wouldn't be updated yet).
+  const load = useCallback(async ({ project, iteration, windowDays }: { project: string; iteration: string; windowDays: TeamWindow }) => {
     if (!project) return;
+    const cacheKey = `${project}|${iteration}|${windowDays}`;
     const cached = workCache.get(cacheKey);
     if (cached) {
       setItems(cached.items);
@@ -69,16 +111,14 @@ export function TeamView({ projects, defaultProject }: TeamViewProps) {
       setError(result.error);
       setItems([]);
     }
-  }, [project, iteration, windowDays, cacheKey]);
+  }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
+  // Sprints for the picked project. Nothing is pre-selected — you narrow it yourself. The reset of
+  // the previous project's sprints happens in `pickProject`, not here: setState directly in an
+  // effect body cascades renders (react-hooks/set-state-in-effect).
   useEffect(() => {
     if (!project) return;
     let cancelled = false;
-    setIteration(ALL); // a sprint from the previous project is meaningless here
     getAzureDevOpsIterations(project)
       .then((paths) => {
         if (!cancelled) setIterations(paths);
@@ -93,9 +133,10 @@ export function TeamView({ projects, defaultProject }: TeamViewProps) {
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((i) => i.title.toLowerCase().includes(q) || i.assignedTo.toLowerCase().includes(q));
-  }, [items, search]);
+    const scoped = scope === "work" ? items.filter((i) => !isContainerType(i.type)) : items;
+    if (!q) return scoped;
+    return scoped.filter((i) => i.title.toLowerCase().includes(q) || i.assignedTo.toLowerCase().includes(q));
+  }, [items, search, scope]);
 
   const rollup = useMemo(() => rollupTeam(visible, asOf ?? new Date()), [visible, asOf]);
   const maxClosed = Math.max(1, ...rollup.members.map((m) => m.closed));
@@ -104,20 +145,28 @@ export function TeamView({ projects, defaultProject }: TeamViewProps) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={project} onValueChange={setProject}>
-          <SelectTrigger className="w-56">
-            <SelectValue placeholder="Project" />
-          </SelectTrigger>
-          <SelectContent>
-            {projects.map((p) => (
-              <SelectItem key={p} value={p}>
-                {p}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Searchable picker — there are dozens of projects, so a plain dropdown means scrolling. */}
+        <Button variant="outline" size="sm" className="w-56 justify-between" onClick={() => setPickerOpen(true)}>
+          <span className={project ? "truncate" : "truncate text-muted-foreground"}>
+            {project || "Choose a project…"}
+          </span>
+          <Search className="size-3.5 shrink-0 opacity-60" />
+        </Button>
+        <CommandDialog open={pickerOpen} onOpenChange={setPickerOpen} title="Choose a project">
+          <CommandInput placeholder="Search projects…" />
+          <CommandList>
+            <CommandEmpty>No project found.</CommandEmpty>
+            <CommandGroup heading="Azure DevOps projects">
+              {projects.map((p) => (
+                <CommandItem key={p} value={p} onSelect={() => pickProject(p)}>
+                  {p}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </CommandDialog>
 
-        <Select value={iteration} onValueChange={setIteration}>
+        <Select value={iteration} onValueChange={pickIteration} disabled={!project}>
           <SelectTrigger className="w-48">
             <SelectValue placeholder="All sprints" />
           </SelectTrigger>
@@ -131,7 +180,7 @@ export function TeamView({ projects, defaultProject }: TeamViewProps) {
           </SelectContent>
         </Select>
 
-        <Select value={String(windowDays)} onValueChange={(v) => setWindowDays(Number(v) as TeamWindow)}>
+        <Select value={String(windowDays)} onValueChange={(v) => pickWindow(Number(v) as TeamWindow)}>
           <SelectTrigger className="w-36">
             <SelectValue />
           </SelectTrigger>
@@ -144,6 +193,16 @@ export function TeamView({ projects, defaultProject }: TeamViewProps) {
           </SelectContent>
         </Select>
 
+        <Select value={scope} onValueChange={(v) => setScope(v as "work" | "all")}>
+          <SelectTrigger className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="work">Tasks &amp; bugs</SelectItem>
+            <SelectItem value="all">All item types</SelectItem>
+          </SelectContent>
+        </Select>
+
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -151,7 +210,7 @@ export function TeamView({ projects, defaultProject }: TeamViewProps) {
           className="w-56"
         />
 
-        <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={() => void load({ project, iteration, windowDays })} disabled={loading || !project}>
           {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />} Refresh
         </Button>
         {loading ? <span className="text-xs text-muted-foreground">Reading Azure DevOps…</span> : null}
@@ -165,107 +224,96 @@ export function TeamView({ projects, defaultProject }: TeamViewProps) {
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <SummaryTile label="Closed" value={String(rollup.closed)} hint={`last ${windowDays} days`} />
-        <SummaryTile label="In flight" value={String(rollup.wip)} hint="open right now" />
-        <SummaryTile label="Bug share" value={`${Math.round(rollup.bugRatio * 100)}%`} hint="of items touched" />
-        <SummaryTile label="Median cycle" value={formatDays(rollup.medianCycleDays)} hint="created → closed" />
-        <SummaryTile label="Unassigned" value={String(rollup.unassigned)} hint="no assignee" />
+        <SummaryTile label="Finished" value={String(rollup.closed)} hint={`closed in the last ${windowDays} days`} />
+        <SummaryTile label="Being worked on" value={String(rollup.wip)} hint="open items right now" />
+        <SummaryTile label="Bugs" value={`${Math.round(rollup.bugRatio * 100)}%`} hint="of all items in view" />
+        <SummaryTile
+          label="Usual time to finish"
+          value={formatDays(rollup.medianCycleDays)}
+          hint="from created to closed"
+        />
+        <SummaryTile
+          label="Estimated"
+          value={`${Math.round(rollup.estimateCoverage * 100)}%`}
+          hint={`of items · ${rollup.plannedHours > 0 ? `${rollup.plannedHours}h planned` : "no hours set"}`}
+        />
       </div>
 
       <Card>
         <CardContent className="pt-6">
-          {rollup.members.length === 0 ? (
+          {!project ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Users className="size-4" /> Choose a project above to load its team.
+            </p>
+          ) : rollup.members.length === 0 ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <Users className="size-4" /> {loading ? "Loading…" : "No work items in this window."}
             </p>
           ) : (
             <ul className="divide-y divide-border/60">
-              {rollup.members.map((m) => {
-                const isOpen = expanded === m.name;
-                return (
-                  <li key={m.name}>
-                    <button
-                      type="button"
-                      onClick={() => setExpanded(isOpen ? null : m.name)}
-                      className="flex w-full items-center gap-3 py-3 text-left hover:bg-accent/40"
+              {rollup.members.map((m) => (
+                <li key={m.name}>
+                  <button
+                    type="button"
+                    onClick={() => setMember(m)}
+                    className="flex w-full items-center gap-3 py-3 text-left hover:bg-accent/40"
+                  >
+                    <span
+                      className={`inline-flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${avatarColor(m.name)}`}
+                      title={m.email ?? m.name}
                     >
-                      <ChevronRight
-                        className={`size-4 shrink-0 text-muted-foreground transition-transform ${isOpen ? "rotate-90" : ""}`}
-                      />
-                      <span
-                        className={`inline-flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${avatarColor(m.name)}`}
-                        title={m.email ?? m.name}
-                      >
-                        {initials(m.name)}
+                      {initials(m.name)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{m.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {m.total} items · {Math.round(m.bugRatio * 100)}% bugs ·{" "}
+                        {Math.round(m.estimateCoverage * 100)}% estimated
+                        {m.aging > 0 ? ` · ${m.aging} untouched` : ""}
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">{m.name}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {m.total} items · {Math.round(m.bugRatio * 100)}% bugs
-                          {m.aging > 0 ? ` · ${m.aging} aging` : ""}
-                        </span>
-                      </span>
-                      <Metric label="closed" value={m.closed} bar={m.closed / maxClosed} tone="bg-emerald-500" />
-                      <Metric label="in flight" value={m.wip} bar={m.wip / maxWip} tone="bg-primary" />
-                      <span className="w-16 shrink-0 text-right">
-                        <span className="block font-mono text-sm tabular-nums">{formatDays(m.medianCycleDays)}</span>
-                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">cycle</span>
-                      </span>
-                    </button>
-
-                    {isOpen ? (
-                      <ul className="mb-3 space-y-1 pl-11">
-                        {visible
-                          .filter((i) => (i.assignedTo || UNASSIGNED) === m.name)
-                          .sort((a, b) => (b.changedDate ?? "").localeCompare(a.changedDate ?? ""))
-                          .map((i) => (
-                            <li key={i.externalId}>
-                              <button
-                                type="button"
-                                onClick={() => setOpenItem(i.externalId)}
-                                className="flex w-full items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-left text-sm hover:bg-accent/60"
-                              >
-                                <span
-                                  className="size-2.5 shrink-0 rounded-[3px]"
-                                  style={{ backgroundColor: workItemTypeColor(i.type) }}
-                                  title={i.type}
-                                />
-                                <span className="shrink-0 font-mono text-xs text-muted-foreground">#{i.externalId}</span>
-                                <span className="min-w-0 flex-1 truncate">{i.title}</span>
-                                {i.iterationPath ? (
-                                  <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
-                                    {iterationLabel(i.iterationPath)}
-                                  </span>
-                                ) : null}
-                                <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                                  <span
-                                    className="size-1.5 shrink-0 rounded-full"
-                                    style={{ backgroundColor: workItemStateColor(i.state) }}
-                                  />
-                                  {i.state}
-                                </span>
-                              </button>
-                            </li>
-                          ))}
-                      </ul>
-                    ) : null}
-                  </li>
-                );
-              })}
+                    </span>
+                    <Metric label="finished" value={m.closed} bar={m.closed / maxClosed} tone="bg-emerald-500" />
+                    <Metric label="in progress" value={m.wip} bar={m.wip / maxWip} tone="bg-primary" />
+                    <span className="w-20 shrink-0 text-right">
+                      <span className="block font-mono text-sm tabular-nums">{formatDays(m.medianCycleDays)}</span>
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">to finish</span>
+                    </span>
+                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
-          <p className="mt-4 text-xs text-muted-foreground">
-            Aging = open and untouched for {AGING_DAYS}+ days. Read live from Azure DevOps — nothing is stored locally.
+          <dl className="mt-5 grid gap-x-6 gap-y-2 border-t border-border/60 pt-4 text-xs sm:grid-cols-2">
+            {[
+              ["Finished", `Items closed inside the last ${windowDays} days.`],
+              ["In progress", "Items still open right now, any age."],
+              ["To finish", "Typical days from created to closed (median)."],
+              ["Untouched", `Open with no update for ${AGING_DAYS}+ days.`],
+              ["Estimated", "Share of their items that carry an Original Estimate."],
+              ["Tasks & bugs", "Stories/features/epics are excluded — they're containers for the work below them."],
+            ].map(([term, meaning]) => (
+              <div key={term} className="flex gap-2">
+                <dt className="w-24 shrink-0 font-medium text-foreground/70">{term}</dt>
+                <dd className="min-w-0 flex-1 text-muted-foreground">{meaning}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Click a person for charts, bug-vs-story timings and estimation. Read live from Azure DevOps — nothing
+            stored locally.
           </p>
         </CardContent>
       </Card>
 
-      {openItem ? (
-        <AzureDevOpsTaskDetail
-          externalId={openItem}
-          open={openItem !== null}
+      {member ? (
+        <MemberDetailDialog
+          member={member}
+          items={visible.filter((i) => (i.assignedTo || UNASSIGNED) === member.name)}
+          windowDays={windowDays}
+          open={member !== null}
           onOpenChange={(next) => {
-            if (!next) setOpenItem(null);
+            if (!next) setMember(null);
           }}
         />
       ) : null}

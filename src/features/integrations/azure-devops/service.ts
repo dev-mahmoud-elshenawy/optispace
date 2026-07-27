@@ -276,25 +276,42 @@ const TEAM_FIELD_KEYS = [
   "System.CreatedDate",
   "System.ChangedDate",
   "Microsoft.VSTS.Common.ClosedDate",
+  "Microsoft.VSTS.Scheduling.OriginalEstimate",
+  "Microsoft.VSTS.Scheduling.RemainingWork",
+  "Microsoft.VSTS.Scheduling.CompletedWork",
+  "Microsoft.VSTS.Scheduling.Effort",
 ];
+
+const num = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 const wiqlLiteral = (v: string) => v.replace(/'/g, "''");
 
 // Every state name in this project that is NOT done, across all its work item types — resolved
 // from state *categories* so custom workflows work. WIQL can't filter by category, so the names
-// are what goes into the query.
+// are what goes into the query. Memoized per project for the process: a project's workflow is
+// static in practice, and this is 1 + N ADO calls that would otherwise run on every team query.
+const openStatesByProject = new Map<string, string[]>();
+
 async function openStateNames(wit: IWorkItemTrackingApi, project: string): Promise<string[]> {
+  const cached = openStatesByProject.get(project);
+  if (cached) return cached;
   const types = await wit.getWorkItemTypes(project).catch(() => []);
   const statesFor = stateCategoryResolver(wit);
+  const perType = await Promise.all(
+    types.map(async (t) => (t.name ? Object.entries(await statesFor(project, t.name)) : [])),
+  );
   const open = new Set<string>();
-  for (const t of types) {
-    const name = t.name;
-    if (!name) continue;
-    for (const [state, category] of Object.entries(await statesFor(project, name))) {
-      if (state && categoryToStatus(category) !== null && categoryToStatus(category) !== "done") open.add(state);
-    }
+  for (const [state, category] of perType.flat()) {
+    const status = categoryToStatus(category);
+    if (state && status !== null && status !== "done") open.add(state);
   }
-  return [...open];
+  const names = [...open];
+  openStatesByProject.set(project, names);
+  return names;
 }
 
 export async function fetchTeamWorkItems(input: {
@@ -328,10 +345,12 @@ export async function fetchTeamWorkItems(input: {
     ...(stateList ? [`${base} AND [System.State] IN (${stateList}) ORDER BY [System.ChangedDate] DESC`] : []),
   ];
 
+  // Both WIQL queries and every detail chunk run in PARALLEL — serial round trips are what made
+  // a whole-project ("All sprints") read feel slow, not the amount of data.
+  const results = await Promise.all(queries.map((query) => wit.queryByWiql({ query })));
   const seen = new Set<number>();
   const allIds: number[] = [];
-  for (const query of queries) {
-    const result = await wit.queryByWiql({ query });
+  for (const result of results) {
     for (const w of result.workItems ?? []) {
       const id = Number(w.id);
       if (!seen.has(id)) {
@@ -344,10 +363,9 @@ export async function fetchTeamWorkItems(input: {
   const cap = CHUNK_SIZE * MAX_CHUNKS;
   const ids = allIds.slice(0, cap);
 
-  const detail: WorkItem[] = [];
-  for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
-    detail.push(...(await wit.getWorkItems(ids.slice(i, i + CHUNK_SIZE), TEAM_FIELD_KEYS)));
-  }
+  const chunks: number[][] = [];
+  for (let i = 0; i < ids.length; i += CHUNK_SIZE) chunks.push(ids.slice(i, i + CHUNK_SIZE));
+  const detail = (await Promise.all(chunks.map((chunk) => wit.getWorkItems(chunk, TEAM_FIELD_KEYS)))).flat();
 
   const statesFor = stateCategoryResolver(wit);
   const items: TeamWorkItem[] = [];
@@ -373,6 +391,10 @@ export async function fetchTeamWorkItems(input: {
       createdDate: fieldStr(f, "System.CreatedDate"),
       changedDate: fieldStr(f, "System.ChangedDate") || null,
       closedDate: fieldStr(f, "Microsoft.VSTS.Common.ClosedDate") || null,
+      originalEstimate: num(f["Microsoft.VSTS.Scheduling.OriginalEstimate"]),
+      remainingWork: num(f["Microsoft.VSTS.Scheduling.RemainingWork"]),
+      completedWork: num(f["Microsoft.VSTS.Scheduling.CompletedWork"]),
+      storyPoints: num(f["Microsoft.VSTS.Scheduling.Effort"]),
       url: itemUrl(config.orgUrl, project, wi.id ?? 0),
     });
   }
@@ -776,6 +798,18 @@ export async function createWorkItem(input: {
 
 // Iteration paths available in a project (for the sprint dropdown).
 export async function fetchIterations(project: string): Promise<string[]> {
+  return (await fetchIterationNodes(project)).map((i) => i.path);
+}
+
+export interface IterationNode {
+  path: string;
+  startDate: string | null; // ISO; null when the sprint has no dates set in ADO
+  finishDate: string | null;
+}
+
+// Leaf iterations in ADO tree order, with their dates — the dates let the team view open on the
+// CURRENT sprint instead of querying a whole project up front.
+export async function fetchIterationNodes(project: string): Promise<IterationNode[]> {
   const c = await apis();
   if (!c) return [];
   let root: WorkItemClassificationNode;
@@ -784,15 +818,22 @@ export async function fetchIterations(project: string): Promise<string[]> {
   } catch {
     return [];
   }
-  const paths: string[] = [];
+  const nodes: IterationNode[] = [];
   const walk = (node: WorkItemClassificationNode, prefix: string) => {
     const name = node.name ?? "";
     const path = prefix ? `${prefix}\\${name}` : name;
-    if (!node.hasChildren || (node.children?.length ?? 0) === 0) paths.push(path);
+    if (!node.hasChildren || (node.children?.length ?? 0) === 0) {
+      const attributes = node.attributes as { startDate?: Date | string; finishDate?: Date | string } | undefined;
+      nodes.push({
+        path,
+        startDate: toIso(attributes?.startDate ?? null),
+        finishDate: toIso(attributes?.finishDate ?? null),
+      });
+    }
     node.children?.forEach((child) => walk(child, path));
   };
   walk(root, "");
-  return paths;
+  return nodes;
 }
 
 export async function postComment(project: string, externalId: string, text: string): Promise<void> {
