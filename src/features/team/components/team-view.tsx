@@ -168,7 +168,13 @@ export function TeamView({ projects }: TeamViewProps) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
         {/* Searchable picker — there are dozens of projects, so a plain dropdown means scrolling. */}
-        <Button variant="outline" size="sm" className="w-56 justify-between" onClick={() => setPickerOpen(true)}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-56 justify-between"
+          disabled={loading}
+          onClick={() => setPickerOpen(true)}
+        >
           <span className={project ? "truncate" : "truncate text-muted-foreground"}>
             {project || "Choose a project…"}
           </span>
@@ -188,8 +194,8 @@ export function TeamView({ projects }: TeamViewProps) {
           </CommandList>
         </CommandDialog>
 
-        <Select value={iteration} onValueChange={pickIteration} disabled={!project}>
-          <SelectTrigger className="w-48">
+        <Select value={iteration} onValueChange={pickIteration} disabled={!project || loading}>
+          <SelectTrigger className="w-48 [&>span]:truncate">
             <SelectValue placeholder="Choose a sprint…" />
           </SelectTrigger>
           <SelectContent>
@@ -198,11 +204,11 @@ export function TeamView({ projects }: TeamViewProps) {
                 {iterationLabel(it)}
               </SelectItem>
             ))}
-            <SelectItem value={ALL}>All sprints (whole project — slow)</SelectItem>
+            <SelectItem value={ALL}>All sprints · slow</SelectItem>
           </SelectContent>
         </Select>
 
-        <Select value={String(windowDays)} onValueChange={(v) => pickWindow(Number(v) as TeamWindow)}>
+        <Select value={String(windowDays)} onValueChange={(v) => pickWindow(Number(v) as TeamWindow)} disabled={loading}>
           <SelectTrigger className="w-36">
             <SelectValue />
           </SelectTrigger>
@@ -235,9 +241,18 @@ export function TeamView({ projects }: TeamViewProps) {
         <Button variant="outline" size="sm" onClick={() => void load({ project, iteration, windowDays })} disabled={loading || !project || !iteration}>
           {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />} Refresh
         </Button>
-        {loading ? <span className="text-xs text-muted-foreground">Reading Azure DevOps…</span> : null}
+
       </div>
 
+      {loading ? (
+        <p className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+          <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+          <span>
+            Reading {project} from Azure DevOps…
+            {iteration === ALL ? " Whole project — this one takes a while." : ""}
+          </span>
+        </p>
+      ) : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {truncated ? (
         <p className="rounded-md bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400">
@@ -250,9 +265,9 @@ export function TeamView({ projects }: TeamViewProps) {
         <SummaryTile label="Being worked on" value={String(rollup.wip)} hint="open items right now" />
         <SummaryTile label="Bugs" value={`${Math.round(rollup.bugRatio * 100)}%`} hint="of all items in view" />
         <SummaryTile
-          label="Usual time to finish"
-          value={formatDays(rollup.medianCycleDays)}
-          hint="from created to closed"
+          label="Active work time"
+          value={formatDays(rollup.medianWorkDays)}
+          hint={`Active → Closed · ${formatDays(rollup.medianLeadDays)} incl. backlog wait`}
         />
         <SummaryTile
           label="Estimated"
@@ -295,7 +310,8 @@ export function TeamView({ projects }: TeamViewProps) {
             {[
               ["Finished", `Items closed inside the last ${windowDays} days.`],
               ["In progress", "Items still open right now, any age."],
-              ["To finish", "Typical days from created to closed (median)."],
+              ["Active work", "Median time from Active to Closed — the real work window, backlog wait excluded."],
+              ["Lead time", "Median from Created to Closed, which includes however long it sat in the backlog."],
               ["Untouched", `Open with no update for ${AGING_DAYS}+ days.`],
               ["Estimated", "Share of their items that carry an Original Estimate."],
               ["Tasks & bugs", "Stories/features/epics are excluded — they're containers for the work below them."],

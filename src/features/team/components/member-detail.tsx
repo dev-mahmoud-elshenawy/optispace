@@ -112,7 +112,7 @@ export function MemberDetailDialog({
         </DialogHeader>
 
         {/* Headline scorecard: their number, then the team's, so every figure reads as relative. */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <Stat
             label="Finished"
             value={String(member.closed)}
@@ -120,14 +120,24 @@ export function MemberDetailDialog({
             good={team.closedPerMember > 0 ? member.closed >= team.closedPerMember : null}
           />
           <Stat
-            label="Time to finish"
-            value={formatDays(member.medianCycleDays)}
-            compare={`team ${formatDays(team.medianCycleDays)} · slow tail ${formatDays(detail.p85CycleDays)}`}
+            label={member.medianWorkDays !== null ? "Active work time" : "Active work time (n/a)"}
+            value={formatDays(member.medianWorkDays)}
+            compare={
+              member.medianWorkDays !== null
+                ? `Active → Closed · team ${formatDays(team.medianWorkDays)} · slow tail ${formatDays(detail.p85WorkDays)}`
+                : "no closed item recorded an Active date — use lead time"
+            }
             good={
-              member.medianCycleDays !== null && team.medianCycleDays !== null
-                ? member.medianCycleDays <= team.medianCycleDays
+              member.medianWorkDays !== null && team.medianWorkDays !== null
+                ? member.medianWorkDays <= team.medianWorkDays
                 : null
             }
+          />
+          <Stat
+            label="Lead time"
+            value={formatDays(member.medianLeadDays)}
+            compare="Created → Closed — includes backlog waiting"
+            good={null}
           />
           <Stat
             label="Bug share"
@@ -169,7 +179,7 @@ export function MemberDetailDialog({
             <Panel title="Finished per week" hint="Rhythm over the last 8 weeks — gaps are as telling as peaks.">
               {detail.weekly.some((w) => w.count > 0) ? (
                 <ResponsiveContainer width="100%" height={170}>
-                  <AreaChart data={detail.weekly} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}>
+                  <AreaChart data={detail.weekly} margin={{ top: 14, right: 18, bottom: 0, left: -18 }}>
                     <defs>
                       <linearGradient id="weeklyFill" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.5} />
@@ -177,8 +187,8 @@ export function MemberDetailDialog({
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                    <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval={0} />
-                    <YAxis allowDecimals={false} tick={axisTick} tickLine={false} axisLine={false} />
+                    <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                    <YAxis allowDecimals={false} tick={axisTick} tickLine={false} axisLine={false} domain={[0, (max: number) => Math.max(1, Math.ceil(max * 1.15))]} />
                     <Tooltip contentStyle={tooltipStyle} />
                     <Area
                       type="monotone"
@@ -196,8 +206,8 @@ export function MemberDetailDialog({
 
             <div className="grid gap-6 lg:grid-cols-2">
               <Panel
-                title="How long items took"
-                hint={`Spread, not an average. ${Math.round(detail.fastCloseRate * 100)}% closed in under 3 days. One lone tall bar usually means a bulk close in Azure DevOps.`}
+                title="How long the work actually took"
+                hint={`Active → Closed, so backlog waiting is excluded. ${Math.round(detail.fastCloseRate * 100)}% finished in under 3 days of active work${detail.activatedCoverage < 1 ? `; ${Math.round((1 - detail.activatedCoverage) * 100)}% of closed items never recorded an Active date and are left out` : ""}.`}
               >
                 <Bars data={detail.cycleBuckets} color="var(--chart-2)" />
               </Panel>
@@ -243,6 +253,36 @@ export function MemberDetailDialog({
               </div>
             </Panel>
 
+            <Panel
+              title="Responsiveness & board hygiene"
+              hint="Whether Azure DevOps is actually kept current. Comment-reply latency isn't available without a per-item history call, so these are the honest proxies."
+            >
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Stat
+                  label="Open items last updated"
+                  value={formatDays(detail.medianUpdateAgeDays)}
+                  compare="median age of the last edit on their open work"
+                  good={detail.medianUpdateAgeDays !== null ? detail.medianUpdateAgeDays <= AGING_DAYS : null}
+                />
+                <Stat
+                  label="Never updated"
+                  value={String(detail.neverUpdated)}
+                  compare={`open ${AGING_DAYS}d+ and untouched since creation`}
+                  good={detail.neverUpdated === 0}
+                />
+                <Stat
+                  label="Bug vs feature time"
+                  value={formatDays(detail.bugFixDays)}
+                  compare={`bugs vs ${formatDays(detail.featureFixDays)} for feature work`}
+                  good={
+                    detail.bugFixDays !== null && detail.featureFixDays !== null
+                      ? detail.bugFixDays <= detail.featureFixDays * 1.5
+                      : null
+                  }
+                />
+              </div>
+            </Panel>
+
             <div className="grid gap-6 lg:grid-cols-2">
               <Panel title="Kind of work" hint="Bug-heavy vs feature-heavy.">
                 <Donut rows={detail.typeMix.map((t) => ({ ...t, color: workItemTypeColor(t.label) }))} />
@@ -258,7 +298,7 @@ export function MemberDetailDialog({
               title="Estimation"
               hint="Coverage is the discipline signal. Accuracy needs Completed Work logged in Azure DevOps, which this org doesn't do — so it says so rather than inventing a ratio."
             >
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 <Stat
                   label="Estimated"
                   value={`${Math.round(member.estimateCoverage * 100)}%`}
@@ -269,6 +309,24 @@ export function MemberDetailDialog({
                   label="Planned hours"
                   value={member.plannedHours > 0 ? String(member.plannedHours) : "—"}
                   compare="sum of Original Estimate"
+                  good={null}
+                />
+                <Stat
+                  label="Remaining hours"
+                  value={member.remainingHours > 0 ? String(member.remainingHours) : "—"}
+                  compare="sum of Remaining Work — what's still outstanding"
+                  good={null}
+                />
+                <Stat
+                  label="Actual hours"
+                  value={member.loggedHours > 0 ? String(member.loggedHours) : "not logged"}
+                  compare="sum of Completed Work in Azure DevOps"
+                  good={null}
+                />
+                <Stat
+                  label="Effort points"
+                  value={member.storyPoints > 0 ? String(member.storyPoints) : "—"}
+                  compare="sum of the ADO Effort field"
                   good={null}
                 />
                 <Stat
@@ -385,7 +443,7 @@ function Bars({ data, color = "var(--chart-1)" }: { data: { label: string; count
   if (!data.some((d) => d.count > 0)) return <Empty />;
   return (
     <ResponsiveContainer width="100%" height={170}>
-      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}>
+      <BarChart data={data} margin={{ top: 14, right: 12, bottom: 0, left: -18 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
         <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval={0} />
         <YAxis allowDecimals={false} tick={axisTick} tickLine={false} axisLine={false} />

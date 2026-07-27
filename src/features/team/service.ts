@@ -36,11 +36,23 @@ export function estimateAccuracy(items: TeamWorkItem[]): number | null {
   return median(ratios);
 }
 
-function cycleDays(item: TeamWorkItem): number | null {
+// Two different questions, and conflating them is what made "time to finish" look absurd:
+//   workDays = Active → Closed  → how long the work actually took (32 minutes, not 94 days)
+//   leadDays = Created → Closed → how long the request waited overall, backlog included
+// Work time is null when the item never recorded an Active date; the UI says when it fell back.
+function workDays(item: TeamWorkItem): number | null {
+  if (!item.closedDate || !item.activatedDate) return null;
+  const days = (new Date(item.closedDate).getTime() - new Date(item.activatedDate).getTime()) / DAY_MS;
+  return Number.isFinite(days) && days >= 0 ? days : null;
+}
+
+function leadDays(item: TeamWorkItem): number | null {
   if (!item.closedDate) return null;
   const days = (new Date(item.closedDate).getTime() - new Date(item.createdDate).getTime()) / DAY_MS;
   return Number.isFinite(days) && days >= 0 ? days : null;
 }
+
+const nums = (values: (number | null)[]): number[] => values.filter((d): d is number => d !== null);
 
 // One pass per member: WIP now, closed inside the window, bug share, median cycle time and
 // aging (open + untouched). `now` is passed in so the caller controls it — computing it here
@@ -71,13 +83,16 @@ export function rollupTeam(items: TeamWorkItem[], now: Date): TeamRollup {
       closed: closed.length,
       bugs,
       bugRatio: own.length > 0 ? bugs / own.length : 0,
-      medianCycleDays: median(closed.map(cycleDays).filter((d): d is number => d !== null)),
+      medianWorkDays: median(nums(closed.map(workDays))),
+      medianLeadDays: median(nums(closed.map(leadDays))),
       aging: open.filter((i) => (i.changedDate ? new Date(i.changedDate).getTime() < agingBefore : false)).length,
       total: own.length,
       estimated: estimated.length,
       estimateCoverage: own.length > 0 ? estimated.length / own.length : 0,
       plannedHours: sum(own.map((i) => i.originalEstimate)),
+      remainingHours: sum(own.map((i) => i.remainingWork)),
       loggedHours: sum(own.map((i) => i.completedWork)),
+      storyPoints: sum(own.map((i) => i.storyPoints)),
       accuracy: estimateAccuracy(own),
     };
   });
@@ -91,7 +106,8 @@ export function rollupTeam(items: TeamWorkItem[], now: Date): TeamRollup {
     closed: items.filter((i) => i.status === "done").length,
     wip: items.filter((i) => i.status !== "done").length,
     bugRatio: items.length > 0 ? bugs / items.length : 0,
-    medianCycleDays: median(items.map(cycleDays).filter((d): d is number => d !== null)),
+    medianWorkDays: median(nums(items.map(workDays))),
+    medianLeadDays: median(nums(items.map(leadDays))),
     unassigned: byMember.get(UNASSIGNED)?.length ?? 0,
     estimateCoverage: items.length > 0 ? items.filter((i) => (i.originalEstimate ?? 0) > 0).length / items.length : 0,
     plannedHours: sum(items.map((i) => i.originalEstimate)),
@@ -118,7 +134,7 @@ function tally(labels: string[]): { label: string; count: number }[] {
 export function memberDetail(items: TeamWorkItem[], now: Date): MemberDetail {
   const closed = items.filter((i) => i.status === "done" && i.closedDate);
   const open = items.filter((i) => i.status !== "done");
-  const cycles = closed.map(cycleDays).filter((d): d is number => d !== null);
+  const cycles = nums(closed.map(workDays)); // the histogram measures actual work windows
 
   const monthKey = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
   const monthOrder = [...new Set(closed.map((i) => new Date(i.closedDate as string).getTime()))].sort((a, b) => a - b);
@@ -131,7 +147,8 @@ export function memberDetail(items: TeamWorkItem[], now: Date): MemberDetail {
 
   return {
     weekly: weeklyThroughput(items, now),
-    p85CycleDays: percentile(cycles, 0.85),
+    p85WorkDays: percentile(cycles, 0.85),
+    activatedCoverage: closed.length > 0 ? closed.filter((i) => i.activatedDate).length / closed.length : 0,
     fastCloseRate: cycles.length > 0 ? cycles.filter((d) => d < FAST_CLOSE_DAYS).length / cycles.length : 0,
     // Chronological, not count-sorted — a trend only reads left-to-right.
     closedByMonth: monthLabels.map((label) => ({ label, count: closedPerMonth.get(label) ?? 0 })),
@@ -149,7 +166,7 @@ export function memberDetail(items: TeamWorkItem[], now: Date): MemberDetail {
           label,
           count: own.length,
           closed: ownClosed.length,
-          medianDays: median(ownClosed.map(cycleDays).filter((d): d is number => d !== null)),
+          medianDays: median(nums(ownClosed.map(workDays))),
           plannedHours: sum(own.map((i) => i.originalEstimate)),
         };
       })
@@ -163,6 +180,18 @@ export function memberDetail(items: TeamWorkItem[], now: Date): MemberDetail {
             ...open.map((i) => (now.getTime() - new Date(i.changedDate ?? i.createdDate).getTime()) / DAY_MS),
           )
         : null,
+    medianUpdateAgeDays: median(
+      open.map((i) => (now.getTime() - new Date(i.changedDate ?? i.createdDate).getTime()) / DAY_MS),
+    ),
+    // "Created and never touched": the update timestamp never moved past creation day, yet the item
+    // has been open longer than the aging threshold — the clearest sign DevOps isn't being kept current.
+    neverUpdated: open.filter((i) => {
+      const created = new Date(i.createdDate).getTime();
+      const changed = new Date(i.changedDate ?? i.createdDate).getTime();
+      return changed - created < DAY_MS && (now.getTime() - created) / DAY_MS > AGING_DAYS;
+    }).length,
+    bugFixDays: median(nums(closed.filter((i) => i.type.toLowerCase() === "bug").map(workDays))),
+    featureFixDays: median(nums(closed.filter((i) => i.type.toLowerCase() !== "bug").map(workDays))),
   };
 }
 
@@ -192,10 +221,10 @@ function weeklyThroughput(items: TeamWorkItem[], now: Date): { label: string; co
 
 export function teamAverages(members: TeamMemberStats[]): TeamAverages {
   const real = members.filter((m) => m.name !== UNASSIGNED);
-  const cycles = real.map((m) => m.medianCycleDays).filter((d): d is number => d !== null);
+  const cycles = nums(real.map((m) => m.medianWorkDays));
   return {
     bugRatio: real.length > 0 ? real.reduce((s, m) => s + m.bugRatio, 0) / real.length : 0,
-    medianCycleDays: median(cycles),
+    medianWorkDays: median(cycles),
     estimateCoverage: real.length > 0 ? real.reduce((s, m) => s + m.estimateCoverage, 0) / real.length : 0,
     closedPerMember: real.length > 0 ? real.reduce((s, m) => s + m.closed, 0) / real.length : 0,
   };
@@ -228,10 +257,10 @@ export function memberInsights(
       text: `Finished ${member.closed} items against a team average of ${team.closedPerMember.toFixed(1)} — worth understanding what absorbed the time.`,
     });
   }
-  if (member.medianCycleDays !== null && detail.p85CycleDays !== null && detail.p85CycleDays > member.medianCycleDays * 4) {
+  if (member.medianWorkDays !== null && detail.p85WorkDays !== null && detail.p85WorkDays > member.medianWorkDays * 4) {
     out.push({
       tone: "watch",
-      text: `Inconsistent turnaround: typically ${formatDays(member.medianCycleDays)}, but the slow tail reaches ${formatDays(detail.p85CycleDays)}.`,
+      text: `Inconsistent turnaround: typically ${formatDays(member.medianWorkDays)} of active work, but the slow tail reaches ${formatDays(detail.p85WorkDays)}.`,
     });
   }
   if (member.total >= 5 && team.bugRatio > 0 && member.bugRatio >= Math.max(team.bugRatio * 1.5, 0.25)) {
@@ -261,6 +290,30 @@ export function memberInsights(
       text: `Only ${Math.round(member.estimateCoverage * 100)}% of their work carries an estimate${
         team.estimateCoverage > 0 ? ` (team ${Math.round(team.estimateCoverage * 100)}%)` : " — nobody on this project estimates"
       } — planning is guesswork.`,
+    });
+  }
+  if (detail.neverUpdated > 0) {
+    out.push({
+      tone: detail.neverUpdated >= 5 ? "risk" : "watch",
+      text: `${detail.neverUpdated} open item${detail.neverUpdated === 1 ? " has" : "s have"} never been touched since creation — Azure DevOps isn't being kept current, so status here can't be trusted.`,
+    });
+  }
+  if (detail.medianUpdateAgeDays !== null && member.wip >= 3) {
+    const stale = detail.medianUpdateAgeDays > AGING_DAYS;
+    out.push({
+      tone: stale ? "watch" : "good",
+      text: `Their open items were last updated ${formatDays(detail.medianUpdateAgeDays)} ago on average${
+        stale ? " — ask for a board sweep before the next review." : "."
+      }`,
+    });
+  }
+  if (detail.bugFixDays !== null && detail.featureFixDays !== null) {
+    const slowerOnBugs = detail.bugFixDays > detail.featureFixDays * 1.5;
+    out.push({
+      tone: slowerOnBugs ? "watch" : "good",
+      text: `Bugs take ${formatDays(detail.bugFixDays)} to close vs ${formatDays(detail.featureFixDays)} for feature work${
+        slowerOnBugs ? " — fixes are dragging." : "."
+      }`,
     });
   }
   if (member.closed === 0 && member.wip > 0) {
@@ -294,11 +347,16 @@ export function memberReportMarkdown(input: {
     `| --- | --- | --- |`,
     `| Finished | ${member.closed} | ${team.closedPerMember.toFixed(1)} avg |`,
     `| Open now | ${member.wip} (${member.inProgress} in progress) | — |`,
-    `| Typical time to finish | ${formatDays(member.medianCycleDays)} | ${formatDays(team.medianCycleDays)} |`,
-    `| Slow tail (p85) | ${formatDays(detail.p85CycleDays)} | — |`,
+    `| Active work time (median) | ${formatDays(member.medianWorkDays)} | ${formatDays(team.medianWorkDays)} |`,
+    `| Slow tail (p85 active) | ${formatDays(detail.p85WorkDays)} | — |`,
+    `| Lead time incl. backlog wait | ${formatDays(member.medianLeadDays)} | — |`,
     `| Bug share | ${pct(member.bugRatio)} | ${pct(team.bugRatio)} |`,
     `| Untouched ${AGING_DAYS}d+ | ${member.aging} | — |`,
     `| Estimate coverage | ${pct(member.estimateCoverage)} | ${pct(team.estimateCoverage)} |`,
+    `| Planned / remaining / logged hours | ${member.plannedHours || "—"} / ${member.remainingHours || "—"} / ${member.loggedHours || "—"} | — |`,
+    `| Bug fix time vs feature | ${formatDays(detail.bugFixDays)} vs ${formatDays(detail.featureFixDays)} | — |`,
+    `| Open items last updated | ${formatDays(detail.medianUpdateAgeDays)} ago | — |`,
+    `| Never updated since creation | ${detail.neverUpdated} | — |`,
     ``,
     `## Observations`,
     ...insights.map((i) => `- ${i.tone === "good" ? "✅" : i.tone === "watch" ? "⚠️" : "🔴"} ${i.text}`),
@@ -313,7 +371,8 @@ export function memberReportMarkdown(input: {
     ``,
     `## Caveats`,
     `- Estimate vs actual is unavailable: Completed Work is not filled in, so only planned hours exist.`,
-    `- A bulk close in Azure DevOps (many items closed at one timestamp) inflates time-to-finish.`,
+    `- Active work time is Active → Closed. Lead time is Created → Closed and includes backlog waiting, which can be months.`,
+    `- Items closed without ever being set Active are excluded from work time (${Math.round(detail.activatedCoverage * 100)}% coverage).`,
     `- Counts cover Tasks and Bugs; user stories are containers and are excluded.`,
   ];
   return lines.join("\n");
@@ -324,8 +383,13 @@ export function initials(name: string): string {
   return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
 }
 
+// Sub-day work happens (an item can be opened and closed in half an hour), and rendering that as
+// "0.0d" reads as broken. Fall through to hours and minutes.
 export function formatDays(days: number | null): string {
   if (days === null) return "—";
+  const hours = days * 24;
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
+  if (days < 1) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`;
   return days >= 10 ? `${Math.round(days)}d` : `${days.toFixed(1)}d`;
 }
 

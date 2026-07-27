@@ -27,9 +27,9 @@ export function MemberCard({
 }) {
   const bugHeavy = member.total >= 5 && member.bugRatio >= Math.max(team.bugRatio * 1.5, 0.25);
   const slow =
-    member.medianCycleDays !== null &&
-    team.medianCycleDays !== null &&
-    member.medianCycleDays > team.medianCycleDays * 1.5;
+    member.medianWorkDays !== null &&
+    team.medianWorkDays !== null &&
+    member.medianWorkDays > team.medianWorkDays * 1.5;
   const ahead = team.closedPerMember > 0 && member.closed >= team.closedPerMember * 1.5;
   const hasTrend = weekly.some((w) => w.count > 0);
 
@@ -75,16 +75,20 @@ export function MemberCard({
             </span>
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">open</span>
           </span>
+          {/* Prefer the real work window; fall back to lead time (and say so) rather than showing a
+              bare dash when Azure DevOps never recorded an Active date. */}
           <span className="shrink-0">
             <span className="block font-mono text-2xl font-semibold leading-none tabular-nums">
-              {formatDays(member.medianCycleDays)}
+              {formatDays(member.medianWorkDays ?? member.medianLeadDays)}
             </span>
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">to finish</span>
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              {member.medianWorkDays !== null ? "active work" : "lead time"}
+            </span>
           </span>
           <span className="ml-auto h-10 w-24 shrink-0">
             {hasTrend ? (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={weekly} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+                <AreaChart data={weekly} margin={{ top: 4, right: 2, bottom: 2, left: 2 }}>
                   <defs>
                     <linearGradient id={`spark-${rank}`} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.6} />

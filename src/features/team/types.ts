@@ -16,6 +16,9 @@ export interface TeamWorkItem {
   createdDate: string; // ISO
   changedDate: string | null;
   closedDate: string | null;
+  // When the item actually went Active. THE key field for "how long did this take": an item can sit
+  // in the backlog for months, so created → closed measures the queue, not the work.
+  activatedDate: string | null;
   // Estimation fields, in hours (storyPoints is ADO's "Effort"). Frequently null — this org fills
   // in OriginalEstimate but never CompletedWork, so accuracy can't be computed from them alone.
   originalEstimate: number | null;
@@ -38,15 +41,18 @@ export interface TeamMemberStats {
   closed: number; // closed inside the window
   bugs: number; // bugs touched inside the window
   bugRatio: number; // 0..1 of that member's items in the window
-  medianCycleDays: number | null; // created → closed, median over their closed items
+  medianWorkDays: number | null; // Active → Closed: the actual work window (headline)
+  medianLeadDays: number | null; // Created → Closed: includes however long it waited in the backlog
   aging: number; // open items untouched for AGING_DAYS+
   total: number;
   // Estimation discipline: how many of their items carry an estimate at all, and the planned vs
   // logged hours. `accuracy` (median logged/planned) stays null unless CompletedWork is filled in.
   estimated: number;
   estimateCoverage: number; // 0..1
-  plannedHours: number;
-  loggedHours: number;
+  plannedHours: number; // Original Estimate
+  remainingHours: number; // Remaining Work — the closest thing to "actual" this org records
+  loggedHours: number; // Completed Work — 0 when nobody logs it
+  storyPoints: number; // ADO "Effort"
   accuracy: number | null;
 }
 
@@ -55,7 +61,8 @@ export interface TeamRollup {
   closed: number;
   wip: number;
   bugRatio: number;
-  medianCycleDays: number | null;
+  medianWorkDays: number | null;
+  medianLeadDays: number | null;
   unassigned: number;
   estimateCoverage: number; // 0..1 across every item in view
   plannedHours: number;
@@ -79,7 +86,7 @@ export interface Insight {
 // fair way to evaluate: "41% bugs vs 12% team average" says something, "41%" alone doesn't.
 export interface TeamAverages {
   bugRatio: number;
-  medianCycleDays: number | null;
+  medianWorkDays: number | null;
   estimateCoverage: number;
   closedPerMember: number;
 }
@@ -88,7 +95,8 @@ export interface TeamAverages {
 // a histogram shows it.
 export interface MemberDetail {
   weekly: { label: string; count: number }[]; // finished per week, oldest → newest
-  p85CycleDays: number | null; // the "worst realistic case" — consistency, not just the median
+  p85WorkDays: number | null; // the "worst realistic case" — consistency, not just the median
+  activatedCoverage: number; // share of closed items that even have an Active date (else we fall back to lead time)
   fastCloseRate: number; // 0..1 share of closed items done in under FAST_CLOSE_DAYS
   closedByMonth: { label: string; count: number }[];
   closedBySprint: { label: string; count: number }[];
@@ -101,6 +109,12 @@ export interface MemberDetail {
   fastestDays: number | null;
   slowestDays: number | null;
   oldestOpenDays: number | null;
+  // Responsiveness / board hygiene. Comment-reply latency would need a per-item history call, so
+  // the honest proxies are: how fresh their open items are, and how many were never touched at all.
+  medianUpdateAgeDays: number | null; // median days since the last update on their OPEN items
+  neverUpdated: number; // open, older than AGING_DAYS, and never edited since creation
+  bugFixDays: number | null; // median close time for Bugs
+  featureFixDays: number | null; // median close time for everything else
 }
 
 export const TEAM_WINDOWS = [15, 30, 90, 180] as const;
