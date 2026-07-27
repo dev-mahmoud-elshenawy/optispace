@@ -64,11 +64,11 @@ No cloud, no accounts, nothing leaving your laptop. Fast, focused, and entirely 
 | ✅ **Tasks** | Kanban / list / by-project / by-sprint views — drag & drop, priority flags, inline quick-add, title search + project filter, subtask checklists, recurring tasks, overdue flags, link a GitHub PR (local **and** Azure DevOps tasks) |
 | 🛠️ **Development** | Projects with milestone checklists, nested tasks, and a per-project hub: files, links (releases/dashboards/servers, with credentials), and client feedback (tied to a release, with optional attached document) |
 | 📦 **Packages** | Track packages you publish on **any registry** (free-text, add your own) — npm & pub.dev fetch live stats/vulns on demand, others tracked manually; registry/language/tag filters + update-available badge; click a package for a detail view with live version history |
-| 🔄 **Azure DevOps sync** | Imports work items assigned to you into Tasks (configure `AZURE_DEVOPS_*` in `.env`); manual Sync now + auto-sync while the app is open |
-| 👥 **Team** | The whole team's work in an Azure DevOps project, read live (nothing stored). Pick a project (searchable), optionally a sprint, and a 15/30/90/180-day window; per person see finished, in progress, bug share, typical time to finish, untouched work and estimate coverage. Click someone for charts — finished per month, how long items took, per sprint — plus a bugs-vs-feature-work table and estimation, then open any work item in place. Stories/epics are excluded by default so work isn't double-counted |
+| 🔄 **Azure DevOps sync** | Imports work items assigned to you into Tasks (configure in **Settings** — org URL, PAT, projects, sync cadence, mention lookback); manual Sync now + background auto-sync while the app is open |
+| 👥 **Team** | The whole team's work in an Azure DevOps project, read live (nothing stored). Pick a project (searchable), optionally a sprint, and a 15/30/90/180-day window; per person see finished, in progress, bug share, typical time to finish, untouched work and estimate coverage. Members appear as ranked cards with an 8-week throughput sparkline and flags (above average, bug-heavy, untouched work). Click one for the evaluation view: every figure next to the team average, plain-English observations, delivery/work-mix/estimation tabs, and **Copy report** for paste-ready Markdown you can drop into a review doc. Stories/epics are excluded by default so work isn't double-counted |
 | 🔀 **Pull Requests** | PRs you authored, were asked to review, or are assigned to (connect GitHub in **Settings** via OAuth device flow — no token/`.env`), grouped by repo in collapsible sections with review-decision + CI-checks badges; review-requested and status-change notifications |
 | 🔔 **Notifications** | Bell in the sidebar + a full list + dashboard widget for Azure DevOps assignments/@mentions, task due-dates, and GitHub PR review requests/status changes, with desktop push while the app is open |
-| 📅 **Calendar** | Agenda of your Outlook/Teams meetings from a published ICS feed (`CALENDAR_ICS_URL` in `.env`); today's meetings also surface on the dashboard |
+| 📅 **Calendar** | Month / day / agenda views of your Outlook/Teams meetings — connect **Microsoft Graph** in Settings (read-write: create, edit, RSVP, Teams links) or fall back to a published **ICS** feed; today's meetings also surface on the dashboard |
 | ♻️ **Archive** | Everything deleted lands here — restore it or permanently purge |
 | ⚙️ **Settings** | One-click backup export / import of your whole workspace |
 
@@ -89,15 +89,17 @@ npm run dev              # → http://localhost:3000
 
 ### 🔌 Optional integrations
 
-Copy `.env.example` → `.env` and fill in only what you want. Restart `npm run dev` after editing.
+**There is no `.env` — every integration is configured in the app, under Settings.** Nothing to
+restart, nothing to commit; credentials live in your local SQLite file.
 
-| Integration | Env vars | What you get |
-|-------------|----------|--------------|
-| **Azure DevOps** | `AZURE_DEVOPS_ORG_URL`, `AZURE_DEVOPS_PAT` *(Work Items: Read)* | Your assigned work items in Tasks + assignment/@mention notifications. Use a **Read & Write** PAT to edit state/comments back. |
-| **GitHub PRs** | _none_ — connect in **Settings** (OAuth device flow) | PRs you authored, were asked to review, or are assigned to — across any repo the connected account can see — grouped by repo in collapsible sections, with review/CI badges + notifications. One-time: enter your OAuth App **Client ID** (device flow enabled) once in Settings — saved on the device, no token or `.env`; after that it's a one-click Connect. |
-| **Calendar** | `CALENDAR_ICS_URL` | Outlook/Teams agenda (Settings → Calendar → **Publish a calendar** → copy the ICS link). |
+| Integration | How to connect | What you get |
+|-------------|----------------|--------------|
+| **Azure DevOps** | Settings → Azure DevOps: organization URL + PAT *(Work Items: Read)*, which projects, sync cadence, mention lookback | Your assigned work items in Tasks + assignment/@mention notifications, and the **Team** view. Use a **Read & Write** PAT to edit state/comments/estimates back. |
+| **GitHub PRs** | Settings → GitHub: OAuth device flow (enter your OAuth App **Client ID** once) or paste a `gh auth token` | PRs you authored, were asked to review, or are assigned to — grouped by repo, with review/CI badges, in-app review + merge, and notifications. |
+| **Microsoft Calendar** | Settings → Microsoft Calendar (Graph): device-flow sign-in with your Entra **Client ID** | Read-write Outlook/Teams calendar: create, edit, RSVP, attendees, Teams links, meeting reminders. |
+| **Calendar (ICS fallback)** | Settings → Calendar: paste a published ICS URL | Read-only agenda when your tenant blocks Graph admin consent. |
 
-Both are optional — leave the vars blank to hide the feature. No keys committed; `.env` is git-ignored.
+All optional — leave one unconfigured and its feature stays hidden.
 
 ---
 

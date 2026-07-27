@@ -68,9 +68,28 @@ export interface TeamIteration {
   finishDate: string | null;
 }
 
+// A judgement about one person, phrased for a review conversation. `tone` drives the colour:
+// strength / watch / risk — never a raw number without its meaning.
+export interface Insight {
+  tone: "good" | "watch" | "risk";
+  text: string;
+}
+
+// Team-wide reference points so a member's numbers can be read as relative, which is the only
+// fair way to evaluate: "41% bugs vs 12% team average" says something, "41%" alone doesn't.
+export interface TeamAverages {
+  bugRatio: number;
+  medianCycleDays: number | null;
+  estimateCoverage: number;
+  closedPerMember: number;
+}
+
 // Per-member drill-down: distributions, not single opaque numbers. A median hides a bulk close;
 // a histogram shows it.
 export interface MemberDetail {
+  weekly: { label: string; count: number }[]; // finished per week, oldest → newest
+  p85CycleDays: number | null; // the "worst realistic case" — consistency, not just the median
+  fastCloseRate: number; // 0..1 share of closed items done in under FAST_CLOSE_DAYS
   closedByMonth: { label: string; count: number }[];
   closedBySprint: { label: string; count: number }[];
   cycleBuckets: { label: string; count: number }[];
@@ -90,6 +109,8 @@ export type TeamWindow = (typeof TEAM_WINDOWS)[number];
 
 export const UNASSIGNED = "Unassigned";
 export const AGING_DAYS = 14;
+export const FAST_CLOSE_DAYS = 3; // "turned around quickly" threshold used by the insights
+export const WEEKS_SHOWN = 8;
 
 // Container types: a User Story / Feature / Epic is typically assigned to whoever owns the story,
 // while the real work sits on its child Tasks and Bugs. Counting both would credit the same work

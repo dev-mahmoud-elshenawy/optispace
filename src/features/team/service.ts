@@ -2,8 +2,12 @@
 // re-roll locally when filters change without another round trip.
 import {
   AGING_DAYS,
+  FAST_CLOSE_DAYS,
   UNASSIGNED,
+  WEEKS_SHOWN,
+  type Insight,
   type MemberDetail,
+  type TeamAverages,
   type TeamMemberStats,
   type TeamRollup,
   type TeamWorkItem,
@@ -126,6 +130,9 @@ export function memberDetail(items: TeamWorkItem[], now: Date): MemberDetail {
   }
 
   return {
+    weekly: weeklyThroughput(items, now),
+    p85CycleDays: percentile(cycles, 0.85),
+    fastCloseRate: cycles.length > 0 ? cycles.filter((d) => d < FAST_CLOSE_DAYS).length / cycles.length : 0,
     // Chronological, not count-sorted — a trend only reads left-to-right.
     closedByMonth: monthLabels.map((label) => ({ label, count: closedPerMonth.get(label) ?? 0 })),
     closedBySprint: tally(closed.map((i) => (i.iterationPath ? iterationLabel(i.iterationPath) : "No sprint"))),
@@ -157,6 +164,159 @@ export function memberDetail(items: TeamWorkItem[], now: Date): MemberDetail {
           )
         : null,
   };
+}
+
+// The value below which `p` of the samples fall — p85 answers "how bad does it realistically get",
+// which a median deliberately hides. Nearest-rank, no interpolation: with 3 samples an interpolated
+// p85 would invent a value that never happened.
+export function percentile(values: number[], p: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)];
+}
+
+// Finished per week, oldest → newest, with empty weeks kept: a gap IS the signal.
+function weeklyThroughput(items: TeamWorkItem[], now: Date): { label: string; count: number }[] {
+  const weekMs = 7 * DAY_MS;
+  const closed = items.filter((i) => i.status === "done" && i.closedDate);
+  return Array.from({ length: WEEKS_SHOWN }, (_, index) => {
+    const end = now.getTime() - index * weekMs;
+    const start = end - weekMs;
+    const count = closed.filter((i) => {
+      const t = new Date(i.closedDate as string).getTime();
+      return t > start && t <= end;
+    }).length;
+    return { label: index === 0 ? "This wk" : `-${index}w`, count };
+  }).reverse();
+}
+
+export function teamAverages(members: TeamMemberStats[]): TeamAverages {
+  const real = members.filter((m) => m.name !== UNASSIGNED);
+  const cycles = real.map((m) => m.medianCycleDays).filter((d): d is number => d !== null);
+  return {
+    bugRatio: real.length > 0 ? real.reduce((s, m) => s + m.bugRatio, 0) / real.length : 0,
+    medianCycleDays: median(cycles),
+    estimateCoverage: real.length > 0 ? real.reduce((s, m) => s + m.estimateCoverage, 0) / real.length : 0,
+    closedPerMember: real.length > 0 ? real.reduce((s, m) => s + m.closed, 0) / real.length : 0,
+  };
+}
+
+// Plain-English, comparative observations for a review conversation. Only claims things the data
+// actually supports — each one is gated on having enough samples to mean anything.
+export function memberInsights(
+  member: TeamMemberStats,
+  detail: MemberDetail,
+  team: TeamAverages,
+): Insight[] {
+  const out: Insight[] = [];
+
+  if (member.closed >= 3 && detail.fastCloseRate >= 0.5) {
+    out.push({
+      tone: "good",
+      text: `Turns work around fast — ${Math.round(detail.fastCloseRate * 100)}% of finished items closed in under ${FAST_CLOSE_DAYS} days.`,
+    });
+  }
+  if (member.closed > 0 && team.closedPerMember > 0 && member.closed >= team.closedPerMember * 1.5) {
+    out.push({
+      tone: "good",
+      text: `Finished ${member.closed} items — well above the team average of ${team.closedPerMember.toFixed(1)}.`,
+    });
+  }
+  if (member.closed > 0 && team.closedPerMember >= 2 && member.closed <= team.closedPerMember * 0.5) {
+    out.push({
+      tone: "watch",
+      text: `Finished ${member.closed} items against a team average of ${team.closedPerMember.toFixed(1)} — worth understanding what absorbed the time.`,
+    });
+  }
+  if (member.medianCycleDays !== null && detail.p85CycleDays !== null && detail.p85CycleDays > member.medianCycleDays * 4) {
+    out.push({
+      tone: "watch",
+      text: `Inconsistent turnaround: typically ${formatDays(member.medianCycleDays)}, but the slow tail reaches ${formatDays(detail.p85CycleDays)}.`,
+    });
+  }
+  if (member.total >= 5 && team.bugRatio > 0 && member.bugRatio >= Math.max(team.bugRatio * 1.5, 0.25)) {
+    out.push({
+      tone: "watch",
+      text: `Bug-heavy load — ${Math.round(member.bugRatio * 100)}% bugs vs ${Math.round(team.bugRatio * 100)}% across the team; less room for feature work.`,
+    });
+  }
+  if (member.aging > 0) {
+    out.push({
+      tone: member.aging >= 5 ? "risk" : "watch",
+      text: `${member.aging} open item${member.aging === 1 ? "" : "s"} with no update for ${AGING_DAYS}+ days${
+        detail.oldestOpenDays !== null ? ` — oldest ${formatDays(detail.oldestOpenDays)}` : ""
+      }.`,
+    });
+  }
+  if (member.wip >= 10) {
+    out.push({
+      tone: "risk",
+      text: `${member.wip} items open at once — spread thin, and nothing here shows what is actually being worked on.`,
+    });
+  }
+  if (member.total >= 5 && member.estimateCoverage < 0.5) {
+    out.push({
+      tone: "watch",
+      // Only cite the team figure when there IS one — "team 0%" next to "0%" says nothing.
+      text: `Only ${Math.round(member.estimateCoverage * 100)}% of their work carries an estimate${
+        team.estimateCoverage > 0 ? ` (team ${Math.round(team.estimateCoverage * 100)}%)` : " — nobody on this project estimates"
+      } — planning is guesswork.`,
+    });
+  }
+  if (member.closed === 0 && member.wip > 0) {
+    out.push({ tone: "risk", text: "Nothing finished in this window — everything is still open." });
+  }
+  if (out.length === 0) {
+    out.push({ tone: "good", text: "Nothing stands out either way in this window." });
+  }
+  return out;
+}
+
+// A paste-ready Markdown block for the actual evaluation document. Numbers plus the caveats that
+// keep them honest — a report that hides its own limits is worse than no report.
+export function memberReportMarkdown(input: {
+  member: TeamMemberStats;
+  detail: MemberDetail;
+  insights: Insight[];
+  team: TeamAverages;
+  project: string;
+  sprint: string;
+  windowDays: number;
+}): string {
+  const { member, detail, insights, team, project, sprint, windowDays } = input;
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const lines = [
+    `# ${member.name}`,
+    ``,
+    `**Project:** ${project} · **Sprint:** ${sprint} · **Window:** last ${windowDays} days`,
+    ``,
+    `| Measure | Them | Team |`,
+    `| --- | --- | --- |`,
+    `| Finished | ${member.closed} | ${team.closedPerMember.toFixed(1)} avg |`,
+    `| Open now | ${member.wip} (${member.inProgress} in progress) | — |`,
+    `| Typical time to finish | ${formatDays(member.medianCycleDays)} | ${formatDays(team.medianCycleDays)} |`,
+    `| Slow tail (p85) | ${formatDays(detail.p85CycleDays)} | — |`,
+    `| Bug share | ${pct(member.bugRatio)} | ${pct(team.bugRatio)} |`,
+    `| Untouched ${AGING_DAYS}d+ | ${member.aging} | — |`,
+    `| Estimate coverage | ${pct(member.estimateCoverage)} | ${pct(team.estimateCoverage)} |`,
+    ``,
+    `## Observations`,
+    ...insights.map((i) => `- ${i.tone === "good" ? "✅" : i.tone === "watch" ? "⚠️" : "🔴"} ${i.text}`),
+    ``,
+    `## Work breakdown`,
+    ``,
+    `| Type | Items | Finished | Usual time | Planned hrs |`,
+    `| --- | --- | --- | --- | --- |`,
+    ...detail.byType.map(
+      (t) => `| ${t.label} | ${t.count} | ${t.closed} | ${formatDays(t.medianDays)} | ${t.plannedHours || "—"} |`,
+    ),
+    ``,
+    `## Caveats`,
+    `- Estimate vs actual is unavailable: Completed Work is not filled in, so only planned hours exist.`,
+    `- A bulk close in Azure DevOps (many items closed at one timestamp) inflates time-to-finish.`,
+    `- Counts cover Tasks and Bugs; user stories are containers and are excluded.`,
+  ];
+  return lines.join("\n");
 }
 
 export function initials(name: string): string {

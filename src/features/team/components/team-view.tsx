@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, Loader2, RefreshCw, Search, Users } from "lucide-react";
+import { Loader2, RefreshCw, Search, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,12 +15,11 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { avatarColor } from "@/lib/avatar";
 import { persistentCache } from "@/lib/lru";
 import { getAzureDevOpsIterations } from "@/features/integrations/azure-devops/actions";
 
 import { loadTeamWork } from "../actions";
-import { formatDays, initials, iterationLabel, rollupTeam } from "../service";
+import { formatDays, iterationLabel, memberDetail, rollupTeam, teamAverages } from "../service";
 import {
   AGING_DAYS,
   DEFAULT_TEAM_WINDOW,
@@ -32,6 +31,7 @@ import {
   type TeamWorkItem,
 } from "../types";
 import { MemberDetailDialog } from "./member-detail";
+import { MemberCard } from "./member-card";
 
 // Same stale-while-revalidate pattern as the PR/work-item modals: a repeat query paints from
 // the saved copy instantly, then refreshes in the background.
@@ -144,8 +144,25 @@ export function TeamView({ projects }: TeamViewProps) {
   }, [items, search, scope]);
 
   const rollup = useMemo(() => rollupTeam(visible, asOf ?? new Date()), [visible, asOf]);
+  const averages = useMemo(() => teamAverages(rollup.members), [rollup.members]);
+  // One pass to bucket items per person, so each card's sparkline doesn't re-scan the whole list.
+  const itemsByMember = useMemo(() => {
+    const map = new Map<string, TeamWorkItem[]>();
+    for (const item of visible) {
+      const key = item.assignedTo || UNASSIGNED;
+      const list = map.get(key);
+      if (list) list.push(item);
+      else map.set(key, [item]);
+    }
+    return map;
+  }, [visible]);
+  const sparks = useMemo(() => {
+    const now = asOf ?? new Date();
+    return new Map(
+      rollup.members.map((m) => [m.name, memberDetail(itemsByMember.get(m.name) ?? [], now).weekly]),
+    );
+  }, [rollup.members, itemsByMember, asOf]);
   const maxClosed = Math.max(1, ...rollup.members.map((m) => m.closed));
-  const maxWip = Math.max(1, ...rollup.members.map((m) => m.wip));
 
   return (
     <div className="space-y-5">
@@ -260,37 +277,17 @@ export function TeamView({ projects }: TeamViewProps) {
               <Users className="size-4" /> {loading ? "Loading…" : "No work items in this window."}
             </p>
           ) : (
-            <ul className="divide-y divide-border/60">
-              {rollup.members.map((m) => (
-                <li key={m.name}>
-                  <button
-                    type="button"
-                    onClick={() => setMember(m)}
-                    className="flex w-full items-center gap-3 py-3 text-left hover:bg-accent/40"
-                  >
-                    <span
-                      className={`inline-flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${avatarColor(m.name)}`}
-                      title={m.email ?? m.name}
-                    >
-                      {initials(m.name)}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{m.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {m.total} items · {Math.round(m.bugRatio * 100)}% bugs ·{" "}
-                        {Math.round(m.estimateCoverage * 100)}% estimated
-                        {m.aging > 0 ? ` · ${m.aging} untouched` : ""}
-                      </span>
-                    </span>
-                    <Metric label="finished" value={m.closed} bar={m.closed / maxClosed} tone="bg-emerald-500" />
-                    <Metric label="in progress" value={m.wip} bar={m.wip / maxWip} tone="bg-primary" />
-                    <span className="w-20 shrink-0 text-right">
-                      <span className="block font-mono text-sm tabular-nums">{formatDays(m.medianCycleDays)}</span>
-                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">to finish</span>
-                    </span>
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                  </button>
-                </li>
+            <ul className="grid gap-3 lg:grid-cols-2">
+              {rollup.members.map((m, index) => (
+                <MemberCard
+                  key={m.name}
+                  member={m}
+                  rank={index + 1}
+                  team={averages}
+                  weekly={sparks.get(m.name) ?? []}
+                  closedShare={m.closed / maxClosed}
+                  onOpen={() => setMember(m)}
+                />
               ))}
             </ul>
           )}
@@ -319,7 +316,10 @@ export function TeamView({ projects }: TeamViewProps) {
       {member ? (
         <MemberDetailDialog
           member={member}
-          items={visible.filter((i) => (i.assignedTo || UNASSIGNED) === member.name)}
+          items={itemsByMember.get(member.name) ?? []}
+          team={averages}
+          project={project}
+          sprint={iteration === ALL ? "All sprints" : iterationLabel(iteration)}
           windowDays={windowDays}
           open={member !== null}
           onOpenChange={(next) => {
@@ -343,16 +343,3 @@ function SummaryTile({ label, value, hint }: { label: string; value: string; hin
   );
 }
 
-function Metric({ label, value, bar, tone }: { label: string; value: number; bar: number; tone: string }) {
-  return (
-    <span className="hidden w-28 shrink-0 sm:block">
-      <span className="flex items-baseline justify-between gap-2">
-        <span className="font-mono text-sm tabular-nums">{value}</span>
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
-      </span>
-      <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-muted">
-        <span className={`block h-full rounded-full ${tone}`} style={{ width: `${Math.max(bar, 0) * 100}%` }} />
-      </span>
-    </span>
-  );
-}

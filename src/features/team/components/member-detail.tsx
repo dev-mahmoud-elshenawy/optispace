@@ -1,15 +1,39 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { toast } from "sonner";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { AlertTriangle, CheckCircle2, ClipboardCopy, Eye, ExternalLink } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { avatarColor } from "@/lib/avatar";
 import { AzureDevOpsTaskDetail } from "@/features/integrations/azure-devops/task-detail";
 import { workItemStateColor, workItemTypeColor } from "@/features/integrations/azure-devops/types";
 
-import { formatDays, initials, iterationLabel, memberDetail } from "../service";
-import { AGING_DAYS, type TeamMemberStats, type TeamWorkItem } from "../types";
+import {
+  formatDays,
+  initials,
+  iterationLabel,
+  memberDetail,
+  memberInsights,
+  memberReportMarkdown,
+} from "../service";
+import { AGING_DAYS, type Insight, type TeamAverages, type TeamMemberStats, type TeamWorkItem } from "../types";
 
 const axisTick = { fill: "var(--muted-foreground)", fontSize: 11 };
 const tooltipStyle = {
@@ -20,171 +44,255 @@ const tooltipStyle = {
   color: "var(--popover-foreground)",
 };
 
+const TONE: Record<Insight["tone"], { chip: string; icon: typeof CheckCircle2 }> = {
+  good: { chip: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300", icon: CheckCircle2 },
+  watch: { chip: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300", icon: Eye },
+  risk: { chip: "border-destructive/30 bg-destructive/10 text-destructive", icon: AlertTriangle },
+};
+
 interface MemberDetailDialogProps {
   member: TeamMemberStats;
   items: TeamWorkItem[]; // this member's items only
+  team: TeamAverages;
+  project: string;
+  sprint: string;
   windowDays: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function MemberDetailDialog({ member, items, windowDays, open, onOpenChange }: MemberDetailDialogProps) {
+export function MemberDetailDialog({
+  member,
+  items,
+  team,
+  project,
+  sprint,
+  windowDays,
+  open,
+  onOpenChange,
+}: MemberDetailDialogProps) {
   const [openItem, setOpenItem] = useState<string | null>(null);
   const detail = useMemo(() => memberDetail(items, new Date()), [items]);
+  const insights = useMemo(() => memberInsights(member, detail, team), [member, detail, team]);
   const sorted = useMemo(
     () => [...items].sort((a, b) => (b.changedDate ?? "").localeCompare(a.changedDate ?? "")),
     [items],
   );
 
+  async function copyReport() {
+    const markdown = memberReportMarkdown({ member, detail, insights, team, project, sprint, windowDays });
+    try {
+      await navigator.clipboard.writeText(markdown);
+      toast.success("Evaluation report copied as Markdown.");
+    } catch {
+      toast.error("Couldn't access the clipboard.");
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-3 pr-6">
+          <DialogTitle className="flex flex-wrap items-center gap-3 pr-6">
             <span
-              className={`inline-flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${avatarColor(member.name)}`}
+              className={`inline-flex size-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${avatarColor(member.name)}`}
             >
               {initials(member.name)}
             </span>
             <span className="min-w-0">
               <span className="block truncate">{member.name}</span>
               <span className="block text-xs font-normal text-muted-foreground">
-                {member.email ?? "no email"} · last {windowDays} days
+                {member.email ?? "no email"} · {project} · {sprint} · last {windowDays} days
               </span>
             </span>
+            <Button variant="outline" size="sm" className="ml-auto shrink-0" onClick={copyReport}>
+              <ClipboardCopy /> Copy report
+            </Button>
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6 text-sm">
-          {/* Plain-language headline numbers — each one says what it actually counts. */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Finished" value={String(member.closed)} note={`closed in the last ${windowDays} days`} />
-            <Stat label="Working on now" value={String(member.wip)} note={`${member.inProgress} actively in progress`} />
-            <Stat
-              label="Usual time to finish"
-              value={formatDays(member.medianCycleDays)}
-              note={
-                detail.fastestDays !== null
-                  ? `fastest ${formatDays(detail.fastestDays)} · slowest ${formatDays(detail.slowestDays)}`
-                  : "nothing closed yet"
-              }
-            />
-            <Stat
-              label="Untouched work"
-              value={String(member.aging)}
-              note={
-                detail.oldestOpenDays !== null
-                  ? `no update in ${AGING_DAYS}+ days · oldest ${formatDays(detail.oldestOpenDays)}`
-                  : `no update in ${AGING_DAYS}+ days`
-              }
-            />
-          </div>
-
-          <Chart title="Finished per month" hint="Steady, ramping up, or stalled?" data={detail.closedByMonth} />
-
-          <Chart
-            title="How long items took to finish"
-            hint="The spread, not an average. A tall bar on the right means work sat around; one lone spike usually means a bulk close in Azure DevOps rather than real effort."
-            data={detail.cycleBuckets}
-            color="var(--chart-2)"
+        {/* Headline scorecard: their number, then the team's, so every figure reads as relative. */}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Stat
+            label="Finished"
+            value={String(member.closed)}
+            compare={`team avg ${team.closedPerMember.toFixed(1)}`}
+            good={team.closedPerMember > 0 ? member.closed >= team.closedPerMember : null}
           />
+          <Stat
+            label="Time to finish"
+            value={formatDays(member.medianCycleDays)}
+            compare={`team ${formatDays(team.medianCycleDays)} · slow tail ${formatDays(detail.p85CycleDays)}`}
+            good={
+              member.medianCycleDays !== null && team.medianCycleDays !== null
+                ? member.medianCycleDays <= team.medianCycleDays
+                : null
+            }
+          />
+          <Stat
+            label="Bug share"
+            value={`${Math.round(member.bugRatio * 100)}%`}
+            compare={`team ${Math.round(team.bugRatio * 100)}%`}
+            good={member.bugRatio <= team.bugRatio}
+          />
+          <Stat
+            label="Open now"
+            value={String(member.wip)}
+            compare={`${member.inProgress} in progress · ${member.aging} untouched ${AGING_DAYS}d+`}
+            good={member.aging === 0 ? true : null}
+          />
+        </div>
 
-          <Chart title="Finished per sprint" hint="Which sprints they actually delivered in." data={detail.closedBySprint} />
+        {/* The actual evaluation: what the numbers mean, comparatively. */}
+        <ul className="space-y-2">
+          {insights.map((insight, index) => {
+            const tone = TONE[insight.tone];
+            const Icon = tone.icon;
+            return (
+              <li key={index} className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${tone.chip}`}>
+                <Icon className="mt-0.5 size-4 shrink-0" />
+                <span className="min-w-0 text-foreground/90">{insight.text}</span>
+              </li>
+            );
+          })}
+        </ul>
 
-          {/* Bugs vs stories — the "what eats the time" table. */}
-          <section>
-            <h4 className="font-medium">Bugs vs feature work</h4>
-            <p className="mb-2 text-xs text-muted-foreground">
-              How many of each kind, how long they take to close, and the hours planned for them.
-            </p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="text-muted-foreground">
-                  <tr className="border-b border-border/60 text-left">
-                    <th className="py-1.5 font-medium">Type</th>
-                    <th className="py-1.5 text-right font-medium">Items</th>
-                    <th className="py-1.5 text-right font-medium">Finished</th>
-                    <th className="py-1.5 text-right font-medium">Usual time</th>
-                    <th className="py-1.5 text-right font-medium">Planned hrs</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.byType.map((t) => (
-                    <tr key={t.label} className="border-b border-border/40 last:border-0">
-                      <td className="py-1.5">
-                        <span className="flex items-center gap-1.5">
-                          <span
-                            className="size-2.5 shrink-0 rounded-[3px]"
-                            style={{ backgroundColor: workItemTypeColor(t.label) }}
-                          />
-                          {t.label}
-                        </span>
-                      </td>
-                      <td className="py-1.5 text-right font-mono tabular-nums">{t.count}</td>
-                      <td className="py-1.5 text-right font-mono tabular-nums">{t.closed}</td>
-                      <td className="py-1.5 text-right font-mono tabular-nums">{formatDays(t.medianDays)}</td>
-                      <td className="py-1.5 text-right font-mono tabular-nums">
-                        {t.plannedHours > 0 ? t.plannedHours : "—"}
-                      </td>
+        <Tabs defaultValue="delivery">
+          <TabsList>
+            <TabsTrigger value="delivery">Delivery</TabsTrigger>
+            <TabsTrigger value="quality">Work mix</TabsTrigger>
+            <TabsTrigger value="estimation">Estimation</TabsTrigger>
+            <TabsTrigger value="items">Items ({sorted.length})</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="delivery" className="mt-4 space-y-6">
+            <Panel title="Finished per week" hint="Rhythm over the last 8 weeks — gaps are as telling as peaks.">
+              {detail.weekly.some((w) => w.count > 0) ? (
+                <ResponsiveContainer width="100%" height={170}>
+                  <AreaChart data={detail.weekly} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}>
+                    <defs>
+                      <linearGradient id="weeklyFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.5} />
+                        <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.04} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval={0} />
+                    <YAxis allowDecimals={false} tick={axisTick} tickLine={false} axisLine={false} />
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Area
+                      type="monotone"
+                      dataKey="count"
+                      stroke="var(--chart-1)"
+                      strokeWidth={2}
+                      fill="url(#weeklyFill)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <Empty />
+              )}
+            </Panel>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Panel
+                title="How long items took"
+                hint={`Spread, not an average. ${Math.round(detail.fastCloseRate * 100)}% closed in under 3 days. One lone tall bar usually means a bulk close in Azure DevOps.`}
+              >
+                <Bars data={detail.cycleBuckets} color="var(--chart-2)" />
+              </Panel>
+              <Panel title="Finished per sprint" hint="Which sprints they actually delivered in.">
+                <Bars data={detail.closedBySprint} />
+              </Panel>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="quality" className="mt-4 space-y-6">
+            <Panel title="Bugs vs feature work" hint="How long each kind takes, and the hours planned for them.">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="text-muted-foreground">
+                    <tr className="border-b border-border/60 text-left">
+                      <th className="py-1.5 font-medium">Type</th>
+                      <th className="py-1.5 text-right font-medium">Items</th>
+                      <th className="py-1.5 text-right font-medium">Finished</th>
+                      <th className="py-1.5 text-right font-medium">Usual time</th>
+                      <th className="py-1.5 text-right font-medium">Planned hrs</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {detail.byType.map((t) => (
+                      <tr key={t.label} className="border-b border-border/40 last:border-0">
+                        <td className="py-1.5">
+                          <span className="flex items-center gap-1.5">
+                            <span
+                              className="size-2.5 shrink-0 rounded-[3px]"
+                              style={{ backgroundColor: workItemTypeColor(t.label) }}
+                            />
+                            {t.label}
+                          </span>
+                        </td>
+                        <td className="py-1.5 text-right font-mono tabular-nums">{t.count}</td>
+                        <td className="py-1.5 text-right font-mono tabular-nums">{t.closed}</td>
+                        <td className="py-1.5 text-right font-mono tabular-nums">{formatDays(t.medianDays)}</td>
+                        <td className="py-1.5 text-right font-mono tabular-nums">{t.plannedHours || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Panel title="Kind of work" hint="Bug-heavy vs feature-heavy.">
+                <Donut rows={detail.typeMix.map((t) => ({ ...t, color: workItemTypeColor(t.label) }))} />
+              </Panel>
+              <Panel title="Open work by state" hint="Where their current items are sitting.">
+                <Donut rows={detail.openByState.map((s) => ({ ...s, color: workItemStateColor(s.label) }))} />
+              </Panel>
             </div>
-          </section>
+          </TabsContent>
 
-          {/* Estimation. Accuracy needs BOTH an estimate and logged work; this org fills in the
-              first and never the second, so we say so instead of inventing a ratio. */}
-          <section>
-            <h4 className="font-medium">Estimation</h4>
-            <p className="mb-2 text-xs text-muted-foreground">
-              Coverage is how much of their work carries an estimate at all — the discipline signal.
-            </p>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Stat
-                label="Estimated"
-                value={`${Math.round(member.estimateCoverage * 100)}%`}
-                note={`${member.estimated} of ${member.total} items have an estimate`}
-              />
-              <Stat
-                label="Planned hours"
-                value={member.plannedHours > 0 ? String(member.plannedHours) : "—"}
-                note="sum of Original Estimate"
-              />
-              <Stat
-                label="Estimate vs actual"
-                value={member.accuracy !== null ? `${member.accuracy.toFixed(2)}×` : "not tracked"}
-                note={
-                  member.accuracy !== null
-                    ? "median logged ÷ planned (1.00× = spot on)"
-                    : "needs Completed Work in Azure DevOps — currently never filled in"
-                }
-              />
-            </div>
-          </section>
+          <TabsContent value="estimation" className="mt-4">
+            <Panel
+              title="Estimation"
+              hint="Coverage is the discipline signal. Accuracy needs Completed Work logged in Azure DevOps, which this org doesn't do — so it says so rather than inventing a ratio."
+            >
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Stat
+                  label="Estimated"
+                  value={`${Math.round(member.estimateCoverage * 100)}%`}
+                  compare={`${member.estimated} of ${member.total} items · team ${Math.round(team.estimateCoverage * 100)}%`}
+                  good={member.estimateCoverage >= team.estimateCoverage}
+                />
+                <Stat
+                  label="Planned hours"
+                  value={member.plannedHours > 0 ? String(member.plannedHours) : "—"}
+                  compare="sum of Original Estimate"
+                  good={null}
+                />
+                <Stat
+                  label="Estimate vs actual"
+                  value={member.accuracy !== null ? `${member.accuracy.toFixed(2)}×` : "not tracked"}
+                  compare={
+                    member.accuracy !== null
+                      ? "median logged ÷ planned (1.00× = spot on)"
+                      : "needs Completed Work in Azure DevOps"
+                  }
+                  good={null}
+                />
+              </div>
+            </Panel>
+          </TabsContent>
 
-          <div className="grid gap-6 sm:grid-cols-2">
-            <Legend
-              title="Kind of work"
-              hint="Bug-heavy vs feature-heavy."
-              rows={detail.typeMix.map((t) => ({ ...t, color: workItemTypeColor(t.label) }))}
-            />
-            <Legend
-              title="Open work by state"
-              hint="Where their current items are sitting."
-              rows={detail.openByState.map((s) => ({ ...s, color: workItemStateColor(s.label) }))}
-            />
-          </div>
-
-          <section>
-            <h4 className="mb-2 font-medium">All items ({sorted.length})</h4>
+          <TabsContent value="items" className="mt-4">
             <ul className="space-y-1">
               {sorted.map((i) => (
                 <li key={i.externalId}>
                   <button
                     type="button"
                     onClick={() => setOpenItem(i.externalId)}
-                    className="flex w-full items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-left hover:bg-accent/60"
+                    className="flex w-full items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-left text-sm hover:bg-accent/60"
                   >
                     <span
                       className="size-2.5 shrink-0 rounded-[3px]"
@@ -205,12 +313,13 @@ export function MemberDetailDialog({ member, items, windowDays, open, onOpenChan
                       />
                       {i.state}
                     </span>
+                    <ExternalLink className="size-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
                   </button>
                 </li>
               ))}
             </ul>
-          </section>
-        </div>
+          </TabsContent>
+        </Tabs>
 
         {openItem ? (
           <AzureDevOpsTaskDetail
@@ -226,85 +335,94 @@ export function MemberDetailDialog({ member, items, windowDays, open, onOpenChan
   );
 }
 
-function Stat({ label, value, note }: { label: string; value: string; note: string }) {
+// `good` tints the comparison line: true = ahead of the team, false = behind, null = no judgement
+// (some numbers, like planned hours, aren't better or worse).
+function Stat({
+  label,
+  value,
+  compare,
+  good,
+}: {
+  label: string;
+  value: string;
+  compare: string;
+  good: boolean | null;
+}) {
+  const tint =
+    good === null
+      ? "text-muted-foreground"
+      : good
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-amber-600 dark:text-amber-400";
   return (
-    <div className="rounded-lg border border-border/60 p-3">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-0.5 font-mono text-2xl font-semibold tabular-nums">{value}</p>
-      <p className="text-xs text-muted-foreground">{note}</p>
+    <div className="rounded-xl border border-border/60 bg-card/60 p-3.5 backdrop-blur">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 font-mono text-3xl font-semibold tabular-nums">{value}</p>
+      <p className={`mt-0.5 text-xs ${tint}`}>{compare}</p>
     </div>
   );
 }
 
-function Chart({
-  title,
-  hint,
-  data,
-  color = "var(--chart-1)",
-}: {
-  title: string;
-  hint: string;
-  data: { label: string; count: number }[];
-  color?: string;
-}) {
-  const hasData = data.some((d) => d.count > 0);
+function Panel({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
   return (
     <section>
-      <h4 className="font-medium">{title}</h4>
-      <p className="mb-2 text-xs text-muted-foreground">{hint}</p>
-      {hasData ? (
-        <ResponsiveContainer width="100%" height={180}>
-          <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-            <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval={0} />
-            <YAxis allowDecimals={false} tick={axisTick} tickLine={false} axisLine={false} />
-            <Tooltip cursor={{ fill: "var(--muted)" }} contentStyle={tooltipStyle} />
-            <Bar dataKey="count" fill={color} radius={[4, 4, 0, 0]} maxBarSize={44} />
-          </BarChart>
-        </ResponsiveContainer>
-      ) : (
-        <p className="rounded-lg border border-dashed border-border py-8 text-center text-xs text-muted-foreground">
-          Nothing to show for this window.
-        </p>
-      )}
+      <h4 className="text-sm font-medium">{title}</h4>
+      <p className="mb-3 text-xs leading-relaxed text-muted-foreground">{hint}</p>
+      {children}
     </section>
   );
 }
 
-function Legend({
-  title,
-  hint,
-  rows,
-}: {
-  title: string;
-  hint: string;
-  rows: { label: string; count: number; color: string }[];
-}) {
+function Empty() {
+  return (
+    <p className="rounded-lg border border-dashed border-border py-10 text-center text-xs text-muted-foreground">
+      Nothing to show for this window.
+    </p>
+  );
+}
+
+function Bars({ data, color = "var(--chart-1)" }: { data: { label: string; count: number }[]; color?: string }) {
+  if (!data.some((d) => d.count > 0)) return <Empty />;
+  return (
+    <ResponsiveContainer width="100%" height={170}>
+      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+        <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval={0} />
+        <YAxis allowDecimals={false} tick={axisTick} tickLine={false} axisLine={false} />
+        <Tooltip cursor={{ fill: "var(--muted)" }} contentStyle={tooltipStyle} />
+        <Bar dataKey="count" fill={color} radius={[4, 4, 0, 0]} maxBarSize={44} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function Donut({ rows }: { rows: { label: string; count: number; color: string }[] }) {
+  if (rows.length === 0) return <Empty />;
   const total = rows.reduce((sum, r) => sum + r.count, 0);
   return (
-    <section>
-      <h4 className="font-medium">{title}</h4>
-      <p className="mb-2 text-xs text-muted-foreground">{hint}</p>
-      {rows.length === 0 ? (
-        <p className="text-xs text-muted-foreground">None.</p>
-      ) : (
-        <>
-          <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
+    <div className="flex items-center gap-4">
+      <ResponsiveContainer width="45%" height={150}>
+        <PieChart>
+          <Pie data={rows} dataKey="count" nameKey="label" innerRadius={38} outerRadius={62} paddingAngle={2}>
             {rows.map((r) => (
-              <div key={r.label} style={{ width: `${(r.count / total) * 100}%`, backgroundColor: r.color }} />
+              <Cell key={r.label} fill={r.color} stroke="var(--background)" strokeWidth={2} />
             ))}
-          </div>
-          <ul className="mt-2 space-y-1">
-            {rows.map((r) => (
-              <li key={r.label} className="flex items-center gap-2 text-xs">
-                <span className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: r.color }} />
-                <span className="min-w-0 flex-1 truncate text-muted-foreground">{r.label}</span>
-                <span className="font-mono tabular-nums">{r.count}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </section>
+          </Pie>
+          <Tooltip contentStyle={tooltipStyle} />
+        </PieChart>
+      </ResponsiveContainer>
+      <ul className="min-w-0 flex-1 space-y-1.5">
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-center gap-2 text-xs">
+            <span className="size-2.5 shrink-0 rounded-[3px]" style={{ backgroundColor: r.color }} />
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">{r.label}</span>
+            <span className="font-mono tabular-nums">{r.count}</span>
+            <span className="w-9 text-right font-mono text-muted-foreground tabular-nums">
+              {Math.round((r.count / total) * 100)}%
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
