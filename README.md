@@ -58,7 +58,7 @@ No cloud, no accounts, nothing leaving your laptop. Fast, focused, and entirely 
 
 | Module | What it does |
 |--------|--------------|
-| 🏠 **Dashboard** | Stats, upcoming leave, recent tasks, active projects — every card links through |
+| 🏠 **Dashboard** | Stats, today's agenda, notifications and PRs, plus **Open work** — open tasks split by work-item type and by project — and leave by month; every card links through |
 | 🌴 **Leave** | Annual / sick / unpaid types, half-days, year-to-year carry-over, monthly accrual, calendar with month picker + drag-to-select, history |
 | 🔗 **Profiles** | Quick links to your GitHub, npm, pub.dev, LinkedIn, site, and more |
 | ✅ **Tasks** | Kanban / list / by-project / by-sprint views — drag & drop, priority flags, inline quick-add, title search + project filter, subtask checklists, recurring tasks, overdue flags, link a GitHub PR (local **and** Azure DevOps tasks) |

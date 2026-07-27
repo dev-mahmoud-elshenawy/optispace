@@ -8,13 +8,14 @@ import { formatDistanceToNow } from "date-fns";
 import type { ComponentType, ReactNode } from "react";
 import { listProfiles } from "@/features/profiles/queries";
 import { getLeaveSummary, listLeaves } from "@/features/leave/queries";
-import { getTaskStatusCounts, listTasks } from "@/features/tasks/queries";
+import { listTasks } from "@/features/tasks/queries";
 import { listProjects } from "@/features/projects/queries";
 import { countPackages } from "@/features/packages/queries";
 import { recentNotifications, unreadNotificationCount } from "@/features/notifications/queries";
 import { notificationActor, notificationTitle, type NotificationView } from "@/features/notifications/service";
 import { todayCalendarEvents } from "@/features/calendar/queries";
 import { listPullRequests } from "@/features/integrations/github/queries";
+import { workItemTypeColor } from "@/features/integrations/azure-devops/types";
 import { getGithubAuthStatus } from "@/features/integrations/github/actions";
 import { DayPreviewCard } from "@/components/dashboard/day-preview-card";
 import { DashboardCharts } from "@/features/dashboard/components/dashboard-charts";
@@ -28,10 +29,9 @@ export default async function DashboardPage() {
   const endToday = new Date(year, now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const startTomorrow = new Date(year, now.getMonth(), now.getDate() + 1);
   const endTomorrow = new Date(year, now.getMonth(), now.getDate() + 1, 23, 59, 59, 999);
-  const [profiles, leave, taskCounts, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents, tomorrowEvents, pullRequests, githubAuth] = await Promise.all([
+  const [profiles, leave, projects, packageCount, leaves, tasks, notifications, unreadCount, todayEvents, tomorrowEvents, pullRequests, githubAuth] = await Promise.all([
     listProfiles(),
     getLeaveSummary(year),
-    getTaskStatusCounts(),
     listProjects(),
     countPackages(),
     listLeaves(year),
@@ -53,7 +53,18 @@ export default async function DashboardPage() {
   const myLogin = githubAuth.login;
   const prsForMe = myLogin ? pullRequests.filter((p) => p.author !== myLogin).length : pullRequests.length;
 
-  const openTasks = taskCounts.todo + taskCounts.in_progress;
+  // "Open work" analytics — derived from the tasks already fetched above, so no extra query.
+  // Done is deliberately absent: closed ADO items are pruned on sync, so a done count is
+  // structurally ~0 and was only ever counting stray local tasks.
+  const openTaskList = tasks.filter((t) => t.status !== "done");
+  const openTasks = openTaskList.length;
+  const tally = (key: (t: (typeof openTaskList)[number]) => string) => {
+    const counts = new Map<string, number>();
+    for (const t of openTaskList) counts.set(key(t), (counts.get(key(t)) ?? 0) + 1);
+    return [...counts].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count);
+  };
+  const workByType = tally((t) => t.workItemType ?? "Local");
+  const workByProject = tally((t) => t.projectName ?? "No project");
   const activeProjects = projects.filter((p) => p.status === "active");
 
   const dueTodayOrOverdue = tasks
@@ -184,7 +195,7 @@ export default async function DashboardPage() {
           <SectionLabel index="01" title="Overview" />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard href="/leave" icon={<CalendarDays className="size-5" />} label="Remaining leave" value={leave.remainingDays} sub={`of ${leave.allowanceDays} days`} delay={0} />
-            <StatCard href="/tasks" icon={<ListChecks className="size-5" />} label="Open tasks" value={openTasks} sub={`${taskCounts.done} done`} delay={70} />
+            <StatCard href="/tasks" icon={<ListChecks className="size-5" />} label="Open tasks" value={openTasks} sub={`${workByProject.length} projects`} delay={70} />
             <StatCard href="/projects" icon={<GitBranch className="size-5" />} label="Active projects" value={activeProjects.length} sub={`${projects.length} total`} delay={140} />
             <StatCard href="/packages" icon={<PackageIcon className="size-5" />} label="Packages" value={packageCount} sub="published" delay={210} />
           </div>
@@ -243,11 +254,12 @@ export default async function DashboardPage() {
                   <IconChip>
                     <Activity className="h-3.5 w-3.5" />
                   </IconChip>
-                  Tasks by status
+                  Open work
+                  <span className="ml-auto font-mono text-xs font-normal text-muted-foreground">{openTasks} open</span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <TaskStatusBar todo={taskCounts.todo} inProgress={taskCounts.in_progress} done={taskCounts.done} />
+                <OpenWorkPanel total={openTasks} types={workByType} projects={workByProject} />
               </CardContent>
             </Card>
             <DashboardCharts leaveByMonth={leaveByMonth} />
@@ -461,36 +473,71 @@ function NotificationRow({ notification, index = 0 }: { notification: Notificati
   );
 }
 
-function TaskStatusBar({ todo, inProgress, done }: { todo: number; inProgress: number; done: number }) {
-  const total = todo + inProgress + done;
-  const segments = [
-    { label: "To Do", count: todo, className: "bg-muted-foreground/30" },
-    { label: "In Progress", count: inProgress, className: "bg-primary" },
-    { label: "Done", count: done, className: "bg-chart-2" },
-  ];
+// Open work: a DevOps-colored work-item-type mix strip + the load per project. Both come from
+// fields that are actually populated on every synced task (dueDate is empty, effort is set on
+// ~1 in 9, adoPriority is the same value for nearly all — those make for dead charts).
+const PROJECT_ROWS = 6;
 
+function OpenWorkPanel({
+  total,
+  types,
+  projects,
+}: {
+  total: number;
+  types: { label: string; count: number }[];
+  projects: { label: string; count: number }[];
+}) {
   if (total === 0) {
-    return <p className="text-sm text-muted-foreground">No tasks yet.</p>;
+    return <p className="text-sm text-muted-foreground">No open tasks.</p>;
   }
 
+  const top = projects.slice(0, PROJECT_ROWS);
+  const rest = projects.slice(PROJECT_ROWS);
+  const restCount = rest.reduce((sum, p) => sum + p.count, 0);
+  const max = top[0]?.count ?? 1;
+
   return (
-    <div className="space-y-4">
-      <div className="flex h-3 overflow-hidden rounded-full bg-muted">
-        {segments.map((s) =>
-          s.count > 0 ? (
-            <div key={s.label} className={s.className} style={{ width: `${(s.count / total) * 100}%` }} />
-          ) : null,
-        )}
+    <div className="space-y-5">
+      <div>
+        <div className="flex h-3 overflow-hidden rounded-full bg-muted">
+          {types.map((t) => (
+            <div
+              key={t.label}
+              style={{ width: `${(t.count / total) * 100}%`, backgroundColor: workItemTypeColor(t.label) }}
+            />
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+          {types.map((t) => (
+            <span key={t.label} className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-[3px]" style={{ backgroundColor: workItemTypeColor(t.label) }} />
+              <span className="text-muted-foreground">{t.label}</span>
+              <span className="font-mono text-xs font-semibold tabular-nums">{t.count}</span>
+            </span>
+          ))}
+        </div>
       </div>
-      <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
-        {segments.map((s) => (
-          <span key={s.label} className="flex items-center gap-1.5">
-            <span className={`size-2.5 rounded-full ${s.className}`} />
-            <span className="text-muted-foreground">{s.label}</span>
-            <span className="font-semibold tabular-nums">{s.count}</span>
-          </span>
+
+      <ul className="space-y-2">
+        {top.map((p) => (
+          <li key={p.label} className="flex items-center gap-3 text-sm">
+            <span className="w-32 shrink-0 truncate text-muted-foreground" title={p.label}>
+              {p.label}
+            </span>
+            <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+              <span className="block h-full rounded-full bg-primary" style={{ width: `${(p.count / max) * 100}%` }} />
+            </span>
+            <span className="w-8 shrink-0 text-right font-mono text-xs tabular-nums">{p.count}</span>
+          </li>
         ))}
-      </div>
+        {rest.length > 0 ? (
+          <li className="flex items-center gap-3 pt-1 text-xs text-muted-foreground">
+            <span className="w-32 shrink-0 truncate">+{rest.length} others</span>
+            <span className="flex-1" />
+            <span className="w-8 shrink-0 text-right font-mono tabular-nums">{restCount}</span>
+          </li>
+        ) : null}
+      </ul>
     </div>
   );
 }
