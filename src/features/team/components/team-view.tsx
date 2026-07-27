@@ -197,9 +197,9 @@ export function TeamView({ projects }: TeamViewProps) {
   const sparks = useMemo(() => {
     const now = asOf ?? new Date();
     return new Map(
-      rollup.members.map((m) => [m.name, memberDetail(itemsByMember.get(m.name) ?? [], now).weekly]),
+      rollup.members.map((m) => [m.name, memberDetail(itemsByMember.get(m.name) ?? [], now, windowDays).weekly]),
     );
-  }, [rollup.members, itemsByMember, asOf]);
+  }, [rollup.members, itemsByMember, asOf, windowDays]);
   const maxClosed = Math.max(1, ...rollup.members.map((m) => m.closed));
 
   return (

@@ -116,6 +116,8 @@ export interface MemberDetail {
   // Responsiveness / board hygiene. Comment-reply latency would need a per-item history call, so
   // the honest proxies are: how fresh their open items are, and how many were never touched at all.
   medianUpdateAgeDays: number | null; // median days since the last update on their OPEN items
+  openInProgressDays: number | null; // how long their OPEN items have been Active — the live version
+  lateStageOpen: number; // open items parked in a testing/review state: waiting on someone else
   neverUpdated: number; // open, older than AGING_DAYS, and never edited since creation
   bugFixDays: number | null; // median close time for Bugs
   featureFixDays: number | null; // median close time for everything else
@@ -128,7 +130,7 @@ export type TeamWindow = (typeof TEAM_WINDOWS)[number];
 export const UNASSIGNED = "Unassigned";
 export const AGING_DAYS = 14;
 export const FAST_CLOSE_DAYS = 3; // "turned around quickly" threshold used by the insights
-export const WEEKS_SHOWN = 8;
+export const MAX_WEEKS_SHOWN = 12; // the weekly chart follows the selected window, capped here
 
 // Container types: a User Story / Feature / Epic is typically assigned to whoever owns the story,
 // while the real work sits on its child Tasks and Bugs. Counting both would credit the same work

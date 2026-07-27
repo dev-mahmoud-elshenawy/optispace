@@ -72,7 +72,7 @@ export function MemberDetailDialog({
   onOpenChange,
 }: MemberDetailDialogProps) {
   const [openItem, setOpenItem] = useState<string | null>(null);
-  const detail = useMemo(() => memberDetail(items, new Date()), [items]);
+  const detail = useMemo(() => memberDetail(items, new Date(), windowDays), [items, windowDays]);
   const insights = useMemo(() => memberInsights(member, detail, team), [member, detail, team]);
   const sorted = useMemo(
     () => [...items].sort((a, b) => (b.changedDate ?? "").localeCompare(a.changedDate ?? "")),
@@ -120,12 +120,14 @@ export function MemberDetailDialog({
             good={team.closedPerMember > 0 ? member.closed >= team.closedPerMember : null}
           />
           <Stat
-            label={member.medianWorkDays !== null ? "Time in progress" : "Time in progress (n/a)"}
-            value={formatDays(member.medianWorkDays)}
+            label={member.medianWorkDays !== null ? "Time in progress" : "Open, in progress for"}
+            value={formatDays(member.medianWorkDays ?? detail.openInProgressDays)}
             compare={
               member.medianWorkDays !== null
-                ? `Active → Closed calendar time · team ${formatDays(team.medianWorkDays)} · slow tail ${formatDays(detail.p85WorkDays)}`
-                : "no closed item recorded an Active date — use lead time"
+                ? `finished work, Active → Closed · team ${formatDays(team.medianWorkDays)} · slow tail ${formatDays(detail.p85WorkDays)}`
+                : `nothing finished yet — this is how long their open items have been Active${
+                    detail.lateStageOpen > 0 ? `, ${detail.lateStageOpen} waiting on test/review` : ""
+                  }`
             }
             good={
               member.medianWorkDays !== null && team.medianWorkDays !== null
@@ -206,7 +208,7 @@ export function MemberDetailDialog({
 
             <div className="grid gap-6 lg:grid-cols-2">
               <Panel
-                title="How long items sat in progress"
+                title={member.closed > 0 ? "How long finished items sat in progress" : "How long items sit in progress"}
                 hint={`Each bar counts finished items by how long they stayed in progress — Active to Closed calendar time, so backlog waiting is excluded. This is elapsed time, NOT hours worked; hours live in the Effort field. ${
                   detail.cycleBuckets.reduce((sum, b) => sum + b.count, 0) > 0
                     ? `${detail.cycleBuckets[0].count + detail.cycleBuckets[1].count} of ${detail.cycleBuckets.reduce((sum, b) => sum + b.count, 0)} took 3 days or less.`
@@ -316,7 +318,7 @@ export function MemberDetailDialog({
               title="Effort & estimation"
               hint="Effort is the field your team actually fills in. Original Estimate is planned hours, and Completed Work (hour-level actuals) only exists in projects whose template includes it — where it's missing, the ratio is left blank rather than invented."
             >
-              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <Stat
                   label="Estimated"
                   value={`${Math.round(member.estimateCoverage * 100)}%`}
@@ -337,7 +339,7 @@ export function MemberDetailDialog({
                 />
                 <Stat
                   label="Actual hours"
-                  value={member.loggedHours > 0 ? String(member.loggedHours) : "not filled in"}
+                  value={member.loggedHours > 0 ? String(member.loggedHours) : "—"}
                   compare={
                     member.loggedHours > 0
                       ? "sum of Completed Work"
@@ -353,16 +355,16 @@ export function MemberDetailDialog({
                     good={null}
                   />
                 ) : null}
-                <Stat
-                  label="Estimate vs actual"
-                  value={member.accuracy !== null ? `${member.accuracy.toFixed(2)}×` : "not tracked"}
-                  compare={
-                    member.accuracy !== null
-                      ? "median logged ÷ planned (1.00× = spot on)"
-                      : "needs Completed Work in Azure DevOps"
-                  }
-                  good={null}
-                />
+                {/* Only when it can be computed — a "not tracked" card next to "not filled in" said
+                    the same thing twice and left a lone card on its own row. */}
+                {member.accuracy !== null ? (
+                  <Stat
+                    label="Estimate vs actual"
+                    value={`${member.accuracy.toFixed(2)}×`}
+                    compare="median logged ÷ planned (1.00× = spot on)"
+                    good={member.accuracy <= 1.25}
+                  />
+                ) : null}
               </div>
             </Panel>
           </TabsContent>

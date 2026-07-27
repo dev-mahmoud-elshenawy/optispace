@@ -4,7 +4,7 @@ import {
   AGING_DAYS,
   FAST_CLOSE_DAYS,
   UNASSIGNED,
-  WEEKS_SHOWN,
+  MAX_WEEKS_SHOWN,
   type Insight,
   type MemberDetail,
   type TeamAverages,
@@ -91,7 +91,7 @@ export function rollupTeam(items: TeamWorkItem[], now: Date): TeamRollup {
       bugs,
       bugRatio: own.length > 0 ? bugs / own.length : 0,
       medianWorkDays: median(nums(closed.map(workDays))),
-      medianWaitDays: median(nums(closed.map(waitDays))),
+      medianWaitDays: median(nums(own.map(waitDays))),
       medianLeadDays: median(nums(closed.map(leadDays))),
       aging: open.filter((i) => (i.changedDate ? new Date(i.changedDate).getTime() < agingBefore : false)).length,
       total: own.length,
@@ -126,24 +126,33 @@ export function rollupTeam(items: TeamWorkItem[], now: Date): TeamRollup {
 }
 
 // Plain wording on purpose: "< 1d" / "1–2w" made people stop and decode the axis.
+// Same sprint scale as the open-age buckets: anything past three weeks has already outlived a
+// sprint, and splitting that tail into months adds bars without adding information.
 const CYCLE_BUCKETS: { label: string; max: number }[] = [
   { label: "same day", max: 1 },
   { label: "1-3 days", max: 3 },
-  { label: "3-7 days", max: 7 },
+  { label: "4-7 days", max: 7 },
   { label: "1-2 weeks", max: 14 },
-  { label: "2-4 weeks", max: 30 },
-  { label: "over a month", max: Infinity },
+  { label: "2-3 weeks", max: 21 },
+  { label: "over 3 weeks", max: Infinity },
 ];
 
 // Open work bucketed by how long since anyone touched it. The counterpart to the speed histogram:
 // one shows how fast finished work moved, this shows what is quietly rotting.
+// Sprint-scaled on purpose: inside a two-week sprint, "1-3 months" is a single useless bar. The
+// interesting question is whether something has slipped past one sprint boundary, not past a quarter.
 const OPEN_AGE_BUCKETS: { label: string; max: number }[] = [
-  { label: "this week", max: 7 },
+  { label: "0-3 days", max: 3 },
+  { label: "4-7 days", max: 7 },
   { label: "1-2 weeks", max: 14 },
-  { label: "2-4 weeks", max: 30 },
-  { label: "1-3 months", max: 90 },
-  { label: "3 months+", max: Infinity },
+  { label: "2-3 weeks", max: 21 },
+  { label: "over 3 weeks", max: Infinity },
 ];
+
+// A state that means "done by them, waiting on someone else". ADO gives these the InProgress
+// category (measured: "Ready For Testing" → InProgress), so the category can't distinguish them and
+// the state NAME is the only signal available.
+const LATE_STAGE = /test|review|verif|qa|ready|uat|staging/i;
 
 function tally(labels: string[]): { label: string; count: number }[] {
   const counts = new Map<string, number>();
@@ -152,7 +161,7 @@ function tally(labels: string[]): { label: string; count: number }[] {
 }
 
 // Everything the drill-down shows for one person, derived from the same already-fetched items.
-export function memberDetail(items: TeamWorkItem[], now: Date): MemberDetail {
+export function memberDetail(items: TeamWorkItem[], now: Date, windowDays: number): MemberDetail {
   const closed = items.filter((i) => i.status === "done" && i.closedDate);
   const open = items.filter((i) => i.status !== "done");
   const cycles = nums(closed.map(workDays)); // the histogram measures actual work windows
@@ -167,7 +176,7 @@ export function memberDetail(items: TeamWorkItem[], now: Date): MemberDetail {
   }
 
   return {
-    weekly: weeklyThroughput(items, now),
+    weekly: weeklyThroughput(items, now, windowDays),
     p85WorkDays: percentile(cycles, 0.85),
     activatedCoverage: closed.length > 0 ? closed.filter((i) => i.activatedDate).length / closed.length : 0,
     fastCloseRate: cycles.length > 0 ? cycles.filter((d) => d < FAST_CLOSE_DAYS).length / cycles.length : 0,
@@ -208,6 +217,14 @@ export function memberDetail(items: TeamWorkItem[], now: Date): MemberDetail {
             ...open.map((i) => (now.getTime() - new Date(i.changedDate ?? i.createdDate).getTime()) / DAY_MS),
           )
         : null,
+    openInProgressDays: median(
+      nums(
+        open.map((i) =>
+          i.activatedDate ? (now.getTime() - new Date(i.activatedDate).getTime()) / DAY_MS : null,
+        ),
+      ),
+    ),
+    lateStageOpen: open.filter((i) => LATE_STAGE.test(i.state)).length,
     medianUpdateAgeDays: median(
       open.map((i) => (now.getTime() - new Date(i.changedDate ?? i.createdDate).getTime()) / DAY_MS),
     ),
@@ -233,10 +250,16 @@ export function percentile(values: number[], p: number): number | null {
 }
 
 // Finished per week, oldest → newest, with empty weeks kept: a gap IS the signal.
-function weeklyThroughput(items: TeamWorkItem[], now: Date): { label: string; count: number }[] {
+function weeklyThroughput(
+  items: TeamWorkItem[],
+  now: Date,
+  windowDays: number,
+): { label: string; count: number }[] {
   const weekMs = 7 * DAY_MS;
   const closed = items.filter((i) => i.status === "done" && i.closedDate);
-  return Array.from({ length: WEEKS_SHOWN }, (_, index) => {
+  // Only as many weeks as were actually queried, capped so a 180-day window doesn't draw 26 bars.
+  const weeks = Math.min(MAX_WEEKS_SHOWN, Math.max(2, Math.ceil(windowDays / 7)));
+  return Array.from({ length: weeks }, (_, index) => {
     const end = now.getTime() - index * weekMs;
     const start = end - weekMs;
     const count = closed.filter((i) => {
@@ -345,7 +368,16 @@ export function memberInsights(
     });
   }
   if (member.closed === 0 && member.wip > 0) {
-    out.push({ tone: "risk", text: "Nothing finished in this window — everything is still open." });
+    // "Nothing finished" is unfair when the work IS done and parked in a testing state — that's a
+    // hand-off queue, not idleness.
+    out.push(
+      detail.lateStageOpen >= Math.max(1, Math.ceil(member.wip * 0.6))
+        ? {
+            tone: "watch",
+            text: `Nothing closed, but ${detail.lateStageOpen} of ${member.wip} open items are parked in a testing/review state — the hold-up is the hand-off, not their work.`,
+          }
+        : { tone: "risk", text: "Nothing finished in this window — everything is still open." },
+    );
   }
   if (out.length === 0) {
     out.push({ tone: "good", text: "Nothing stands out either way in this window." });
