@@ -295,28 +295,37 @@ const num = (v: unknown): number | null => {
 
 const wiqlLiteral = (v: string) => v.replace(/'/g, "''");
 
-// Every state name in this project that is NOT done, across all its work item types — resolved
-// from state *categories* so custom workflows work. WIQL can't filter by category, so the names
-// are what goes into the query. Memoized per project for the process: a project's workflow is
-// static in practice, and this is 1 + N ADO calls that would otherwise run on every team query.
-const openStatesByProject = new Map<string, string[]>();
+// Every state name in a project mapped to its bucket, resolved from state *categories* so custom
+// workflows ("Ready For Testing", "In Test", …) work. Memoized per project for the process: a
+// workflow is static in practice, and this costs 1 + N ADO calls.
+//
+// This map is deliberately the ONLY state lookup a team query makes. The item loop used to call a
+// second `stateCategoryResolver`, which re-fetched all 17 type state-lists — serially, inside a
+// 1000+ iteration loop, for data already in hand. Individual ADO calls are only ~0.3s; the query
+// felt slow purely because of how many of them there were.
+const projectStatesCache = new Map<string, Record<string, TaskStatus>>();
 
-async function openStateNames(wit: IWorkItemTrackingApi, project: string): Promise<string[]> {
-  const cached = openStatesByProject.get(project);
+async function projectStateStatuses(
+  wit: IWorkItemTrackingApi,
+  project: string,
+): Promise<Record<string, TaskStatus>> {
+  const cached = projectStatesCache.get(project);
   if (cached) return cached;
   const types = await wit.getWorkItemTypes(project).catch(() => []);
-  const statesFor = stateCategoryResolver(wit);
   const perType = await Promise.all(
-    types.map(async (t) => (t.name ? Object.entries(await statesFor(project, t.name)) : [])),
+    types.map(async (t) =>
+      t.name ? await wit.getWorkItemTypeStates(project, t.name).catch(() => []) : [],
+    ),
   );
-  const open = new Set<string>();
-  for (const [state, category] of perType.flat()) {
-    const status = categoryToStatus(category);
-    if (state && status !== null && status !== "done") open.add(state);
+  const map: Record<string, TaskStatus> = {};
+  for (const state of perType.flat()) {
+    const name = state.name;
+    const status = categoryToStatus(state.category ?? "");
+    // First writer wins: a state name shared across types resolves to the same category anyway.
+    if (name && status !== null && map[name] === undefined) map[name] = status;
   }
-  const names = [...open];
-  openStatesByProject.set(project, names);
-  return names;
+  projectStatesCache.set(project, map);
+  return map;
 }
 
 export async function fetchTeamWorkItems(input: {
@@ -343,8 +352,11 @@ export async function fetchTeamWorkItems(input: {
   //   B) everything currently open, at ANY age — WIP and aging.
   // "Open" comes from the project's real state names resolved by category, not a guessed list,
   // so custom states ("Ready For Testing", "In Test", …) are handled.
-  const openStates = await openStateNames(wit, input.project);
-  const stateList = openStates.map((s) => `'${wiqlLiteral(s)}'`).join(", ");
+  const stateStatus = await projectStateStatuses(wit, input.project);
+  const stateList = Object.entries(stateStatus)
+    .filter(([, status]) => status !== "done")
+    .map(([name]) => `'${wiqlLiteral(name)}'`)
+    .join(", ");
   const queries = [
     `${base} AND [System.ChangedDate] >= @today - ${Math.trunc(input.windowDays)} ORDER BY [System.ChangedDate] DESC`,
     ...(stateList ? [`${base} AND [System.State] IN (${stateList}) ORDER BY [System.ChangedDate] DESC`] : []),
@@ -372,16 +384,15 @@ export async function fetchTeamWorkItems(input: {
   for (let i = 0; i < ids.length; i += CHUNK_SIZE) chunks.push(ids.slice(i, i + CHUNK_SIZE));
   const detail = (await Promise.all(chunks.map((chunk) => wit.getWorkItems(chunk, TEAM_FIELD_KEYS)))).flat();
 
-  const statesFor = stateCategoryResolver(wit);
   const items: TeamWorkItem[] = [];
   for (const wi of detail) {
     const f = wi.fields ?? {};
     const project = fieldStr(f, "System.TeamProject");
     const type = fieldStr(f, "System.WorkItemType");
     const state = fieldStr(f, "System.State");
-    const category = (await statesFor(project, type))[state];
-    const status = category ? categoryToStatus(category) : nameHeuristic(state);
-    if (status === null) continue; // Removed/unknown category
+    // Straight map lookup — no ADO call, no await, per item.
+    const status = stateStatus[state] ?? nameHeuristic(state);
+    if (status === null) continue;
     const assignee = f["System.AssignedTo"] as { displayName?: string; uniqueName?: string } | undefined;
     items.push({
       externalId: String(wi.id),

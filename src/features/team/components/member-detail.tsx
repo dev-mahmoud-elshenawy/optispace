@@ -206,14 +206,25 @@ export function MemberDetailDialog({
 
             <div className="grid gap-6 lg:grid-cols-2">
               <Panel
-                title="How long the work actually took"
-                hint={`Active → Closed, so backlog waiting is excluded. ${Math.round(detail.fastCloseRate * 100)}% finished in under 3 days of active work${detail.activatedCoverage < 1 ? `; ${Math.round((1 - detail.activatedCoverage) * 100)}% of closed items never recorded an Active date and are left out` : ""}.`}
+                title="How fast items get finished"
+                hint={`Each bar counts finished items by how long they took once someone actually started them — from Active to Closed, so time spent waiting in the backlog is not counted. ${
+                  detail.cycleBuckets.reduce((sum, b) => sum + b.count, 0) > 0
+                    ? `${detail.cycleBuckets[0].count + detail.cycleBuckets[1].count} of ${detail.cycleBuckets.reduce((sum, b) => sum + b.count, 0)} took 3 days or less.`
+                    : ""
+                }${
+                  detail.activatedCoverage < 1
+                    ? ` ${Math.round((1 - detail.activatedCoverage) * 100)}% of their finished items were never set to Active, so they can't be measured this way and are left out.`
+                    : ""
+                }`}
               >
                 <Bars data={detail.cycleBuckets} color="var(--chart-2)" />
               </Panel>
-              <Panel title="Finished per sprint" hint="Which sprints they actually delivered in.">
-                <Bars data={detail.closedBySprint} />
-              </Panel>
+              {/* Pointless when the filter already pins one sprint — it would be a single bar. */}
+              {detail.closedBySprint.length > 1 ? (
+                <Panel title="Finished per sprint" hint="Which sprints they actually delivered in.">
+                  <Bars data={detail.closedBySprint} />
+                </Panel>
+              ) : null}
             </div>
           </TabsContent>
 
@@ -295,8 +306,8 @@ export function MemberDetailDialog({
 
           <TabsContent value="estimation" className="mt-4">
             <Panel
-              title="Estimation"
-              hint="Coverage is the discipline signal. Accuracy needs Completed Work logged in Azure DevOps, which this org doesn't do — so it says so rather than inventing a ratio."
+              title="Effort & estimation"
+              hint="Effort is the field your team actually fills in. Original Estimate is planned hours, and Completed Work (hour-level actuals) only exists in projects whose template includes it — where it's missing, the ratio is left blank rather than invented."
             >
               <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 <Stat
@@ -312,23 +323,29 @@ export function MemberDetailDialog({
                   good={null}
                 />
                 <Stat
-                  label="Remaining hours"
-                  value={member.remainingHours > 0 ? String(member.remainingHours) : "—"}
-                  compare="sum of Remaining Work — what's still outstanding"
-                  good={null}
+                  label="Effort logged"
+                  value={member.storyPoints > 0 ? String(member.storyPoints) : "—"}
+                  compare={`ADO Effort field · on ${member.effortItems} of ${member.total} items`}
+                  good={member.total > 0 ? member.effortItems / member.total >= 0.5 : null}
                 />
                 <Stat
                   label="Actual hours"
-                  value={member.loggedHours > 0 ? String(member.loggedHours) : "not logged"}
-                  compare="sum of Completed Work in Azure DevOps"
+                  value={member.loggedHours > 0 ? String(member.loggedHours) : "not filled in"}
+                  compare={
+                    member.loggedHours > 0
+                      ? "sum of Completed Work"
+                      : "Completed Work isn't part of this project's template"
+                  }
                   good={null}
                 />
-                <Stat
-                  label="Effort points"
-                  value={member.storyPoints > 0 ? String(member.storyPoints) : "—"}
-                  compare="sum of the ADO Effort field"
-                  good={null}
-                />
+                {member.remainingHours > 0 ? (
+                  <Stat
+                    label="Remaining hours"
+                    value={String(member.remainingHours)}
+                    compare="sum of Remaining Work"
+                    good={null}
+                  />
+                ) : null}
                 <Stat
                   label="Estimate vs actual"
                   value={member.accuracy !== null ? `${member.accuracy.toFixed(2)}×` : "not tracked"}

@@ -52,7 +52,8 @@ export interface TeamMemberStats {
   plannedHours: number; // Original Estimate
   remainingHours: number; // Remaining Work — the closest thing to "actual" this org records
   loggedHours: number; // Completed Work — 0 when nobody logs it
-  storyPoints: number; // ADO "Effort"
+  storyPoints: number; // ADO "Effort" — the field this team actually fills in
+  effortItems: number; // how many of their items carry an Effort value
   accuracy: number | null;
 }
 

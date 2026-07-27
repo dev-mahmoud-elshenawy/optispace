@@ -93,6 +93,7 @@ export function rollupTeam(items: TeamWorkItem[], now: Date): TeamRollup {
       remainingHours: sum(own.map((i) => i.remainingWork)),
       loggedHours: sum(own.map((i) => i.completedWork)),
       storyPoints: sum(own.map((i) => i.storyPoints)),
+      effortItems: own.filter((i) => (i.storyPoints ?? 0) > 0).length,
       accuracy: estimateAccuracy(own),
     };
   });
@@ -115,13 +116,14 @@ export function rollupTeam(items: TeamWorkItem[], now: Date): TeamRollup {
   };
 }
 
+// Plain wording on purpose: "< 1d" / "1–2w" made people stop and decode the axis.
 const CYCLE_BUCKETS: { label: string; max: number }[] = [
-  { label: "< 1d", max: 1 },
-  { label: "1–3d", max: 3 },
-  { label: "3–7d", max: 7 },
-  { label: "1–2w", max: 14 },
-  { label: "2–4w", max: 30 },
-  { label: "> 4w", max: Infinity },
+  { label: "same day", max: 1 },
+  { label: "1-3 days", max: 3 },
+  { label: "3-7 days", max: 7 },
+  { label: "1-2 weeks", max: 14 },
+  { label: "2-4 weeks", max: 30 },
+  { label: "over a month", max: Infinity },
 ];
 
 function tally(labels: string[]): { label: string; count: number }[] {
@@ -353,7 +355,9 @@ export function memberReportMarkdown(input: {
     `| Bug share | ${pct(member.bugRatio)} | ${pct(team.bugRatio)} |`,
     `| Untouched ${AGING_DAYS}d+ | ${member.aging} | — |`,
     `| Estimate coverage | ${pct(member.estimateCoverage)} | ${pct(team.estimateCoverage)} |`,
-    `| Planned / remaining / logged hours | ${member.plannedHours || "—"} / ${member.remainingHours || "—"} / ${member.loggedHours || "—"} | — |`,
+    `| Effort logged (ADO Effort field) | ${member.storyPoints || "—"} on ${member.effortItems} items | — |`,
+    `| Planned hours (Original Estimate) | ${member.plannedHours || "—"} | — |`,
+    `| Actual hours (Completed Work) | ${member.loggedHours || "not filled in"} | — |`,
     `| Bug fix time vs feature | ${formatDays(detail.bugFixDays)} vs ${formatDays(detail.featureFixDays)} | — |`,
     `| Open items last updated | ${formatDays(detail.medianUpdateAgeDays)} ago | — |`,
     `| Never updated since creation | ${detail.neverUpdated} | — |`,
@@ -370,7 +374,7 @@ export function memberReportMarkdown(input: {
     ),
     ``,
     `## Caveats`,
-    `- Estimate vs actual is unavailable: Completed Work is not filled in, so only planned hours exist.`,
+    `- Effort is the field this team fills in; Completed Work (hour-level actuals) is not part of every project's template, so estimate-vs-actual is only available where it is.`,
     `- Active work time is Active → Closed. Lead time is Created → Closed and includes backlog waiting, which can be months.`,
     `- Items closed without ever being set Active are excluded from work time (${Math.round(detail.activatedCoverage * 100)}% coverage).`,
     `- Counts cover Tasks and Bugs; user stories are containers and are excluded.`,

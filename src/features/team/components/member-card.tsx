@@ -75,15 +75,13 @@ export function MemberCard({
             </span>
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">open</span>
           </span>
-          {/* Prefer the real work window; fall back to lead time (and say so) rather than showing a
-              bare dash when Azure DevOps never recorded an Active date. */}
-          <span className="shrink-0">
+          {/* Always the SAME measure in this slot. Swapping in lead time when Active dates were
+              missing made two cards side by side incomparable — the gap is flagged as a chip instead. */}
+          <span className="shrink-0" title="Median time from Active to Closed">
             <span className="block font-mono text-2xl font-semibold leading-none tabular-nums">
-              {formatDays(member.medianWorkDays ?? member.medianLeadDays)}
+              {formatDays(member.medianWorkDays)}
             </span>
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              {member.medianWorkDays !== null ? "active work" : "lead time"}
-            </span>
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">active work</span>
           </span>
           <span className="ml-auto h-10 w-24 shrink-0">
             {hasTrend ? (
@@ -129,6 +127,11 @@ export function MemberCard({
             </Chip>
           ) : null}
           {member.closed === 0 && member.wip > 0 ? <Chip tone="risk">Nothing finished</Chip> : null}
+          {member.closed > 0 && member.medianWorkDays === null ? (
+            <Chip tone="watch">
+              <Clock className="size-3" /> no Active dates · lead {formatDays(member.medianLeadDays)}
+            </Chip>
+          ) : null}
         </div>
       </button>
     </li>
